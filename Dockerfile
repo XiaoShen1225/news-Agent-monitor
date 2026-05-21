@@ -7,11 +7,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-wqy-microhei \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python deps
+# Install Python deps (use Alibaba mirror for speed in CN)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 
-# Install Playwright Chromium (system deps included)
+# Install Playwright Chromium (use npmmirror for download in CN)
+ENV PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright
 RUN playwright install --with-deps chromium
 
 # Copy project
