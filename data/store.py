@@ -40,10 +40,16 @@ class DataStore:
                     title TEXT NOT NULL,
                     url TEXT NOT NULL,
                     tag TEXT DEFAULT '',
+                    sentiment TEXT DEFAULT '',
                     snapshot_time TIMESTAMP NOT NULL,
                     FOREIGN KEY (snapshot_id) REFERENCES snapshots(id)
                 )
             """)
+            # Add sentiment column for existing databases
+            try:
+                conn.execute("ALTER TABLE news_items ADD COLUMN sentiment TEXT DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS run_logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -121,10 +127,11 @@ class DataStore:
             # Insert individual news items into SQLite
             for item in items:
                 conn.execute(
-                    "INSERT INTO news_items (snapshot_id, site_name, title, url, tag, snapshot_time) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO news_items (snapshot_id, site_name, title, url, tag, sentiment, snapshot_time) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (snapshot_id, site_name, item.get("title", ""),
-                     item.get("url", ""), item.get("tag", ""), now_iso),
+                     item.get("url", ""), item.get("tag", ""),
+                     item.get("sentiment", ""), now_iso),
                 )
             conn.commit()
 

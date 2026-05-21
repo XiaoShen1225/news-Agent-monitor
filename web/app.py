@@ -19,8 +19,9 @@ OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 CHARTS_DIR = OUTPUTS_DIR / "charts"
 DB_PATH = PROJECT_ROOT / "data" / "monitor.db"
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+VECTOR_DB_DIR = PROJECT_ROOT / "data" / "vector_db"
 
-app = FastAPI(title="News Agent Monitor", version="0.5.0")
+app = FastAPI(title="News Agent Monitor", version="0.6.0")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 # Mount chart directories as static
@@ -164,6 +165,19 @@ async def api_query(
         return {"items": items, "count": len(items), "tags": dict(tags.most_common(20))}
     finally:
         conn.close()
+
+
+@app.get("/api/search")
+async def api_search(
+    q: str = Query(..., min_length=1, description="Search query"),
+    site: Optional[str] = Query(None),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Semantic search over news items using vector embeddings."""
+    from data.vector_store import VectorStore
+    vs = VectorStore(str(VECTOR_DB_DIR))
+    results = vs.search(q, site_name=site, limit=limit)
+    return {"query": q, "results": results, "count": len(results)}
 
 
 @app.get("/api/charts")

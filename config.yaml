@@ -63,6 +63,10 @@ storage:
 #       smtp_password: "${SMTP_PASSWORD}"
 #       to_addrs: ["alerts@example.com"]
 
+# Sentiment analysis via LLM (batch inference)
+sentiment:
+  enabled: true
+
 # Evolution settings
 evolution:
   enabled: true

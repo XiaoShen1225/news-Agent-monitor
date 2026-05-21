@@ -38,6 +38,11 @@ class AnalyzerAgent(BaseAgent):
 
         trends = self._compute_trends(site_name, current_items)
 
+        # Sentiment analysis (only for new/modified items if changes exist)
+        sentiment_enabled = self.config.get("sentiment", {}).get("enabled", True)
+        if sentiment_enabled and current_items:
+            await self._analyze_sentiment_batch_async(current_items)
+
         report = {
             "site_name": site_name,
             "timestamp": datetime.now().isoformat(),
@@ -52,6 +57,7 @@ class AnalyzerAgent(BaseAgent):
             "is_first_run": not previous,
             "tag_distribution": self._tag_distribution(current_items),
             "trends": trends,
+            "sentiment_distribution": self._sentiment_distribution(current_items),
         }
 
         report["llm_summary"] = await self._generate_summary_async(report)
@@ -142,6 +148,49 @@ class AnalyzerAgent(BaseAgent):
             tag = item.get("tag", "其他") or "其他"
             dist[tag] = dist.get(tag, 0) + 1
         return dict(sorted(dist.items(), key=lambda x: x[1], reverse=True))
+
+    async def _analyze_sentiment_batch_async(self, items: list):
+        """Classify sentiment for items without one using LLM batch inference."""
+        candidates = [it for it in items if not it.get("sentiment")]
+        if not candidates:
+            return
+
+        titles = [it.get("title", "") for it in candidates[:30]]
+
+        user_prompt = "请对以下新闻标题逐一进行情感分类，只返回 positive、negative 或 neutral。\n\n"
+        for i, t in enumerate(titles, 1):
+            user_prompt += f"{i}. {t}\n"
+        user_prompt += "\n请按行输出，每行格式为「序号. 分类」，不要额外解释。"
+
+        try:
+            result = await self.call_llm_async(
+                system_prompt="你是一个新闻情感分析助手。只输出分类结果，每行一个。",
+                user_prompt=user_prompt,
+                max_tokens=500,
+                temperature=0.0,
+            )
+            if result:
+                for line in result.strip().split("\n"):
+                    line = line.strip()
+                    if "." in line:
+                        parts = line.split(".", 1)
+                        try:
+                            idx = int(parts[0].strip()) - 1
+                            label = parts[1].strip().lower()
+                            if label in ("positive", "negative", "neutral") and idx < len(candidates):
+                                candidates[idx]["sentiment"] = label
+                        except (ValueError, IndexError):
+                            pass
+            logger.info("[Analyzer] Sentiment classified for %d items", len(candidates))
+        except Exception as e:
+            logger.warning("[Analyzer] Sentiment analysis failed: %s", e)
+
+    def _sentiment_distribution(self, items: list) -> dict:
+        dist = {}
+        for item in items:
+            s = item.get("sentiment") or "unknown"
+            dist[s] = dist.get(s, 0) + 1
+        return dist
 
     def _compute_trends(self, site_name: str, current_items: list) -> dict:
         if not self.store:

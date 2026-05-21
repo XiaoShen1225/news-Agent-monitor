@@ -1,6 +1,5 @@
 """Tests for notification channels and dispatching."""
 
-import pytest
 from notifications.base import PipelineEvent, BaseNotifier
 from notifications.dispatcher import build_event, create_notifiers
 

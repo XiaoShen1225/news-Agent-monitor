@@ -42,6 +42,7 @@ from evolution.memory import EvolutionMemory  # noqa: E402
 from evolution.optimizer import EvolutionOptimizer  # noqa: E402
 from agents.coordinator import CoordinatorAgent  # noqa: E402
 from notifications.dispatcher import create_notifiers  # noqa: E402
+from data.vector_store import VectorStore  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -128,7 +129,8 @@ def cmd_once(config: dict, url: str, name: str):
             break
 
     notifiers = create_notifiers(config)
-    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers)
+    vector_store = VectorStore(config.get("storage", {}).get("vector_dir", "data/vector_db"))
+    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers, vector_store=vector_store)
     result = coordinator.run(url, name, use_browser=use_browser)
 
     print_summary(result, result.get("charts"))
@@ -150,7 +152,8 @@ async def _cmd_schedule_async(config: dict):
     memory = EvolutionMemory()
     optimizer = EvolutionOptimizer(config, memory) if config.get("evolution", {}).get("enabled") else None
     notifiers = create_notifiers(config)
-    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers)
+    vector_store = VectorStore(config.get("storage", {}).get("vector_dir", "data/vector_db"))
+    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers, vector_store=vector_store)
 
     scheduler = AsyncIOScheduler()
     targets = config.get("targets", [])
@@ -228,7 +231,8 @@ async def _cmd_serve_async(config: dict, port: int):
     memory = EvolutionMemory()
     optimizer = EvolutionOptimizer(config, memory) if config.get("evolution", {}).get("enabled") else None
     notifiers = create_notifiers(config)
-    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers)
+    vector_store = VectorStore(config.get("storage", {}).get("vector_dir", "data/vector_db"))
+    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers, vector_store=vector_store)
 
     targets = config.get("targets", [])
     if not targets:

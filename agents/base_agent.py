@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 class BaseAgent:
     def __init__(self, name: str, config: dict):
         self.name = name
+        self.config = config
         self.llm_config = config.get("llm", {})
         self.max_retries = self.llm_config.get("max_retries", 3)
         self._client: Optional[OpenAI] = None

@@ -18,7 +18,7 @@ RUN playwright install --with-deps chromium
 COPY . .
 
 # Create dirs for runtime data
-RUN mkdir -p data/history outputs/charts/{today,yesterday,two_days_ago,one_week_ago,one_month_ago,total} outputs/data
+RUN mkdir -p data/history data/vector_db outputs/charts/{today,yesterday,two_days_ago,one_week_ago,one_month_ago,total} outputs/data
 
 EXPOSE 8080
 CMD ["python", "main.py", "--serve", "--port", "8080"]

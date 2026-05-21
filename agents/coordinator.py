@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class CoordinatorAgent(BaseAgent):
     """Orchestrates Fetcher → Parser → Analyzer → Visualizer pipeline."""
 
-    def __init__(self, config: dict, data_store=None, evolution=None, notifiers=None):
+    def __init__(self, config: dict, data_store=None, evolution=None, notifiers=None, vector_store=None):
         super().__init__("Coordinator", config)
         self.config = config
         self.fetcher = FetcherAgent(config)
@@ -28,6 +28,7 @@ class CoordinatorAgent(BaseAgent):
         self.store = data_store
         self.evolution = evolution
         self.notifiers = notifiers or []
+        self.vector_store = vector_store
 
     # ── sync (wraps async) ──────────────────────────────────────────
 
@@ -100,6 +101,12 @@ class CoordinatorAgent(BaseAgent):
             # Step 5: Save snapshot
             if self.store:
                 self.store.save_snapshot(site_name, url, content_hash, items)
+                # Index items in vector store for semantic search
+                if self.vector_store:
+                    try:
+                        self.vector_store.add_items(items, site_name)
+                    except Exception as e:
+                        logger.warning("Vector store indexing failed: %s", e)
 
             # Step 6: Get snapshots for trends
             snapshots = self.store.get_all_snapshots(site_name) if self.store else []
