@@ -10,6 +10,7 @@ from .parser import ParserAgent
 from .analyzer import AnalyzerAgent
 from .visualizer import VisualizationAgent
 from .site_profiles import SiteProfile, get_profile
+from notifications.dispatcher import build_event, notify_all
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 class CoordinatorAgent(BaseAgent):
     """Orchestrates Fetcher → Parser → Analyzer → Visualizer pipeline."""
 
-    def __init__(self, config: dict, data_store=None, evolution=None):
+    def __init__(self, config: dict, data_store=None, evolution=None, notifiers=None):
         super().__init__("Coordinator", config)
         self.config = config
         self.fetcher = FetcherAgent(config)
@@ -26,6 +27,7 @@ class CoordinatorAgent(BaseAgent):
         self.visualizer = VisualizationAgent(config)
         self.store = data_store
         self.evolution = evolution
+        self.notifiers = notifiers or []
 
     # ── sync (wraps async) ──────────────────────────────────────────
 
@@ -128,6 +130,8 @@ class CoordinatorAgent(BaseAgent):
                     processing_time_ms=elapsed,
                 )
 
+            await notify_all(self.notifiers, build_event(result))
+
         except Exception as e:
             import traceback
 
@@ -141,6 +145,8 @@ class CoordinatorAgent(BaseAgent):
                 self.store.log_run(
                     site_name, "error", error_message=str(e), processing_time_ms=elapsed
                 )
+
+            await notify_all(self.notifiers, build_event(result))
 
         return result
 

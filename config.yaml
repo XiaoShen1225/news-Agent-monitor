@@ -48,6 +48,21 @@ storage:
   history_dir: "data/history"
   db_path: "data/monitor.db"
 
+# Webhook / notification settings (optional)
+# Uncomment and fill in to enable.
+# notifications:
+#   dingtalk:
+#     - webhook_url: "https://oapi.dingtalk.com/robot/send?access_token=xxx"
+#       secret: "SEC..."   # HMAC signing secret (optional)
+#   wecom:
+#     - webhook_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx"
+#   email:
+#     - smtp_host: "smtp.gmail.com"
+#       smtp_port: 587
+#       smtp_user: "user@gmail.com"
+#       smtp_password: "${SMTP_PASSWORD}"
+#       to_addrs: ["alerts@example.com"]
+
 # Evolution settings
 evolution:
   enabled: true

@@ -41,6 +41,7 @@ from data.store import DataStore  # noqa: E402
 from evolution.memory import EvolutionMemory  # noqa: E402
 from evolution.optimizer import EvolutionOptimizer  # noqa: E402
 from agents.coordinator import CoordinatorAgent  # noqa: E402
+from notifications.dispatcher import create_notifiers  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -126,7 +127,8 @@ def cmd_once(config: dict, url: str, name: str):
             use_browser = t.get("use_browser", False)
             break
 
-    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer)
+    notifiers = create_notifiers(config)
+    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers)
     result = coordinator.run(url, name, use_browser=use_browser)
 
     print_summary(result, result.get("charts"))
@@ -147,7 +149,8 @@ async def _cmd_schedule_async(config: dict):
     )
     memory = EvolutionMemory()
     optimizer = EvolutionOptimizer(config, memory) if config.get("evolution", {}).get("enabled") else None
-    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer)
+    notifiers = create_notifiers(config)
+    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers)
 
     scheduler = AsyncIOScheduler()
     targets = config.get("targets", [])
@@ -224,7 +227,8 @@ async def _cmd_serve_async(config: dict, port: int):
     )
     memory = EvolutionMemory()
     optimizer = EvolutionOptimizer(config, memory) if config.get("evolution", {}).get("enabled") else None
-    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer)
+    notifiers = create_notifiers(config)
+    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers)
 
     targets = config.get("targets", [])
     if not targets:
