@@ -20,4 +20,5 @@ COPY . .
 # Create dirs for runtime data
 RUN mkdir -p data/history outputs/charts/{today,yesterday,two_days_ago,one_week_ago,one_month_ago,total} outputs/data
 
-CMD ["python", "main.py", "--schedule"]
+EXPOSE 8080
+CMD ["python", "main.py", "--serve", "--port", "8080"]

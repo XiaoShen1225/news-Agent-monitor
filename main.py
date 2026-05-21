@@ -209,6 +209,92 @@ async def _cmd_schedule_async(config: dict):
         logger.info("Scheduler stopped.")
 
 
+def cmd_serve(config: dict, port: int = 8080):
+    """Start web dashboard + background scheduler."""
+    asyncio.run(_cmd_serve_async(config, port))
+
+
+async def _cmd_serve_async(config: dict, port: int):
+    import uvicorn
+    from web.app import app, ws_manager
+
+    store = DataStore(
+        history_dir=config.get("storage", {}).get("history_dir", "data/history"),
+        db_path=config.get("storage", {}).get("db_path", "data/monitor.db"),
+    )
+    memory = EvolutionMemory()
+    optimizer = EvolutionOptimizer(config, memory) if config.get("evolution", {}).get("enabled") else None
+    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer)
+
+    targets = config.get("targets", [])
+    if not targets:
+        logger.error("No targets configured in config.yaml")
+        return
+
+    # Patch coordinator to broadcast after each run
+    original_run = coordinator.run_async
+
+    async def run_with_broadcast(url, site_name="default", use_browser=False, profile=None):
+        result = await original_run(url, site_name, use_browser, profile)
+        try:
+            await ws_manager.broadcast({
+                "type": "pipeline_update",
+                "site_name": site_name,
+                "status": result.get("status"),
+                "items": result.get("report", {}).get("current_count", 0),
+                "time": result.get("report", {}).get("timestamp", ""),
+            })
+        except Exception:
+            pass
+        return result
+
+    coordinator.run_async = run_with_broadcast
+    coordinator.run_all_targets_async = lambda: asyncio.gather(*[
+        run_with_broadcast(t["url"], t["name"], t.get("use_browser", False))
+        for t in targets
+    ], return_exceptions=True)
+
+    # Start scheduler in background task
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    scheduler = AsyncIOScheduler()
+    default_interval = config.get("scheduler", {}).get("default_interval_minutes", 60)
+
+    logger.info("Running initial fetch for %d targets...", len(targets))
+    try:
+        await coordinator.run_all_targets_async()
+    except Exception as e:
+        logger.error("Initial batch fetch failed: %s", e)
+
+    for target in targets:
+        interval = target.get("interval_minutes", default_interval)
+        scheduler.add_job(
+            run_with_broadcast,
+            "interval",
+            minutes=interval,
+            kwargs={
+                "url": target["url"],
+                "site_name": target["name"],
+                "use_browser": target.get("use_browser", False),
+            },
+            id=f"monitor_{target['name']}",
+            name=f"Monitor {target['name']}",
+        )
+
+    scheduler.start()
+
+    print("\n" + "=" * 60)
+    print(f"  Dashboard: http://localhost:{port}")
+    print(f"  API Docs:  http://localhost:{port}/docs")
+    print("=" * 60)
+    for t in targets:
+        print(f"  {t['name']}: every {t.get('interval_minutes', default_interval)} min → {t['url']}")
+    print("=" * 60 + "\n")
+
+    config_obj = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+    server = uvicorn.Server(config_obj)
+    await server.serve()
+
+
 def cmd_stats(config: dict, name: str):
     """Show statistics for a monitored site."""
     store = DataStore(
@@ -306,6 +392,8 @@ def main():
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
     parser.add_argument("--once", action="store_true", help="Run once and exit")
     parser.add_argument("--schedule", action="store_true", help="Run in scheduled mode")
+    parser.add_argument("--serve", action="store_true", help="Start web dashboard + scheduler")
+    parser.add_argument("--port", type=int, default=8080, help="Dashboard port (default: 8080)")
     parser.add_argument("--stats", action="store_true", help="Show statistics")
     parser.add_argument("--reset", action="store_true", help="Reset history for a site")
     parser.add_argument("--query", action="store_true", help="Query news items from database")
@@ -352,6 +440,8 @@ def main():
         cmd_once(config, url, args.name)
     elif args.schedule:
         cmd_schedule(config)
+    elif args.serve:
+        cmd_serve(config, args.port)
     else:
         parser.print_help()
         print("\nExamples:")

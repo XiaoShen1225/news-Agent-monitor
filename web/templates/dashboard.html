@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>News Agent Monitor</title>
+<style>
+  :root { --bg: #0f172a; --card: #1e293b; --border: #334155; --text: #e2e8f0;
+          --muted: #94a3b8; --accent: #38bdf8; --green: #4ade80; --red: #f87171;
+          --orange: #fb923c; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif; min-height: 100vh; }
+  header { background: var(--card); border-bottom: 1px solid var(--border);
+    padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 20px; color: var(--accent); }
+  header .status { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+  header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  header .dot.offline { background: var(--red); }
+  main { max-width: 1400px; margin: 0 auto; padding: 20px; display: grid;
+    grid-template-columns: 1fr 1fr; gap: 16px; }
+  .full { grid-column: 1 / -1; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; }
+  .card h2 { font-size: 15px; color: var(--accent); margin-bottom: 12px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .stat { background: var(--bg); border-radius: 8px; padding: 12px; text-align: center; }
+  .stat .val { font-size: 24px; font-weight: 700; color: var(--accent); }
+  .stat .lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 8px; }
+  .chart-grid img { width: 100%; border-radius: 6px; cursor: pointer;
+    transition: transform .15s; }
+  .chart-grid img:hover { transform: scale(1.03); }
+  .tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+  .tab { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border);
+    cursor: pointer; font-size: 12px; background: var(--bg); color: var(--muted); }
+  .tab.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; background: var(--bg); }
+  tr:hover td { background: rgba(56,189,248,.05); }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
+    background: rgba(56,189,248,.15); color: var(--accent); }
+  .filters { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+  .filters select, .filters input { background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 10px; border-radius: 6px; font-size: 13px; }
+  .run-row { font-size: 12px; }
+  .status-ok { color: var(--green); } .status-skip { color: var(--orange); }
+  .status-err { color: var(--red); }
+  #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.85);
+    z-index: 100; justify-content: center; align-items: center; }
+  #modal.show { display: flex; }
+  #modal img { max-width: 90vw; max-height: 90vh; border-radius: 8px; }
+  @media (max-width: 768px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>News Agent Monitor</h1>
+  <div class="status">
+    <span id="ws-dot" class="dot"></span>
+    <span id="ws-text">Connecting...</span>
+    <span style="color:var(--muted)" id="clock"></span>
+  </div>
+</header>
+
+<main>
+  <!-- Stats -->
+  <section class="card full">
+    <h2>Overview</h2>
+    <div class="stats" id="stats-grid">
+      <div class="stat"><div class="val">--</div><div class="lbl">Total Runs</div></div>
+      <div class="stat"><div class="val">--</div><div class="lbl">Items Collected</div></div>
+      <div class="stat"><div class="val">--</div><div class="lbl">Sites</div></div>
+      <div class="stat"><div class="val">--</div><div class="lbl">Last Run</div></div>
+    </div>
+  </section>
+
+  <!-- Charts -->
+  <section class="card full">
+    <h2>Charts</h2>
+    <div class="tabs" id="chart-tabs"></div>
+    <div class="chart-grid" id="chart-grid">
+      <div style="color:var(--muted)">Loading charts...</div>
+    </div>
+  </section>
+
+  <!-- News items -->
+  <section class="card full">
+    <h2>News Items</h2>
+    <div class="filters">
+      <select id="filter-site"><option value="">All Sites</option></select>
+      <select id="filter-tag"><option value="">All Tags</option></select>
+      <input type="text" id="filter-search" placeholder="Search title...">
+      <button class="tab active" onclick="loadItems()" style="cursor:pointer">Search</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table><thead><tr>
+        <th>Title</th><th>Tag</th><th>Site</th><th>Time</th>
+      </tr></thead>
+      <tbody id="items-body"><tr><td colspan="4" style="color:var(--muted)">Loading...</td></tr></tbody></table>
+    </div>
+  </section>
+
+  <!-- Recent runs -->
+  <section class="card full">
+    <h2>Recent Pipeline Runs</h2>
+    <select id="run-site" onchange="loadRuns()" style="margin-bottom:10px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px">
+      <option value="">All Sites</option>
+    </select>
+    <div style="overflow-x:auto">
+      <table><thead><tr>
+        <th>Time</th><th>Site</th><th>Status</th><th>Items</th><th>Changes</th><th>Confidence</th><th>Duration</th>
+      </tr></thead>
+      <tbody id="runs-body"><tr><td colspan="7" style="color:var(--muted)">Loading...</td></tr></tbody></table>
+    </div>
+  </section>
+</main>
+
+<div id="modal" onclick="this.classList.remove('show')">
+  <img id="modal-img" src="">
+</div>
+
+<script>
+const ws = new WebSocket(`ws://${location.host}/ws`);
+ws.onopen = () => { document.getElementById('ws-dot').classList.remove('offline');
+  document.getElementById('ws-text').textContent = 'Live'; };
+ws.onclose = () => { document.getElementById('ws-dot').classList.add('offline');
+  document.getElementById('ws-text').textContent = 'Offline'; };
+ws.onmessage = (e) => {
+  const data = JSON.parse(e.data);
+  if (data.type === 'pipeline_update') { loadAll(); }
+  if (data.type === 'pong') { /* heartbeat ok */ }
+};
+
+setInterval(() => { ws.send('ping'); }, 30000);
+setInterval(() => {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+}, 1000);
+
+function showModal(src) {
+  document.getElementById('modal-img').src = src;
+  document.getElementById('modal').classList.add('show');
+}
+
+async function loadAll() { await Promise.all([loadStats(), loadCharts(), loadItems(), loadRuns()]); }
+
+async function loadStats() {
+  const res = await fetch('/api/stats');
+  const data = await res.json();
+  const grid = document.getElementById('stats-grid');
+  const runs = data.runs || [];
+  const totalRuns = runs.length;
+  const totalItems = runs.reduce((s, r) => s + (r.items_found || 0), 0);
+  const lastRun = runs[0]?.created_at?.slice(0, 19) || 'N/A';
+
+  grid.innerHTML = `
+    <div class="stat"><div class="val">${totalRuns}</div><div class="lbl">Total Runs</div></div>
+    <div class="stat"><div class="val">${totalItems}</div><div class="lbl">Items Collected</div></div>
+    <div class="stat"><div class="val">${(data.sites||[]).length}</div><div class="lbl">Sites</div></div>
+    <div class="stat"><div class="val">${lastRun}</div><div class="lbl">Last Run</div></div>`;
+
+  // Update site filters
+  const sites = data.sites || [];
+  ['filter-site', 'run-site'].forEach(id => {
+    const sel = document.getElementById(id);
+    const val = sel.value;
+    sel.innerHTML = '<option value="">All Sites</option>' +
+      sites.map(s => `<option value="${s}">${s}</option>`).join('');
+    sel.value = val;
+  });
+
+  // Tags filter
+  if (data.snapshots) {
+    const tags = new Set();
+    const tagSel = document.getElementById('filter-tag');
+    const tagVal = tagSel.value;
+    tagSel.innerHTML = '<option value="">All Tags</option>';
+    tagSel.value = tagVal;
+  }
+}
+
+async function loadCharts() {
+  const res = await fetch('/api/charts');
+  const data = await res.json();
+  const tabs = document.getElementById('chart-tabs');
+  const grid = document.getElementById('chart-grid');
+
+  const sets = Object.keys(data);
+  if (!sets.length) { grid.innerHTML = '<div style="color:var(--muted)">No charts yet. Run a pipeline first.</div>'; return; }
+
+  tabs.innerHTML = sets.map((s, i) =>
+    `<span class="tab${i===0?' active':''}" onclick="showChartSet('${s}')">${s}</span>`
+  ).join('');
+
+  showChartSet(sets[0]);
+  window._chartData = data;
+}
+
+function showChartSet(name) {
+  const data = window._chartData || {};
+  const grid = document.getElementById('chart-grid');
+  const files = data[name] || [];
+  document.querySelectorAll('#chart-tabs .tab').forEach(t => t.classList.toggle('active', t.textContent === name));
+
+  if (!files.length) {
+    grid.innerHTML = '<div style="color:var(--muted)">No charts in this set.</div>';
+    return;
+  }
+  grid.innerHTML = files.map(f =>
+    `<img src="/charts/${name}/${f}" alt="${f}" onclick="showModal(this.src)" loading="lazy">`
+  ).join('');
+}
+
+async function loadItems() {
+  const site = document.getElementById('filter-site').value;
+  const tag = document.getElementById('filter-tag').value;
+  const search = document.getElementById('filter-search').value;
+
+  let url = `/api/query?limit=50`;
+  if (site) url += `&site=${encodeURIComponent(site)}`;
+  if (tag) url += `&tag=${encodeURIComponent(tag)}`;
+
+  const res = await fetch(url);
+  const data = await res.json();
+  const items = (data.items || []).filter(it =>
+    !search || it.title.toLowerCase().includes(search.toLowerCase())
+  );
+
+  document.getElementById('items-body').innerHTML = items.length
+    ? items.map(it => `<tr>
+        <td><a href="${it.url||'#'}" target="_blank" style="color:var(--accent)">${it.title.slice(0,60)}</a></td>
+        <td><span class="tag">${it.tag||'-'}</span></td>
+        <td style="color:var(--muted)">${it.site_name||'-'}</td>
+        <td style="color:var(--muted)">${(it.snapshot_time||'').slice(0,19)}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="4" style="color:var(--muted)">No items found.</td></tr>';
+}
+
+async function loadRuns() {
+  const site = document.getElementById('run-site').value;
+  const url = site ? `/api/stats?site=${encodeURIComponent(site)}` : '/api/stats';
+  const res = await fetch(url);
+  const data = await res.json();
+  const runs = data.runs || [];
+
+  document.getElementById('runs-body').innerHTML = runs.length
+    ? runs.slice(0, 30).map(r => `<tr class="run-row">
+        <td style="color:var(--muted)">${(r.created_at||'').slice(0,19)}</td>
+        <td>${r.site_name||'-'}</td>
+        <td class="${r.status==='success'?'status-ok':r.status?.startsWith('skip')?'status-skip':'status-err'}">${r.status}</td>
+        <td>${r.items_found||0}</td>
+        <td>${r.changes_detected||0}</td>
+        <td>${(r.extraction_confidence||0).toFixed(2)}</td>
+        <td style="color:var(--muted)">${(r.processing_time_ms||0).toFixed(0)}ms</td>
+      </tr>`).join('')
+    : '<tr><td colspan="7" style="color:var(--muted)">No runs yet.</td></tr>';
+}
+
+// Init
+loadAll();
+setInterval(loadAll, 60000); // auto-refresh every 60s
+</script>
+</body>
+</html>
