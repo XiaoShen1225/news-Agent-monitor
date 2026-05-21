@@ -1,0 +1,48 @@
+# ============================================================
+# Data Visualization Course Assignment - Configuration
+# ============================================================
+
+# LLM Configuration (Zhipu AI glm-4-flash, free tokens)
+llm:
+  api_key: "${ZHIPU_API_KEY}"
+  base_url: "https://open.bigmodel.cn/api/paas/v4/"
+  model: "glm-4-flash"
+  temperature: 0.1
+  max_tokens: 4096
+  max_retries: 3
+
+# Target websites to monitor
+targets:
+  - url: "https://news.baidu.com/"
+    name: "baidu_news"
+    interval_minutes: 60
+    use_browser: true   # Playwright for JS-rendered content (e.g. timestamps)
+  # Add more targets here
+  # - url: "https://www.thepaper.cn/"
+  #   name: "thepaper"
+  #   interval_minutes: 120
+
+# Scheduler settings
+scheduler:
+  default_interval_minutes: 60
+  max_concurrent_runs: 3
+
+# Visualization settings
+visualization:
+  font_family: "SimHei"  # Chinese font, fallback to DejaVu Sans
+  dpi: 150
+  figure_width: 12
+  figure_height: 8
+  output_dir: "outputs/charts"
+
+# Data storage
+storage:
+  history_dir: "data/history"
+  db_path: "data/monitor.db"
+
+# Evolution settings
+evolution:
+  enabled: true
+  min_runs_before_optimize: 5
+  prompt_tuning: true
+  schedule_tuning: true

@@ -1,0 +1,28 @@
+# Environment
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+venv/
+
+# Data (exclude runtime data, keep directory structure)
+data/monitor.db
+data/history/*.json
+data/evolution_memory.json
+
+# Outputs
+outputs/charts/**/*.png
+outputs/data/*.csv
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
