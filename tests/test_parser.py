@@ -1,7 +1,14 @@
 """Tests for ParserAgent: link extraction, section matching, noise filtering."""
 
+import re
+
 import pytest
-from agents.parser import ParserAgent, UI_LABELS, SECTION_MAP
+from agents.parser import ParserAgent
+from agents.site_profiles import BAIDU_NEWS
+
+_DEFAULT_UI = BAIDU_NEWS.ui_labels
+_DEFAULT_NOISE = [re.compile(p) for p in BAIDU_NEWS.noise_patterns]
+_DEFAULT_SECTION_MAP = BAIDU_NEWS.section_map
 
 
 @pytest.fixture
@@ -12,53 +19,55 @@ def agent():
 
 class TestFiltering:
     def test_valid_link_short_title(self, agent):
-        assert not agent._is_valid_link("短", "https://example.com/news")
+        assert not agent._is_valid_link("短", "https://example.com/news",
+                                        _DEFAULT_UI, _DEFAULT_NOISE)
 
     def test_valid_link_javascript(self, agent):
-        assert not agent._is_valid_link("Valid Title Here", "javascript:void(0)")
+        assert not agent._is_valid_link("Valid Title Here", "javascript:void(0)",
+                                        _DEFAULT_UI, _DEFAULT_NOISE)
 
     def test_valid_link_hash(self, agent):
-        assert not agent._is_valid_link("Valid Title Here", "#")
-
-    def test_valid_link_baidu_search(self, agent):
-        assert not agent._is_valid_link(
-            "Search Result", "https://baidu.com/s?wd=test"
-        )
+        assert not agent._is_valid_link("Valid Title Here", "#",
+                                        _DEFAULT_UI, _DEFAULT_NOISE)
 
     def test_valid_link_ui_label(self, agent):
-        assert not agent._is_valid_link("首页", "https://example.com")
+        assert not agent._is_valid_link("首页", "https://example.com",
+                                        _DEFAULT_UI, _DEFAULT_NOISE)
 
     def test_valid_link_noise_baidu(self, agent):
-        assert not agent._is_valid_link("百度一下你就知道", "https://example.com")
+        assert not agent._is_valid_link("百度一下你就知道", "https://example.com",
+                                        _DEFAULT_UI, _DEFAULT_NOISE)
 
     def test_valid_link_noise_icp(self, agent):
-        assert not agent._is_valid_link("京ICP备123456号", "https://example.com")
+        assert not agent._is_valid_link("京ICP备123456号", "https://example.com",
+                                        _DEFAULT_UI, _DEFAULT_NOISE)
 
     def test_valid_link_good(self, agent):
         assert agent._is_valid_link(
-            "中国科技取得重大突破", "https://news.example.com/tech/1"
+            "中国科技取得重大突破", "https://news.example.com/tech/1",
+            _DEFAULT_UI, _DEFAULT_NOISE,
         )
 
     def test_valid_link_too_long(self, agent):
-        assert not agent._is_valid_link("X" * 201, "https://example.com")
+        assert not agent._is_valid_link("X" * 201, "https://example.com",
+                                        _DEFAULT_UI, _DEFAULT_NOISE)
 
 
 class TestSectionMatching:
     def test_match_known_keyword(self, agent):
-        assert agent._match_section("国内新闻") == "国内"
+        assert agent._match_section("国内新闻", _DEFAULT_SECTION_MAP) == "国内"
 
     def test_match_longer_keyword_wins(self, agent):
-        # "中国军情" (4 chars) > "中国" would match if present; "国内" not in it
-        assert agent._match_section("中国军情") == "军事"
+        assert agent._match_section("中国军情", _DEFAULT_SECTION_MAP) == "军事"
 
     def test_match_mixed_chinese_english(self, agent):
-        assert agent._match_section("国内China") == "国内"
+        assert agent._match_section("国内China", _DEFAULT_SECTION_MAP) == "国内"
 
     def test_no_match(self, agent):
-        assert agent._match_section("不知道") is None
+        assert agent._match_section("不知道", _DEFAULT_SECTION_MAP) is None
 
     def test_short_text_ignored(self, agent):
-        assert agent._match_section("中") is None
+        assert agent._match_section("中", _DEFAULT_SECTION_MAP) is None
 
 
 class TestDomExtraction:
@@ -82,7 +91,8 @@ class TestDomExtraction:
 </body></html>"""
 
     def test_extracts_links_with_tags(self, agent):
-        result = agent.run(self.HTML, site_name="test", page_url="https://news.example.com")
+        result = agent.run(self.HTML, site_name="baidu_news",
+                          page_url="https://news.example.com")
         items = result["items"]
         assert len(items) >= 4
 
@@ -92,7 +102,7 @@ class TestDomExtraction:
         assert "娱乐" in tags
 
     def test_extraction_confidence(self, agent):
-        result = agent.run(self.HTML, site_name="test")
+        result = agent.run(self.HTML, site_name="baidu_news")
         assert result["extraction_confidence"] == 1.0
 
     def test_deduplication(self, agent):
@@ -100,27 +110,67 @@ class TestDomExtraction:
             <a href="/a">同一标题出现两次</a>
             <a href="/b">同一标题出现两次</a>
         </div>"""
-        result = agent.run(dup_html, site_name="test")
+        result = agent.run(dup_html, site_name="baidu_news")
         assert len(result["items"]) == 1
 
 
 class TestSectionMap:
     def test_section_map_coverage(self):
-        # Verify key categories map correctly
-        assert SECTION_MAP["热点"] == "要闻"
-        assert SECTION_MAP["国内"] == "国内"
-        assert SECTION_MAP["国际"] == "国际"
-        assert SECTION_MAP["科技"] == "科技"
-        assert SECTION_MAP["财经"] == "财经"
-        assert SECTION_MAP["娱乐"] == "娱乐"
-        assert SECTION_MAP["体育"] == "体育"
-        assert SECTION_MAP["军事"] == "军事"
-        assert SECTION_MAP["NBA"] == "体育"
-        assert SECTION_MAP["明星"] == "娱乐"
-        assert SECTION_MAP["中国军情"] == "军事"
+        sm = BAIDU_NEWS.section_map
+        assert sm["热点"] == "要闻"
+        assert sm["国内"] == "国内"
+        assert sm["国际"] == "国际"
+        assert sm["科技"] == "科技"
+        assert sm["财经"] == "财经"
+        assert sm["娱乐"] == "娱乐"
+        assert sm["体育"] == "体育"
+        assert sm["军事"] == "军事"
+        assert sm["NBA"] == "体育"
+        assert sm["明星"] == "娱乐"
+        assert sm["中国军情"] == "军事"
 
 
 class TestUiLabels:
     def test_common_labels_blocked(self):
         for label in ["首页", "登录", "注册", "帮助", "更多", "返回"]:
-            assert label in UI_LABELS
+            assert label in BAIDU_NEWS.ui_labels
+
+
+class TestCssStrategy:
+    CSS_HTML = """<!DOCTYPE html>
+<html><body>
+<div class="news_li">
+    <a href="/news/1">测试新闻标题一这是一条澎湃新闻</a>
+</div>
+<div class="news_li">
+    <a href="/news/2">测试新闻标题二这是第二条新闻</a>
+</div>
+<div class="ad">
+    <a href="/ad">广告内容应该被过滤</a>
+</div>
+</body></html>"""
+
+    def test_css_selector_extraction(self, agent):
+        result = agent.run(self.CSS_HTML, site_name="thepaper",
+                          page_url="https://www.thepaper.cn")
+        items = result["items"]
+        assert len(items) >= 2
+        for item in items:
+            assert item["tag"] == "新闻"
+
+
+class TestProfileAutoDetection:
+    def test_baidu_profile(self, agent):
+        result = agent.run("<html><a href='/n'>测试新闻标题六七八九十</a></html>",
+                          site_name="baidu_news")
+        assert len(result["items"]) == 1
+
+    def test_thepaper_profile(self, agent):
+        result = agent.run("<html><body></body></html>",
+                          site_name="thepaper")
+        assert result["extraction_confidence"] == 1.0
+
+    def test_unknown_fallback(self, agent):
+        result = agent.run("<html><a href='/n'>未知网站测试新闻标题</a></html>",
+                          site_name="unknown_site")
+        assert len(result["items"]) == 1

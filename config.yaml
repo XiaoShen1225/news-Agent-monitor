@@ -12,15 +12,23 @@ llm:
   max_retries: 3
 
 # Target websites to monitor
+# Each target maps to a built-in site profile by name.
+# Add "profile" dict to override extraction strategy per site.
 targets:
   - url: "https://news.baidu.com/"
     name: "baidu_news"
     interval_minutes: 60
-    use_browser: true   # Playwright for JS-rendered content (e.g. timestamps)
-  # Add more targets here
-  # - url: "https://www.thepaper.cn/"
-  #   name: "thepaper"
-  #   interval_minutes: 120
+    use_browser: true    # Playwright for JS-rendered content
+
+  - url: "https://www.thepaper.cn/"
+    name: "thepaper"
+    interval_minutes: 120
+    use_browser: false   # Static, no JS needed
+
+  - url: "https://news.sina.com.cn/"
+    name: "sina_news"
+    interval_minutes: 120
+    use_browser: false
 
 # Scheduler settings
 scheduler:

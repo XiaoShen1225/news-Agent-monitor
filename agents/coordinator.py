@@ -9,6 +9,7 @@ from .fetcher import FetcherAgent
 from .parser import ParserAgent
 from .analyzer import AnalyzerAgent
 from .visualizer import VisualizationAgent
+from .site_profiles import SiteProfile, get_profile
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +48,10 @@ class CoordinatorAgent(BaseAgent):
     # ── async single target ─────────────────────────────────────────
 
     async def run_async(
-        self, url: str, site_name: str = "default", use_browser: bool = False
+        self, url: str, site_name: str = "default", use_browser: bool = False,
+        profile: SiteProfile = None,
     ) -> dict:
+        profile = profile or get_profile(site_name)
         start_time = time.time()
         result = {
             "site_name": site_name,
@@ -82,8 +85,10 @@ class CoordinatorAgent(BaseAgent):
                     self.store.log_run(site_name, "skipped_no_change", processing_time_ms=elapsed)
                 return result
 
-            # Step 3: Parse
-            parse_result = self.parser.run(fetch_result["html"], site_name, page_url=url)
+            # Step 3: Parse (with site profile)
+            parse_result = self.parser.run(
+                fetch_result["html"], site_name, page_url=url, profile=profile
+            )
             items = parse_result["items"]
             confidence = parse_result["extraction_confidence"]
 
@@ -148,11 +153,14 @@ class CoordinatorAgent(BaseAgent):
 
         tasks = []
         for target in targets:
+            profile = target.get("profile")
+            profile_obj = SiteProfile.from_dict(profile) if profile else None
             tasks.append(
                 self.run_async(
                     target["url"],
                     target["name"],
                     use_browser=target.get("use_browser", False),
+                    profile=profile_obj,
                 )
             )
 

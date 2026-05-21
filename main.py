@@ -158,29 +158,34 @@ async def _cmd_schedule_async(config: dict):
 
     default_interval = config.get("scheduler", {}).get("default_interval_minutes", 60)
 
+    # Run initial fetch for all targets concurrently
+    logger.info("Running initial fetch for %d targets...", len(targets))
+    try:
+        results = await coordinator.run_all_targets_async()
+        for target, result in zip(targets, results):
+            name = target["name"]
+            if isinstance(result, Exception):
+                logger.error("Initial fetch for '%s' failed: %s", name, result)
+            else:
+                logger.info("Initial fetch for '%s': %s", name, result.get("status", "?"))
+    except Exception as e:
+        logger.error("Initial batch fetch failed: %s", e)
+
     for target in targets:
         interval = target.get("interval_minutes", default_interval)
-        url = target["url"]
-        name = target["name"]
-        use_browser = target.get("use_browser", False)
-
-        logger.info("Running initial fetch for '%s'...", name)
-        try:
-            result = await coordinator.run_async(url, name, use_browser=use_browser)
-            status = result.get("status", "?")
-            logger.info("Initial fetch for '%s': %s", name, status)
-        except Exception as e:
-            logger.error("Initial fetch for '%s' failed: %s", name, e)
-
         scheduler.add_job(
             coordinator.run_async,
             "interval",
             minutes=interval,
-            kwargs={"url": url, "site_name": name, "use_browser": use_browser},
-            id=f"monitor_{name}",
-            name=f"Monitor {name}",
+            kwargs={
+                "url": target["url"],
+                "site_name": target["name"],
+                "use_browser": target.get("use_browser", False),
+            },
+            id=f"monitor_{target['name']}",
+            name=f"Monitor {target['name']}",
         )
-        logger.info("Scheduled '%s': every %d min → %s", name, interval, url)
+        logger.info("Scheduled '%s': every %d min → %s", target["name"], interval, target["url"])
 
     logger.info("Scheduler started. Press Ctrl+C to stop.")
     print("\n" + "=" * 60)
