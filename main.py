@@ -8,9 +8,11 @@ Usage:
 """
 
 import argparse
+import asyncio
 import logging
 import os
 import re
+import signal
 import sys
 from pathlib import Path
 
@@ -132,8 +134,12 @@ def cmd_once(config: dict, url: str, name: str):
 
 
 def cmd_schedule(config: dict):
-    """Run in scheduled mode for all configured targets."""
-    from apscheduler.schedulers.blocking import BlockingScheduler
+    """Run in scheduled mode for all configured targets (async)."""
+    asyncio.run(_cmd_schedule_async(config))
+
+
+async def _cmd_schedule_async(config: dict):
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
     store = DataStore(
         history_dir=config.get("storage", {}).get("history_dir", "data/history"),
@@ -143,7 +149,7 @@ def cmd_schedule(config: dict):
     optimizer = EvolutionOptimizer(config, memory) if config.get("evolution", {}).get("enabled") else None
     coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer)
 
-    scheduler = BlockingScheduler()
+    scheduler = AsyncIOScheduler()
     targets = config.get("targets", [])
 
     if not targets:
@@ -158,21 +164,19 @@ def cmd_schedule(config: dict):
         name = target["name"]
         use_browser = target.get("use_browser", False)
 
-        # Run immediately (before scheduling) for first data point
         logger.info("Running initial fetch for '%s'...", name)
         try:
-            result = coordinator.run(url, name, use_browser=use_browser)
+            result = await coordinator.run_async(url, name, use_browser=use_browser)
             status = result.get("status", "?")
             logger.info("Initial fetch for '%s': %s", name, status)
         except Exception as e:
             logger.error("Initial fetch for '%s' failed: %s", name, e)
 
-        # Then schedule periodic runs
         scheduler.add_job(
-            coordinator.run,
+            coordinator.run_async,
             "interval",
             minutes=interval,
-            args=[url, name, use_browser],
+            kwargs={"url": url, "site_name": name, "use_browser": use_browser},
             id=f"monitor_{name}",
             name=f"Monitor {name}",
         )
@@ -188,8 +192,15 @@ def cmd_schedule(config: dict):
     print("=" * 60 + "\n")
 
     try:
-        scheduler.start()
-    except (KeyboardInterrupt, SystemExit):
+        await scheduler.start()
+        # Keep running until interrupted
+        stop_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        loop.add_signal_handler(signal.SIGINT, lambda: stop_event.set())
+        loop.add_signal_handler(signal.SIGTERM, lambda: stop_event.set())
+        await stop_event.wait()
+        scheduler.shutdown(wait=False)
+    except KeyboardInterrupt:
         logger.info("Scheduler stopped.")
 
 

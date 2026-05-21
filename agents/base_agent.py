@@ -1,10 +1,12 @@
-"""Base agent with Zhipu AI (glm-4-flash) LLM integration."""
+"""Base agent with Zhipu AI (glm-4-flash) LLM integration — sync + async."""
 
+import asyncio
 import json
-import time
 import logging
+import re
 from typing import Optional
-from openai import OpenAI
+
+from openai import AsyncOpenAI, OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +17,7 @@ class BaseAgent:
         self.llm_config = config.get("llm", {})
         self.max_retries = self.llm_config.get("max_retries", 3)
         self._client: Optional[OpenAI] = None
+        self._async_client: Optional[AsyncOpenAI] = None
 
     @property
     def client(self) -> OpenAI:
@@ -25,9 +28,35 @@ class BaseAgent:
             )
         return self._client
 
+    @property
+    def async_client(self) -> AsyncOpenAI:
+        if self._async_client is None:
+            self._async_client = AsyncOpenAI(
+                api_key=self.llm_config.get("api_key", ""),
+                base_url=self.llm_config.get("base_url", "https://open.bigmodel.cn/api/paas/v4/"),
+            )
+        return self._async_client
+
+    # ── sync LLM (wraps async) ──────────────────────────────────────
+
     def call_llm(self, system_prompt: str, user_prompt: str,
                  temperature: float = None, max_tokens: int = None,
                  fallback: str = ...) -> str:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(
+                self.call_llm_async(system_prompt, user_prompt, temperature, max_tokens, fallback)
+            )
+        raise RuntimeError(
+            "call_llm (sync) called from async context — use call_llm_async instead"
+        )
+
+    # ── async LLM ───────────────────────────────────────────────────
+
+    async def call_llm_async(self, system_prompt: str, user_prompt: str,
+                             temperature: float = None, max_tokens: int = None,
+                             fallback: str = ...) -> str:
         temperature = temperature or self.llm_config.get("temperature", 0.1)
         max_tokens = max_tokens or self.llm_config.get("max_tokens", 2048)
         model = self.llm_config.get("model", "glm-4-flash")
@@ -35,7 +64,7 @@ class BaseAgent:
         for attempt in range(self.max_retries):
             try:
                 logger.info("[%s] LLM call attempt %d/%d", self.name, attempt + 1, self.max_retries)
-                response = self.client.chat.completions.create(
+                response = await self.async_client.chat.completions.create(
                     model=model,
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -55,13 +84,14 @@ class BaseAgent:
                 if attempt < self.max_retries - 1:
                     wait = 2 ** attempt
                     logger.info("[%s] Retrying in %ds...", self.name, wait)
-                    time.sleep(wait)
+                    await asyncio.sleep(wait)
 
-        # All retries exhausted
         if fallback is not ...:
             logger.warning("[%s] LLM call failed after %d attempts, returning fallback.", self.name, self.max_retries)
             return fallback
         raise RuntimeError(f"[{self.name}] LLM call failed after {self.max_retries} attempts")
+
+    # ── JSON parsing ────────────────────────────────────────────────
 
     def parse_json_response(self, response: str) -> list:
         """Extract JSON array from LLM response, with robust error recovery."""
@@ -70,7 +100,6 @@ class BaseAgent:
         # Strip markdown code fences
         if text.startswith("```"):
             lines = text.split("\n")
-            # Remove opening fence (may include language tag like ```json)
             text = "\n".join(lines[1:])
             if text.rstrip().endswith("```"):
                 text = text.rstrip()[:-3]
@@ -83,7 +112,6 @@ class BaseAgent:
             pass
 
         # Attempt 2: fix trailing commas before ] or }
-        import re
         fixed = re.sub(r",\s*([}\]])", r"\1", text)
         try:
             return json.loads(fixed)
@@ -101,10 +129,9 @@ class BaseAgent:
             except json.JSONDecodeError:
                 pass
 
-        # Attempt 3b: truncated array (missing closing ]) — close at last complete }
+        # Attempt 3b: truncated array — close at last complete }
         if start != -1 and end == -1:
-            logger.warning("[BaseAgent] JSON array appears truncated (max_tokens too low?). Attempting recovery.")
-            # Find the last complete object by counting braces from start
+            logger.warning("[BaseAgent] JSON array appears truncated. Attempting recovery.")
             depth = 0
             last_complete = -1
             for i in range(start, len(text)):
@@ -122,10 +149,9 @@ class BaseAgent:
                 except json.JSONDecodeError:
                     pass
 
-        # Attempt 4: if text is a single JSON object, wrap it in an array
+        # Attempt 4: single JSON object → wrap in array
         start_obj = text.find("{")
         if start_obj != -1:
-            # Try to find the matching }
             depth = 0
             for i in range(start_obj, len(text)):
                 if text[i] == "{":
@@ -143,7 +169,7 @@ class BaseAgent:
             except json.JSONDecodeError:
                 pass
 
-        # Attempt 5: extract individual flat objects with regex (no nesting)
+        # Attempt 5: regex-extract flat objects
         obj_pattern = re.compile(r"\{[^{}]*\}", re.DOTALL)
         objects = []
         for match in obj_pattern.finditer(text):
@@ -155,7 +181,6 @@ class BaseAgent:
         if objects:
             return objects
 
-        # Give up and raise
         raise ValueError(f"Failed to parse JSON from LLM response: {text[:300]}...")
 
     def run(self, *args, **kwargs):

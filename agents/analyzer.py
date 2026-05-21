@@ -1,5 +1,6 @@
 """AnalyzerAgent: compare snapshots, detect changes, compute trends."""
 
+import asyncio
 import logging
 from datetime import datetime
 
@@ -13,7 +14,18 @@ class AnalyzerAgent(BaseAgent):
         super().__init__("Analyzer", config)
         self.store = data_store
 
+    # ── sync (wraps async) ──────────────────────────────────────────
+
     def run(self, current_items: list, site_name: str, content_hash: str) -> dict:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.run_async(current_items, site_name, content_hash))
+        raise RuntimeError("Analyzer.run() in async context — use run_async()")
+
+    # ── async ───────────────────────────────────────────────────────
+
+    async def run_async(self, current_items: list, site_name: str, content_hash: str) -> dict:
         """Compare current items with previous snapshot."""
         logger.info("[Analyzer] Analyzing %d items for %s", len(current_items), site_name)
 
@@ -42,16 +54,18 @@ class AnalyzerAgent(BaseAgent):
             "trends": trends,
         }
 
-        # LLM-generated summary (only when there are changes worth summarizing)
-        report["llm_summary"] = self._generate_summary(report)
+        report["llm_summary"] = await self._generate_summary_async(report)
 
-        logger.info("[Analyzer] Changes: %d new, %d removed, %d modified",
-                     len(new_items), len(removed_items), len(modified_items))
+        logger.info(
+            "[Analyzer] Changes: %d new, %d removed, %d modified",
+            len(new_items),
+            len(removed_items),
+            len(modified_items),
+        )
 
         return report
 
-    def _generate_summary(self, report: dict) -> str:
-        """Use LLM to generate a Chinese summary of the change report."""
+    async def _generate_summary_async(self, report: dict) -> str:
         if not report.get("has_changes") or report.get("is_first_run"):
             return None
 
@@ -61,11 +75,8 @@ class AnalyzerAgent(BaseAgent):
         tag_dist = report.get("tag_distribution", {})
         direction = report.get("trends", {}).get("direction", "stable")
 
-        # Sample top new titles for context (up to 8)
         new_titles = [it.get("title", "") for it in report.get("new_items", [])[:8]]
         removed_titles = [it.get("title", "") for it in report.get("removed_items", [])[:5]]
-
-        # Top 5 tags
         top_tags = list(tag_dist.items())[:5]
 
         user_prompt = f"""当前抓取到百度新闻首页共 {total_count} 条新闻。
@@ -83,12 +94,12 @@ class AnalyzerAgent(BaseAgent):
 请用 2-3 句简短的中文总结本次新闻更新的特点。例如：集中在哪些领域、是否有重大事件迹象、新闻量变化是否异常。"""
 
         try:
-            summary = self.call_llm(
+            summary = await self.call_llm_async(
                 system_prompt="你是一个新闻数据分析助手。根据提供的新闻抓取数据，用简洁的中文总结本次更新的特点。控制在 80 字以内。",
                 user_prompt=user_prompt,
                 max_tokens=200,
                 temperature=0.3,
-                fallback=None,  # None fallback → returns None on failure
+                fallback=None,
             )
             if summary:
                 logger.info("[Analyzer] LLM summary generated: %s", summary[:80])

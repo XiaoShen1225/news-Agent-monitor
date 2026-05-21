@@ -1,7 +1,8 @@
-"""CoordinatorAgent: orchestrates the full multi-agent pipeline."""
+"""CoordinatorAgent: orchestrates the full multi-agent pipeline — sync + async."""
 
-import time
+import asyncio
 import logging
+import time
 
 from .base_agent import BaseAgent
 from .fetcher import FetcherAgent
@@ -25,8 +26,29 @@ class CoordinatorAgent(BaseAgent):
         self.store = data_store
         self.evolution = evolution
 
+    # ── sync (wraps async) ──────────────────────────────────────────
+
     def run(self, url: str, site_name: str = "default", use_browser: bool = False) -> dict:
-        """Execute the full pipeline for a single URL."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.run_async(url, site_name, use_browser))
+        raise RuntimeError("Coordinator.run() in async context — use run_async()")
+
+    def run_all_targets(self) -> list:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.run_all_targets_async())
+        raise RuntimeError(
+            "Coordinator.run_all_targets() in async context — use run_all_targets_async()"
+        )
+
+    # ── async single target ─────────────────────────────────────────
+
+    async def run_async(
+        self, url: str, site_name: str = "default", use_browser: bool = False
+    ) -> dict:
         start_time = time.time()
         result = {
             "site_name": site_name,
@@ -39,13 +61,15 @@ class CoordinatorAgent(BaseAgent):
 
         try:
             # Step 1: Fetch
-            fetch_result = self.fetcher.run(url, use_browser=use_browser)
+            fetch_result = await self.fetcher.run_async(url, use_browser=use_browser)
             content_hash = fetch_result["content_hash"]
 
             # Step 2: Check if content changed
             last_hash = self.store.get_last_hash(site_name) if self.store else None
             if last_hash == content_hash and last_hash is not None:
-                logger.info("[Coordinator] No content change for %s, skipping parse+analyze.", site_name)
+                logger.info(
+                    "[Coordinator] No content change for %s, skipping.", site_name
+                )
                 result["status"] = "skipped_no_change"
                 result["report"] = {
                     "site_name": site_name,
@@ -53,34 +77,36 @@ class CoordinatorAgent(BaseAgent):
                     "has_changes": False,
                     "is_first_run": False,
                 }
-
                 if self.store:
                     elapsed = (time.time() - start_time) * 1000
                     self.store.log_run(site_name, "skipped_no_change", processing_time_ms=elapsed)
                 return result
 
-            # Step 3: Parse (structural extraction)
+            # Step 3: Parse
             parse_result = self.parser.run(fetch_result["html"], site_name, page_url=url)
             items = parse_result["items"]
             confidence = parse_result["extraction_confidence"]
 
-            # Step 4: Analyze (compare with history BEFORE saving current snapshot)
-            report = self.analyzer.run(items, site_name, content_hash)
+            # Step 4: Analyze
+            report = await self.analyzer.run_async(items, site_name, content_hash)
 
-            # Step 5: Save snapshot (AFTER analysis so diff works correctly)
+            # Step 5: Save snapshot
             if self.store:
                 self.store.save_snapshot(site_name, url, content_hash, items)
 
-            # Step 6: Get all snapshots for trend visualization
+            # Step 6: Get snapshots for trends
             snapshots = self.store.get_all_snapshots(site_name) if self.store else []
 
-            # Step 7: Visualize
-            chart_result = self.visualizer.run(report, snapshots)
+            # Step 7: Visualize (run in thread — matplotlib is sync)
+            chart_result = await asyncio.to_thread(
+                self.visualizer.run, report, snapshots
+            )
 
-            # Step 8: Record evolution metrics
+            # Step 8: Record evolution
             if self.evolution:
-                self.evolution.record_run(site_name, report, confidence,
-                                          (time.time() - start_time) * 1000)
+                self.evolution.record_run(
+                    site_name, report, confidence, (time.time() - start_time) * 1000
+                )
 
             result["status"] = "success"
             result["report"] = report
@@ -89,7 +115,8 @@ class CoordinatorAgent(BaseAgent):
             if self.store:
                 elapsed = (time.time() - start_time) * 1000
                 self.store.log_run(
-                    site_name, "success",
+                    site_name,
+                    "success",
                     items_found=len(items),
                     changes_detected=report.get("total_changes", 0),
                     extraction_confidence=confidence,
@@ -98,6 +125,7 @@ class CoordinatorAgent(BaseAgent):
 
         except Exception as e:
             import traceback
+
             logger.error("[Coordinator] Pipeline failed for %s: %s", site_name, e)
             logger.error("[Coordinator] Traceback:\n%s", traceback.format_exc())
             result["status"] = "error"
@@ -105,17 +133,28 @@ class CoordinatorAgent(BaseAgent):
 
             if self.store:
                 elapsed = (time.time() - start_time) * 1000
-                self.store.log_run(site_name, "error", error_message=str(e),
-                                   processing_time_ms=elapsed)
+                self.store.log_run(
+                    site_name, "error", error_message=str(e), processing_time_ms=elapsed
+                )
 
         return result
 
-    def run_all_targets(self) -> list:
-        """Run pipeline for all configured targets."""
+    # ── async multi-target (concurrent) ─────────────────────────────
+
+    async def run_all_targets_async(self) -> list:
         targets = self.config.get("targets", [])
-        results = []
+        if not targets:
+            return []
+
+        tasks = []
         for target in targets:
-            result = self.run(target["url"], target["name"],
-                              use_browser=target.get("use_browser", False))
-            results.append(result)
-        return results
+            tasks.append(
+                self.run_async(
+                    target["url"],
+                    target["name"],
+                    use_browser=target.get("use_browser", False),
+                )
+            )
+
+        logger.info("[Coordinator] Running %d targets concurrently", len(tasks))
+        return await asyncio.gather(*tasks, return_exceptions=True)
