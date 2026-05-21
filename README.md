@@ -1,51 +1,25 @@
-# 数据可视化课程作业 —— 多 Agent 新闻监控系统
+# News Agent Monitor —— 多 Agent 新闻监控与可视化系统
 
-基于多 Agent 协同的网站内容监控与数据可视化系统。定时抓取百度新闻，检测内容变更，提取关键数据，与历史数据整合，自动生成可视化 PNG 图表。支持自进化。
+基于多 Agent 协同的网站内容监控系统。定时抓取多个新闻网站，检测内容变更，结构化提取新闻条目，LLM 情感分析 + 自动摘要，向量语义搜索，生成可视化图表，支持 Web 仪表盘实时查看。
 
 ## 功能特性
 
-- **网站监控**：Playwright 无头浏览器渲染 JS 页面 + 滚动触发懒加载，SHA256 哈希快速检测变更
-- **结构化提取**：DOM 树遍历 + 章节关键词匹配，无需消耗 LLM Token 即可完成新闻分类
-- **变更分析**：以标题为主键对比历史快照，识别新增/移除/修改内容，计算趋势方向
-- **自动可视化**：matplotlib 生成 7 种 PNG 图表（饼图、折线、柱状、摘要表、仪表盘、新增条目表、新增分布）
-- **图表留存策略**：today / yesterday / two_days_ago / one_week_ago / one_month_ago / total 六组图表自动轮替
-- **三层存储**：JSON 快照 + SQLite 条目表（可索引查询）+ CSV 文件（通用分析）
-- **多 Agent 协同**：6 个 Agent 分工协作（Fetcher / Parser / Analyzer / Visualizer / Coordinator / Evolution）
+- **多源监控**：支持 3+ 新闻站点（百度新闻、澎湃、新浪），每站点独立配置抓取策略和调度间隔
+- **浏览器渲染**：Playwright 无头 Chromium 渲染 JS 页面 + 渐进式滚动触发懒加载
+- **零 Token 解析**：DOM 树遍历 + 中文关键词章节匹配，无需消耗 LLM Token 完成新闻分类
+- **SiteProfile**：section_walk / css_selector 两种提取策略，可扩展任意站点
+- **异步管道**：httpx.AsyncClient + Playwright async API + AsyncOpenAI，多站点 asyncio.gather 并发
+- **变更分析**：SHA256 内容哈希快速跳过无变化页面；标题级 Diff 识别新增/移除/修改
+- **情感分析**：LLM 批量推理，每条目标注 positive / negative / neutral
+- **AI 摘要**：LLM 生成 2-3 句中文新闻趋势总结
+- **向量语义搜索**：ChromaDB + text2vec-base-chinese 本地嵌入，`/api/search` 端点
+- **Web 仪表盘**：FastAPI + Jinja2 暗色主题仪表盘，WebSocket 实时推送
+- **Webhook 通知**：钉钉 / 企业微信 / 邮件（SMTP），管道完成后自动推送
+- **自动可视化**：matplotlib 生成 10 种 PNG 图表，6 组时间轮替留存
+- **三层存储**：JSON 快照 + SQLite（含情感字段）+ CSV 通用导出
+- **Docker 部署**：一键 `docker compose up -d`，含中文字体 + Chromium
 - **自进化**：运行指标追踪 + 调度频率自适应 + 提示词调优
-
-## 架构
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                    Coordinator Agent                          │
-│  (编排流水线, 管理调度, 触发自进化)                              │
-└──────┬───────┬──────────┬──────────────┬─────────────────────┘
-       │       │          │              │
-       ▼       ▼          ▼              ▼
-┌─────────┐ ┌─────────┐ ┌──────────┐ ┌──────────────────┐
-│ Fetcher │ │ Parser  │ │ Analyzer │ │ Visualization    │
-│ Agent   │ │ Agent   │ │ Agent    │ │ Agent            │
-├─────────┤ ├─────────┤ ├──────────┤ ├──────────────────┤
-│Playwright│ │DOM遍历  │ │ 标题Diff  │ │ 分类饼图         │
-│ 渲染抓取 │ │章节匹配  │ │ 趋势分析  │ │ 趋势折线         │
-│SHA256   │ │关键词分类│ │ 变更报告  │ │ 变更柱状         │
-│ 变更检测 │ │零LLM消耗 │ │          │ │ 摘要表+仪表盘     │
-└─────────┘ └─────────┘ └──────────┘ │ 新增条目表+分布   │
-       │       │          │          └──────────────────┘
-       └───────┴──────────┴──────────────┘
-                      │
-                      ▼
-            ┌──────────────────────────┐
-            │       Data Store         │
-            │ JSON + SQLite + CSV      │
-            └──────────────────────────┘
-                      │
-                      ▼
-            ┌──────────────────────────┐
-            │   Evolution Optimizer    │
-            │ 指标记录 → 策略调优       │
-            └──────────────────────────┘
-```
+- **85 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
 
 ## 快速开始
 
@@ -57,129 +31,192 @@
 ### 2. 安装
 
 ```bash
-# 克隆或解压项目后
-cd Visualization
+git clone https://github.com/XiaoShen1225/news-Agent-monitor.git
+cd news-Agent-monitor
 
 # 安装 Python 依赖
 pip install -r requirements.txt
 
-# 安装 Playwright 浏览器（Chromium）
+# 安装 Playwright Chromium
 playwright install chromium
 ```
 
 ### 3. 配置
 
-编辑 `config.yaml`，将 API Key 替换为自己的智谱 AI Key（https://open.bigmodel.cn/ 免费注册获取）：
-
-```yaml
-llm:
-  api_key: "your-zhipu-api-key-here"   # 替换为你的 API Key
-  model: "glm-4-flash"
-
-targets:
-  - url: "https://news.baidu.com/"
-    name: "baidu_news"
-    interval_minutes: 60
-    use_browser: true                    # 使用 Playwright 渲染 JS 页面
+```bash
+cp .env.example .env
+# 编辑 .env，填入智谱 AI API Key（https://open.bigmodel.cn/ 免费注册）
 ```
+
+`config.yaml` 中 API Key 已使用 `${ZHIPU_API_KEY}` 环境变量占位，无需修改。可按需调整目标站点和调度间隔。
 
 ### 4. 运行
 
 ```bash
-# 单次抓取并生成可视化
-python main.py --once --name baidu_news
+# 单次抓取
+python main.py --once --url https://news.baidu.com --name baidu_news
 
-# 定时调度模式（后台持续监控）
+# 定时调度（后台持续监控所有 targets）
 python main.py --schedule
 
-# 查看运行统计
+# Web 仪表盘 + 后台调度
+python main.py --serve --port 8080
+# 浏览器打开 http://localhost:8080
+
+# 查看统计
 python main.py --stats --name baidu_news
 
-# 查询数据库中的条目
+# 查询数据库
 python main.py --query --name baidu_news --tag 科技 --limit 10
-python main.py --query --name baidu_news --from 2026-05-01 --to 2026-05-16
 
-# 重置历史数据
+# 重置站点历史
 python main.py --reset --name baidu_news
+```
+
+### 5. Docker 部署
+
+```bash
+docker compose up -d
+# 仪表盘: http://localhost:8080
 ```
 
 ## 项目结构
 
 ```
 Visualization/
-├── main.py                    # CLI 入口: --once / --schedule / --stats / --query / --reset
-├── config.yaml                # 配置文件 (LLM Key, 目标URL, 调度间隔)
-├── requirements.txt           # Python 依赖
-├── prompts/
-│   └── extraction.yaml        # LLM 提取提示词模板（可被进化优化器修改）
+├── main.py                        # CLI 入口: --once / --schedule / --serve / --stats / --query / --reset
+├── config.yaml                    # 配置文件（LLM、目标站点、调度、通知、情感分析）
+├── requirements.txt               # Python 依赖
+├── Dockerfile                     # Docker 镜像（含中文字体 + Chromium）
+├── docker-compose.yml             # 一键部署
+├── .env.example                   # 环境变量模板
+├── .pre-commit-config.yaml        # pre-commit 配置
+├── .github/workflows/ci.yml       # GitHub Actions CI（3.10/3.11/3.12 矩阵 + lint）
 ├── agents/
-│   ├── base_agent.py          # Agent 基类（LLM 客户端、重试、JSON 解析容错）
-│   ├── fetcher.py             # 网站抓取（httpx + Playwright）+ SHA256 变更检测
-│   ├── parser.py              # DOM 遍历 + 章节关键词匹配 + 新闻链接提取
-│   ├── analyzer.py            # 标题级 Diff + 趋势方向计算
-│   ├── visualizer.py          # matplotlib 图表生成 + 六组图表留存策略
-│   └── coordinator.py         # 流水线编排（Fetcher→Parser→Analyzer→Visualizer）
+│   ├── base_agent.py              # Agent 基类（AsyncOpenAI、重试、JSON 容错解析）
+│   ├── fetcher.py                 # 网站抓取（httpx + Playwright）+ SHA256 变更检测
+│   ├── parser.py                  # DOM 遍历 + 关键词章节匹配 + CSS 选择器
+│   ├── analyzer.py                # 标题 Diff + 趋势计算 + 情感分析 + LLM 摘要
+│   ├── visualizer.py              # matplotlib 10 种图表 + 六组留存策略
+│   ├── coordinator.py             # 流水线编排，集成通知 + 向量存储
+│   └── site_profiles.py           # SiteProfile 数据类 + 内置站点配置
 ├── data/
-│   ├── store.py               # 数据持久化（JSON + SQLite + CSV 三层存储）
-│   └── monitor.db             # SQLite 数据库（自动生成）
+│   ├── store.py                   # JSON + SQLite + CSV 三层存储
+│   ├── vector_store.py            # ChromaDB 向量存储 + 语义搜索
+│   ├── history/                   # 历史快照 JSON
+│   └── vector_db/                 # ChromaDB 持久化数据
+├── web/
+│   ├── app.py                     # FastAPI 应用（REST API + WebSocket）
+│   └── templates/
+│       └── dashboard.html         # 暗色主题仪表盘 HTML
+├── notifications/
+│   ├── base.py                    # 通知基类 + PipelineEvent
+│   ├── dispatcher.py              # 通知分发器
+│   ├── dingtalk.py                # 钉钉群机器人
+│   ├── wecom.py                   # 企业微信群机器人
+│   └── email.py                   # SMTP 邮件通知
 ├── evolution/
-│   ├── memory.py              # 运行指标记录
-│   └── optimizer.py           # 自进化：Prompt 调优 + 调度频率自适应
-├── data/history/              # 历史快照 JSON 文件
+│   ├── memory.py                  # 运行指标记录
+│   └── optimizer.py               # 自进化：Prompt 调优 + 调度频率自适应
+├── tests/                         # 85 个测试
+│   ├── test_base_agent.py         # LLM JSON 解析容错测试
+│   ├── test_fetcher.py            # HTML 清洗 + 哈希测试
+│   ├── test_parser.py             # 过滤 + 章节匹配 + DOM 提取 + Profile 测试
+│   ├── test_analyzer.py           # Diff + 标签分布 + 趋势测试
+│   ├── test_data_store.py         # 快照 CRUD + 查询 + 运行日志
+│   ├── test_evolution.py          # 调度 + 提示词调优测试
+│   └── test_notifications.py      # 通知创建 + 事件构建测试
 ├── outputs/
-│   ├── charts/                # 生成的 PNG 图表（6 组目录）
-│   │   ├── today/             # 今日最新（每次运行更新）
-│   │   ├── yesterday/         # 昨日快照
-│   │   ├── two_days_ago/      # 前天快照
-│   │   ├── one_week_ago/      # 一周前快照（仅周日更新）
-│   │   ├── one_month_ago/     # 一月前快照（仅月末更新）
-│   │   └── total/             # 累计历史趋势（每次运行更新）
+│   ├── charts/                    # 生成的 PNG 图表（6 组目录）
+│   │   ├── today/                 # 今日最新
+│   │   ├── yesterday/             # 昨日快照
+│   │   ├── two_days_ago/          # 前天快照
+│   │   ├── one_week_ago/          # 一周前快照
+│   │   ├── one_month_ago/         # 一月前快照
+│   │   └── total/                 # 累计历史趋势
 │   └── data/
-│       └── news_items.csv     # 所有条目统一 CSV（每次运行追加）
-└── report.md                  # 课程报告
+│       └── news_items.csv         # 所有条目统一 CSV
+└── report.md                      # 课程报告
+```
+
+## 架构
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                       Coordinator Agent                          │
+│       (编排流水线, 管理调度, 触发通知 + 向量存储)                     │
+└──┬──────┬──────────┬──────────────┬──────────────┬───────────────┘
+   │      │          │              │              │
+   ▼      ▼          ▼              ▼              ▼
+┌────────┐ ┌──────┐ ┌──────────┐ ┌────────────┐ ┌──────────────┐
+│Fetcher │ │Parser│ │ Analyzer │ │Visualizer  │ │ Notifications│
+│Agent   │ │Agent │ │ Agent    │ │Agent       │ │              │
+├────────┤ ├──────┤ ├──────────┤ ├────────────┤ │ DingTalk     │
+│Playwr. │ │DOM树 │ │ 标题Diff  │ │ 分类饼图    │ │ WeCom        │
+│httpx   │ │章节  │ │ 趋势分析  │ │ 趋势折线    │ │ Email        │
+│SHA256  │ │关键词│ │ 情感分析  │ │ 变更柱状    │ │              │
+│变更检测 │ │CSS选 │ │ LLM摘要  │ │ 摘要表+仪表 │ │              │
+└────────┘ └──────┘ └──────────┘ └────────────┘ └──────────────┘
+   │          │          │              │
+   └──────────┴──────────┴──────────────┘
+                      │
+          ┌───────────┴───────────┐
+          ▼                       ▼
+┌──────────────────┐   ┌──────────────────┐
+│    Data Store    │   │   Vector Store   │
+│ JSON+SQLite+CSV  │   │   ChromaDB       │
+│ (含 sentiment)   │   │ text2vec-chinese │
+└──────────────────┘   └──────────────────┘
+          │                       │
+          └───────────┬───────────┘
+                      ▼
+          ┌──────────────────────┐
+          │    Web Dashboard     │
+          │ FastAPI + WebSocket  │
+          │ /api/search 语义搜索 │
+          └──────────────────────┘
 ```
 
 ## Agent 协作流程
 
 1. **Coordinator** 接收任务（手动 `--once` 或 APScheduler 定时触发）
-2. **Fetcher** 用 Playwright 渲染页面 + 滚动触发懒加载 → 计算 SHA256
-3. **哈希未变** → 跳过后续步骤，日志记录 `skipped_no_change`，**零 Token 消耗**
-4. **哈希已变** → **Parser** 遍历 DOM 树，匹配章节关键词（国内/国际/科技等），提取 `<a>` 标签中的标题+URL+分类
-5. 数据同时存入 **JSON 快照** + **SQLite 条目表** + **CSV 文件**
-6. **Analyzer** 加载上一次快照，以标题为主键做 Diff → new_items / removed_items / modified_items
-7. **Visualizer** 根据报告生成图表，today/total 每次更新，其他按策略更新
-8. **Evolution** 记录运行指标 → 无变化时降低轮询频率（省资源），频繁变化时提高频率
+2. **Fetcher** Playwright 渲染 + 滚动 → SHA256 哈希
+3. **哈希未变** → 跳过，`skipped_no_change`，**零 Token 消耗**
+4. **哈希已变** → **Parser** DOM 遍历 + SiteProfile 策略提取 → 标题+URL+分类
+5. 数据存入 **JSON 快照** + **SQLite** + **CSV**，**Vector Store** 索引
+6. **Analyzer** 标题 Diff → 新增/移除/修改 + 趋势方向 + **批量情感分析** + **LLM 摘要**
+7. **Visualizer** 生成图表，today/total 每次更新
+8. **通知** → 钉钉/企微/邮件推送管道结果
+9. **Evolution** 指标记录 → 调度频率自适应
 
-## 生成的图表
+## API 文档
 
-| 图表 | 文件名 | 说明 |
-|------|--------|------|
-| 分类饼图 | `chart_tag_pie.png` | 全部新闻的分类分布 |
-| 新增分布饼图 | `new_items_distribution_tag_pie.png` | 仅新增条目的分类分布 |
-| 趋势折线图 | `chart_trend_line.png` | 新闻数量随时间变化 |
-| 变更柱状图 | `chart_change_bar.png` | 新增/移除/修改数量对比 |
-| 新闻摘要表 | `chart_summary_table.png` | 最新 15 条（新增条目绿色高亮 + "NEW \|" 前缀） |
-| 新增条目表 | `chart_new_items.png` | 仅新增条目（标题+Tag+原文URL，最多30条） |
-| 综合仪表盘 | `chart_overview.png` | 统计信息 + 分类饼图 + 新增/移除列表 |
-| 历史趋势 | `total_historical_trend.png` | 全部历史快照的新闻数量变化 |
-| 标签演变 | `total_tag_evolution.png` | 分类占比随时间的堆叠面积图 |
-| 累计概览 | `total_cumulative_overview.png` | 历史统计 + 累计标签分布 |
+启动 `--serve` 后访问 `http://localhost:8080/docs` 查看 Swagger 文档。
 
-## 自进化机制
-
-- **运行记忆**：每次运行记录置信度、变化量、处理时间到 JSON
-- **调度调优**：连续 3 次无变化 → 间隔翻倍（省浏览器资源）；频繁变化 → 间隔缩短（及时捕获）
-- **提示词进化**：当 LLM 提取置信度 < 0.5，自动向 prompt 追加格式强化指令
+| 端点 | 说明 |
+|------|------|
+| `GET /` | 仪表盘 HTML 页面 |
+| `GET /api/stats?site=` | 运行统计 + 快照概览 |
+| `GET /api/query?site=&tag=&date_from=&date_to=&limit=` | 新闻条目查询 |
+| `GET /api/search?q=&site=&limit=` | 向量语义搜索 |
+| `GET /api/charts` | 图表文件列表 |
+| `WS /ws` | WebSocket 实时推送 |
 
 ## 技术栈
 
 | 组件 | 技术 |
 |------|------|
 | 语言 | Python 3.10+ |
-| LLM | 智谱 AI glm-4-flash（免费额度，OpenAI 兼容接口） |
+| LLM | 智谱 AI glm-4-flash（OpenAI 兼容接口） |
+| 嵌入模型 | shibing624/text2vec-base-chinese（本地，免费） |
 | 浏览器渲染 | Playwright (Chromium headless) |
 | HTML 解析 | BeautifulSoup4 + lxml |
+| Web 框架 | FastAPI + Jinja2 + WebSocket |
+| 向量数据库 | ChromaDB |
 | 数据存储 | JSON + SQLite + CSV |
 | 可视化 | matplotlib（SimHei 中文字体） |
-| 调度 | APScheduler |
-| HTTP | httpx |
+| 调度 | APScheduler (AsyncIOScheduler) |
+| 通知 | 钉钉 / 企业微信 / SMTP 邮件 |
+| 测试 | pytest（85 tests）+ ruff + pre-commit |
+| CI/CD | GitHub Actions |
+| 部署 | Docker + Docker Compose |
