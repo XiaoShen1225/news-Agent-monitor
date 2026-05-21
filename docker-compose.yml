@@ -1,0 +1,11 @@
+services:
+  monitor:
+    build: .
+    container_name: news-agent-monitor
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./config.yaml:/app/config.yaml:ro
+    restart: unless-stopped

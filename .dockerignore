@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.git/
+.env
+*.pptx
+data/monitor.db
+data/history/
+data/evolution_memory.json
+outputs/charts/
+outputs/data/
+.venv/
+venv/
+.vscode/
+.idea/
+.pytest_cache/

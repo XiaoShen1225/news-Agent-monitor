@@ -2,7 +2,6 @@
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 from .base_agent import BaseAgent
 

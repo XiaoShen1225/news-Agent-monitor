@@ -2,7 +2,6 @@
 
 import time
 import logging
-from typing import Optional
 
 from .base_agent import BaseAgent
 from .fetcher import FetcherAgent

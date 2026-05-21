@@ -4,7 +4,6 @@ import re
 import logging
 import httpx
 from bs4 import BeautifulSoup
-from typing import Optional
 
 from .base_agent import BaseAgent
 

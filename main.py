@@ -35,10 +35,10 @@ def _load_dotenv():
 
 _load_dotenv()
 
-from data.store import DataStore
-from evolution.memory import EvolutionMemory
-from evolution.optimizer import EvolutionOptimizer
-from agents.coordinator import CoordinatorAgent
+from data.store import DataStore  # noqa: E402
+from evolution.memory import EvolutionMemory  # noqa: E402
+from evolution.optimizer import EvolutionOptimizer  # noqa: E402
+from agents.coordinator import CoordinatorAgent  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -82,7 +82,7 @@ def print_summary(result: dict, charts: dict = None):
         return
 
     if status == "skipped_no_change":
-        print(f"  No content change detected. Skipped LLM processing.")
+        print("  No content change detected. Skipped LLM processing.")
         return
 
     if report:
@@ -217,7 +217,7 @@ def cmd_stats(config: dict, name: str):
     # DB run logs
     runs = store.get_run_history(name, limit=10)
     if runs:
-        print(f"\n  Recent runs:")
+        print("\n  Recent runs:")
         for r in runs[:10]:
             status_icon = "✓" if r["status"] == "success" else ("○" if "skip" in r["status"] else "✗")
             print(f"    {status_icon} {r['created_at']} | items={r['items_found']} "

@@ -2,10 +2,8 @@
 
 import re
 import logging
-from pathlib import Path
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup, NavigableString
-from typing import Optional
 
 from .base_agent import BaseAgent
 

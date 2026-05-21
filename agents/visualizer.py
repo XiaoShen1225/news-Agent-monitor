@@ -12,7 +12,7 @@ Chart sets:
 import logging
 import shutil
 from pathlib import Path
-from datetime import datetime, date
+from datetime import date
 from calendar import monthrange
 
 import matplotlib
@@ -574,7 +574,7 @@ class VisualizationAgent(BaseAgent):
         counts = [s["items_count"] for s in snapshots]
         times = [s["timestamp"][:10] for s in snapshots]
         x = list(range(len(snapshots)))
-        bars = ax_bar.bar(x, counts, color="#42A5F5", edgecolor="white")
+        ax_bar.bar(x, counts, color="#42A5F5", edgecolor="white")
         ax_bar.axhline(y=avg_items, color="#FF5722", linestyle="--", linewidth=1.5,
                        label=f"Average: {avg_items:.1f}")
         ax_bar.set_xlabel("Snapshot", fontsize=12)
