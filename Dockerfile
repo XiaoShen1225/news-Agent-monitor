@@ -2,8 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system deps: Playwright browser + Chinese fonts
+# Install system deps: Chromium browser + Chinese fonts
+# Use Debian's Chromium package to avoid downloading from Google CDN (blocked in CN)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
     fonts-wqy-microhei \
     && rm -rf /var/lib/apt/lists/*
 
@@ -11,9 +13,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 
-# Install Playwright Chromium (use npmmirror for download in CN)
-ENV PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright
-RUN playwright install --with-deps chromium
+# Install only Playwright's system deps (skip browser download — use system Chromium)
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+RUN playwright install-deps chromium
+
+# Tell Playwright where to find the system Chromium
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Copy project
 COPY . .
