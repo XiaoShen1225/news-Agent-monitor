@@ -85,7 +85,8 @@ class AnalyzerAgent(BaseAgent):
         removed_titles = [it.get("title", "") for it in report.get("removed_items", [])[:5]]
         top_tags = list(tag_dist.items())[:5]
 
-        user_prompt = f"""当前抓取到百度新闻首页共 {total_count} 条新闻。
+        site_label = report.get("site_name", "未知站点")
+        user_prompt = f"""当前抓取到{site_label}共 {total_count} 条新闻。
 
 变化情况：
 - 新增 {new_count} 条

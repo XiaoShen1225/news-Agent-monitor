@@ -266,10 +266,14 @@ async def _cmd_serve_async(config: dict, port: int):
         return result
 
     coordinator.run_async = run_with_broadcast
-    coordinator.run_all_targets_async = lambda: asyncio.gather(*[
-        run_with_broadcast(t["url"], t["name"], t.get("use_browser", False))
-        for t in targets
-    ], return_exceptions=True)
+
+    async def run_all_with_broadcast():
+        return await asyncio.gather(*[
+            run_with_broadcast(t["url"], t["name"], t.get("use_browser", False))
+            for t in targets
+        ], return_exceptions=True)
+
+    coordinator.run_all_targets_async = run_all_with_broadcast
 
     # Start scheduler in background task
     from apscheduler.schedulers.asyncio import AsyncIOScheduler

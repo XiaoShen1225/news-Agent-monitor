@@ -106,7 +106,7 @@ class FetcherAgent(BaseAgent):
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
             except Exception:
-                await page.goto(url, timeout=self.timeout * 1000)
+                await page.goto(url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
 
             await page.wait_for_timeout(2000)
 

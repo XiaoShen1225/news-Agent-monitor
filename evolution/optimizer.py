@@ -1,6 +1,8 @@
 """Evolution optimizer: tunes prompts and schedules based on run history."""
 
 import logging
+import tempfile
+import os
 from pathlib import Path
 import yaml
 
@@ -80,8 +82,16 @@ class EvolutionOptimizer:
             prompts.setdefault(site_name, {})
             prompts[site_name]["system"] = enhanced
 
-            with open(PROMPT_PATH, "w", encoding="utf-8") as f:
-                yaml.dump(prompts, f, allow_unicode=True, default_flow_style=False)
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                suffix=".yaml", dir=PROMPT_PATH.parent, text=True
+            )
+            try:
+                with open(tmp_fd, "w", encoding="utf-8") as f:
+                    yaml.dump(prompts, f, allow_unicode=True, default_flow_style=False)
+                os.replace(tmp_path, PROMPT_PATH)
+            except Exception:
+                os.unlink(tmp_path)
+                raise
 
             logger.info("[Evolution] Enhanced extraction prompt for %s", site_name)
             return {"action": "enhanced_prompt", "improvements": improvements}

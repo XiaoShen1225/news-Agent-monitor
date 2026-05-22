@@ -123,7 +123,8 @@
 </div>
 
 <script>
-const ws = new WebSocket(`ws://${location.host}/ws`);
+const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${wsProtocol}//${location.host}/ws`);
 ws.onopen = () => { document.getElementById('ws-dot').classList.remove('offline');
   document.getElementById('ws-text').textContent = 'Live'; };
 ws.onclose = () => { document.getElementById('ws-dot').classList.add('offline');

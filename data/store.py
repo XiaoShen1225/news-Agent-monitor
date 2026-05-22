@@ -45,11 +45,10 @@ class DataStore:
                     FOREIGN KEY (snapshot_id) REFERENCES snapshots(id)
                 )
             """)
-            # Add sentiment column for existing databases
-            try:
+            # Add sentiment column for existing databases (check first)
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(news_items)").fetchall()}
+            if "sentiment" not in cols:
                 conn.execute("ALTER TABLE news_items ADD COLUMN sentiment TEXT DEFAULT ''")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS run_logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -146,7 +145,7 @@ class DataStore:
         with open(self.csv_path, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             if not file_exists:
-                writer.writerow(["site_name", "snapshot_time", "title", "url", "tag"])
+                writer.writerow(["site_name", "snapshot_time", "title", "url", "tag", "sentiment"])
             for item in items:
                 writer.writerow([
                     site_name,
@@ -154,6 +153,7 @@ class DataStore:
                     item.get("title", ""),
                     item.get("url", ""),
                     item.get("tag", ""),
+                    item.get("sentiment", ""),
                 ])
 
     def query_items(self, site_name: str = None, tag: str = None,

@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -61,6 +61,18 @@ class ConnectionManager:
 
 
 ws_manager = ConnectionManager()
+
+# Shared VectorStore instance — loading the embedding model is expensive,
+# so reuse a single instance across all /api/search requests.
+_shared_vector_store = None
+
+
+def _get_vector_store():
+    global _shared_vector_store
+    if _shared_vector_store is None:
+        from data.vector_store import VectorStore
+        _shared_vector_store = VectorStore(str(VECTOR_DB_DIR))
+    return _shared_vector_store
 
 
 # ── helpers ────────────────────────────────────────────────────────
@@ -174,8 +186,7 @@ async def api_search(
     limit: int = Query(10, ge=1, le=50),
 ):
     """Semantic search over news items using vector embeddings."""
-    from data.vector_store import VectorStore
-    vs = VectorStore(str(VECTOR_DB_DIR))
+    vs = _get_vector_store()
     results = vs.search(q, site_name=site, limit=limit)
     return {"query": q, "results": results, "count": len(results)}
 
@@ -218,8 +229,8 @@ async def broadcast_pipeline_update(data: dict):
 # ── Dashboard page ─────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
-async def dashboard():
-    return templates.TemplateResponse("dashboard.html", {"request": {}})
+async def dashboard(request: Request):
+    return templates.TemplateResponse(request, "dashboard.html")
 
 
 @app.get("/favicon.ico")

@@ -108,14 +108,16 @@ class BaseAgent:
 
         # Attempt 1: strict parse
         try:
-            return json.loads(text)
+            result = json.loads(text)
+            return result if isinstance(result, list) else [result]
         except json.JSONDecodeError:
             pass
 
         # Attempt 2: fix trailing commas before ] or }
         fixed = re.sub(r",\s*([}\]])", r"\1", text)
         try:
-            return json.loads(fixed)
+            result = json.loads(fixed)
+            return result if isinstance(result, list) else [result]
         except json.JSONDecodeError:
             pass
 
@@ -126,7 +128,8 @@ class BaseAgent:
             segment = text[start:end + 1]
             segment = re.sub(r",\s*([}\]])", r"\1", segment)
             try:
-                return json.loads(segment)
+                result = json.loads(segment)
+                return result if isinstance(result, list) else [result]
             except json.JSONDecodeError:
                 pass
 
@@ -146,7 +149,8 @@ class BaseAgent:
                 segment = text[start:last_complete + 1] + "]"
                 segment = re.sub(r",\s*([}\]])", r"\1", segment)
                 try:
-                    return json.loads(segment)
+                    result = json.loads(segment)
+                    return result if isinstance(result, list) else [result]
                 except json.JSONDecodeError:
                     pass
 
@@ -166,7 +170,7 @@ class BaseAgent:
                 end_obj = len(text) - 1
             try:
                 obj = json.loads(text[start_obj:end_obj + 1])
-                return [obj] if isinstance(obj, dict) else obj
+                return [obj] if isinstance(obj, dict) else (obj if isinstance(obj, list) else [obj])
             except json.JSONDecodeError:
                 pass
 

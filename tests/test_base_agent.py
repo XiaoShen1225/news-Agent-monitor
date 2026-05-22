@@ -28,9 +28,9 @@ class TestJsonParsing:
         assert result == [{"k": "v"}]
 
     def test_single_object(self, agent):
-        # Valid JSON dict is returned as-is (not wrapped)
+        # Single JSON object is wrapped in a list
         result = agent.parse_json_response('{"name": "test"}')
-        assert result == {"name": "test"}
+        assert result == [{"name": "test"}]
 
     def test_multiple_objects_no_array(self, agent):
         # The regex fallback (Attempt 5) extracts flat JSON objects
@@ -43,9 +43,9 @@ class TestJsonParsing:
         assert result == [{"a": 1}, {"b": 2}]
 
     def test_nested_object_valid_json(self, agent):
-        # json.loads handles nested objects fine (Attempt 1 succeeds)
+        # Single nested JSON object is wrapped in a list
         result = agent.parse_json_response('{"a": {"b": 1}}')
-        assert result == {"a": {"b": 1}}
+        assert result == [{"a": {"b": 1}}]
 
     def test_empty_raises(self, agent):
         with pytest.raises(ValueError):
