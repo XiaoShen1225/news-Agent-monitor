@@ -182,7 +182,7 @@ class ParserAgent(BaseAgent):
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.0,
-            max_tokens=1500,
+            max_tokens=4000,
         )
 
         # Parse LLM response

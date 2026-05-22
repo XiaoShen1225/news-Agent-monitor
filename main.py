@@ -231,7 +231,7 @@ def cmd_serve(config: dict, port: int = 8080):
 
 async def _cmd_serve_async(config: dict, port: int):
     import uvicorn
-    from web.app import app, ws_manager
+    from web.app import app, ws_manager, set_runtime_refs
 
     store = DataStore(
         history_dir=config.get("storage", {}).get("history_dir", "data/history"),
@@ -242,6 +242,7 @@ async def _cmd_serve_async(config: dict, port: int):
     notifiers = create_notifiers(config)
     vector_store = _safe_vector_store(config)
     coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers, vector_store=vector_store)
+    set_runtime_refs(coordinator, config)
 
     targets = config.get("targets", [])
     if not targets:

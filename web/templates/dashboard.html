@@ -80,7 +80,10 @@
 <main>
   <!-- Stats -->
   <section class="card full">
-    <h2>Overview</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <h2 style="margin:0">Overview</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap" id="action-buttons"></div>
+    </div>
     <div class="stats" id="stats-grid">
       <div class="stat"><div class="val">--</div><div class="lbl">Total Runs</div></div>
       <div class="stat"><div class="val">--</div><div class="lbl">Items Collected</div></div>
@@ -136,17 +139,18 @@
   <section class="card full">
     <h2>News Items</h2>
     <div class="filters">
-      <select id="filter-site"><option value="">All Sites</option></select>
+      <select id="filter-site" onchange="onSiteFilterChange()"><option value="">All Sites</option></select>
       <select id="filter-tag"><option value="">All Tags</option></select>
       <input type="text" id="filter-search" placeholder="Search title...">
-      <button class="tab active" onclick="loadItems()" style="cursor:pointer">Search</button>
+      <button class="tab active" onclick="loadItems(0)" style="cursor:pointer">Search</button>
     </div>
     <div style="overflow-x:auto">
       <table><thead><tr>
-        <th>Title</th><th>Tag</th><th>Site</th><th>Time</th>
+        <th>Title</th><th>Tag</th><th>Site</th><th>Time</th><th></th>
       </tr></thead>
-      <tbody id="items-body"><tr><td colspan="4" style="color:var(--muted)">Loading...</td></tr></tbody></table>
+      <tbody id="items-body"><tr><td colspan="5" style="color:var(--muted)">Loading...</td></tr></tbody></table>
     </div>
+    <div id="pagination" style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap"></div>
   </section>
 
   <!-- Recent runs -->
@@ -191,7 +195,7 @@ ws.onmessage = (e) => {
         renderAllCharts(data.chart_data);
       }
     }
-    loadStats(); loadCharts(); loadItems(); loadRuns();
+    loadStats(); loadCharts(); loadItems(itemsPage); loadRuns();
   }
 };
 
@@ -405,26 +409,107 @@ function showChartSet(name) {
     : '<div style="color:var(--muted)">No charts in this set.</div>';
 }
 
-async function loadItems() {
+// ── Pagination state ────────────────────────────────────────────────
+let itemsPage = 0, itemsPageSize = 30, itemsTotal = 0;
+let allTags = {};
+
+async function onSiteFilterChange() {
+  itemsPage = 0;
+  await loadTags();
+  loadItems(0);
+}
+
+async function loadTags() {
+  const site = document.getElementById('filter-site').value;
+  let url = '/api/query?limit=1';
+  if (site) url += `&site=${encodeURIComponent(site)}`;
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    allTags = data.tags || {};
+    const sel = document.getElementById('filter-tag');
+    const val = sel.value;
+    sel.innerHTML = '<option value="">All Tags</option>' +
+      Object.keys(allTags).map(t => `<option value="${t}">${t} (${allTags[t]})</option>`).join('');
+    sel.value = val;
+  } catch(e) {}
+}
+
+async function loadItems(page) {
+  if (page !== undefined) itemsPage = page;
   const site = document.getElementById('filter-site').value;
   const tag = document.getElementById('filter-tag').value;
   const search = document.getElementById('filter-search').value;
-  let url = `/api/query?limit=50`;
+  let url = `/api/query?limit=${itemsPageSize}&offset=${itemsPage * itemsPageSize}`;
   if (site) url += `&site=${encodeURIComponent(site)}`;
   if (tag) url += `&tag=${encodeURIComponent(tag)}`;
   const res = await fetch(url);
   const data = await res.json();
-  const items = (data.items || []).filter(it =>
-    !search || it.title.toLowerCase().includes(search.toLowerCase())
-  );
+  let items = data.items || [];
+  itemsTotal = data.total || items.length;
+  if (search) items = items.filter(it => it.title.toLowerCase().includes(search.toLowerCase()));
+
   document.getElementById('items-body').innerHTML = items.length
     ? items.map(it => `<tr>
         <td><a href="${it.url||'#'}" target="_blank" style="color:var(--accent)">${it.title.slice(0,60)}</a></td>
         <td><span class="tag">${it.tag||'-'}</span></td>
         <td style="color:var(--muted)">${it.site_name||'-'}</td>
         <td style="color:var(--muted)">${(it.snapshot_time||'').slice(0,19)}</td>
+        <td><button onclick="fetchSummary(this, '${it.url.replace(/'/g, "\\'")}', '${(it.title||'').replace(/'/g, "\\'")}')" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">查看摘要</button></td>
       </tr>`).join('')
-    : '<tr><td colspan="4" style="color:var(--muted)">No items found.</td></tr>';
+    : '<tr><td colspan="5" style="color:var(--muted)">No items found.</td></tr>';
+
+  renderPagination();
+}
+
+function renderPagination() {
+  const totalPages = Math.ceil(itemsTotal / itemsPageSize);
+  const el = document.getElementById('pagination');
+  if (totalPages <= 1) { el.innerHTML = ''; return; }
+  let html = '';
+  html += `<button onclick="loadItems(0)" ${itemsPage===0?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">&laquo; First</button>`;
+  html += `<button onclick="loadItems(${itemsPage-1})" ${itemsPage===0?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">&lsaquo; Prev</button>`;
+  html += `<span style="color:var(--muted);font-size:12px">Page ${itemsPage+1} / ${totalPages} (${itemsTotal} items)</span>`;
+  html += `<button onclick="loadItems(${itemsPage+1})" ${itemsPage>=totalPages-1?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">Next &rsaquo;</button>`;
+  html += `<button onclick="loadItems(${totalPages-1})" ${itemsPage>=totalPages-1?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">Last &raquo;</button>`;
+  el.innerHTML = html;
+}
+
+// ── Summary modal ───────────────────────────────────────────────────
+async function fetchSummary(btn, url, title) {
+  if (!url) return;
+  btn.textContent = '加载中...';
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/summarize?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`);
+    const data = await res.json();
+    showSummaryModal(title, data.summary || '摘要生成失败');
+  } catch(e) {
+    showSummaryModal(title, '请求失败，请稍后重试');
+  }
+  btn.textContent = '查看摘要';
+  btn.disabled = false;
+}
+
+function showSummaryModal(title, summary) {
+  let modal = document.getElementById('summary-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'summary-modal';
+    modal.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:200;justify-content:center;align-items:center';
+    modal.onclick = function(e) { if (e.target === modal) modal.style.display = 'none'; };
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:560px;width:90%;max-height:80vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px">
+        <h3 style="color:var(--accent);font-size:15px;margin:0">文章摘要</h3>
+        <button onclick="document.getElementById('summary-modal').style.display='none'" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">&times;</button>
+      </div>
+      <div style="color:var(--text);font-size:14px;line-height:1.7;margin-bottom:12px">${summary}</div>
+      <div style="color:var(--muted);font-size:12px;border-top:1px solid var(--border);padding-top:8px">${title}</div>
+    </div>`;
+  modal.style.display = 'flex';
 }
 
 async function loadRuns() {
@@ -446,14 +531,73 @@ async function loadRuns() {
     : '<tr><td colspan="7" style="color:var(--muted)">No runs yet.</td></tr>';
 }
 
+// ── Actions (CLI features) ──────────────────────────────────────────
+let targetsData = [];
+
+async function loadTargets() {
+  try {
+    const res = await fetch('/api/targets');
+    const data = await res.json();
+    targetsData = data.targets || [];
+    renderActionButtons();
+  } catch(e) {}
+}
+
+function renderActionButtons() {
+  const el = document.getElementById('action-buttons');
+  el.innerHTML = targetsData.map(t => `
+    <button onclick="triggerRun('${t.name}','${t.url}',${t.use_browser})" title="Run ${t.name}"
+      style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px">
+      Run: ${t.name}
+    </button>
+  `).join('') + targetsData.map(t => `
+    <button onclick="resetSite('${t.name}')" title="Reset ${t.name}"
+      style="background:var(--bg);border:1px solid var(--red);color:var(--red);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px">
+      Reset: ${t.name}
+    </button>
+  `).join('');
+}
+
+async function triggerRun(name, url, useBrowser) {
+  const btns = document.querySelectorAll('#action-buttons button');
+  btns.forEach(b => b.disabled = true);
+  try {
+    const res = await fetch(`/api/trigger-run?site=${encodeURIComponent(name)}&url=${encodeURIComponent(url)}&use_browser=${useBrowser}`, {method:'POST'});
+    const data = await res.json();
+    if (data.status === 'success') {
+      alert(`Run complete: ${name} — ${data.items_found} items`);
+    } else {
+      alert(`Run failed: ${name} — ${data.error || data.status || 'unknown'}`);
+    }
+  } catch(e) {
+    alert(`Request failed: ${e.message}`);
+  }
+  btns.forEach(b => b.disabled = false);
+  loadStats(); loadItems(itemsPage); loadRuns(); loadChartData(); loadCharts();
+}
+
+async function resetSite(name) {
+  if (!confirm(`确认重置 ${name} 的所有历史数据？此操作不可撤销。`)) return;
+  try {
+    const res = await fetch(`/api/reset?site=${encodeURIComponent(name)}`, {method:'POST'});
+    const data = await res.json();
+    alert(data.message || 'Reset complete');
+    loadStats(); loadItems(0); loadRuns(); loadChartData(); loadCharts();
+  } catch(e) {
+    alert(`Reset failed: ${e.message}`);
+  }
+}
+
 // ── Init ───────────────────────────────────────────────────────────
 initECharts();
 loadChartData();
 loadStats();
 loadCharts();
-loadItems();
+loadTags();
+loadItems(0);
 loadRuns();
-setInterval(() => { loadStats(); loadCharts(); loadItems(); loadRuns(); }, 60000);
+loadTargets();
+setInterval(() => { loadStats(); loadCharts(); loadItems(itemsPage); loadRuns(); }, 60000);
 </script>
 </body>
 </html>

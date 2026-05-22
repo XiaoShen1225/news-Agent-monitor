@@ -6,14 +6,16 @@
 
 - **多源监控**：支持 3+ 新闻站点（百度新闻、澎湃、新浪），每站点独立配置抓取策略和调度间隔
 - **浏览器渲染**：Playwright 无头 Chromium 渲染 JS 页面 + 渐进式滚动触发懒加载
-- **零 Token 解析**：DOM 树遍历 + 中文关键词章节匹配，无需消耗 LLM Token 完成新闻分类
-- **SiteProfile**：section_walk / css_selector 两种提取策略，可扩展任意站点
+- **三种提取策略**：section_walk（DOM 章节匹配）/ css_selector / LLM 智能过滤分类
+- **SiteProfile**：可扩展任意站点，LLM 策略支持自定义标签候选集
 - **异步管道**：httpx.AsyncClient + Playwright async API + AsyncOpenAI，多站点 asyncio.gather 并发
 - **变更分析**：SHA256 内容哈希快速跳过无变化页面；标题级 Diff 识别新增/移除/修改
-- **情感分析**：LLM 批量推理，每条目标注 positive / negative / neutral
-- **AI 摘要**：LLM 生成 2-3 句中文新闻趋势总结
+- **情感分析**：LLM 批量推理（每次 100 条），中英文输出兼容解析，每条目标注 positive / negative / neutral
+- **AI 摘要**：LLM 生成 2-3 句中文新闻趋势总结 + 点击文章可即时获取内容摘要
 - **向量语义搜索**：ChromaDB + text2vec-base-chinese 本地嵌入，`/api/search` 端点
-- **Web 仪表盘**：FastAPI + Jinja2 暗色主题仪表盘，WebSocket 实时推送
+- **Web 仪表盘**：FastAPI + ECharts 5.5 实时交互图表 + 暗色主题，WebSocket 实时推送
+- **分页加载**：News Items 支持分页浏览（30 条/页），避免一次性加载全部数据
+- **仪表盘操作**：Run Now（手动触发抓取）、Reset（重置站点历史）集成到前端
 - **Webhook 通知**：钉钉 / 企业微信 / 邮件（SMTP），管道完成后自动推送
 - **自动可视化**：matplotlib 生成 10 种 PNG 图表，6 组时间轮替留存
 - **三层存储**：JSON 快照 + SQLite（含情感字段）+ CSV 通用导出
@@ -95,7 +97,7 @@ Visualization/
 ├── agents/
 │   ├── base_agent.py              # Agent 基类（AsyncOpenAI、重试、JSON 容错解析）
 │   ├── fetcher.py                 # 网站抓取（httpx + Playwright）+ SHA256 变更检测
-│   ├── parser.py                  # DOM 遍历 + 关键词章节匹配 + CSS 选择器
+│   ├── parser.py                  # section_walk / css_selector / LLM 三种提取策略
 │   ├── analyzer.py                # 标题 Diff + 趋势计算 + 情感分析 + LLM 摘要
 │   ├── visualizer.py              # matplotlib 10 种图表 + 六组留存策略
 │   ├── coordinator.py             # 流水线编排，集成通知 + 向量存储
@@ -197,9 +199,14 @@ Visualization/
 |------|------|
 | `GET /` | 仪表盘 HTML 页面 |
 | `GET /api/stats?site=` | 运行统计 + 快照概览 |
-| `GET /api/query?site=&tag=&date_from=&date_to=&limit=` | 新闻条目查询 |
+| `GET /api/query?site=&tag=&date_from=&date_to=&limit=&offset=` | 新闻条目查询（分页） |
 | `GET /api/search?q=&site=&limit=` | 向量语义搜索 |
-| `GET /api/charts` | 图表文件列表 |
+| `GET /api/charts` | PNG 图表文件列表 |
+| `GET /api/chart-data?site=` | ECharts 实时图表数据 |
+| `GET /api/summarize?url=&title=` | 文章内容即时摘要 |
+| `GET /api/targets` | 已配置的监控目标列表 |
+| `POST /api/trigger-run?site=&url=` | 手动触发单次抓取 |
+| `POST /api/reset?site=` | 重置站点历史数据 |
 | `WS /ws` | WebSocket 实时推送 |
 
 ## 技术栈

@@ -192,6 +192,22 @@ def _build_chart_data(site_name: str, store) -> dict:
 
 # ── REST API ───────────────────────────────────────────────────────
 
+@app.get("/api/targets")
+async def api_targets():
+    """Return configured monitoring targets."""
+    targets = _config.get("targets", []) if _config else []
+    return {
+        "targets": [
+            {
+                "name": t.get("name", ""),
+                "url": t.get("url", ""),
+                "use_browser": t.get("use_browser", False),
+            }
+            for t in targets
+        ]
+    }
+
+
 @app.get("/api/stats")
 async def api_stats(
     site: Optional[str] = Query(None),
@@ -238,7 +254,8 @@ async def api_query(
     tag: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
 ):
     conditions = []
     params = []
@@ -256,20 +273,42 @@ async def api_query(
         params.append(date_to)
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    query = (
-        f"SELECT title, url, tag, snapshot_time, site_name FROM news_items "
-        f"{where} ORDER BY snapshot_time DESC LIMIT ?"
-    )
-    params.append(limit)
 
+    # Get total count for pagination
+    count_query = f"SELECT COUNT(*) FROM news_items {where}"
     conn = _get_db()
     try:
+        total_row = conn.execute(count_query, params).fetchone()
+        total = total_row[0] if total_row else 0
+
+        query = (
+            f"SELECT title, url, tag, snapshot_time, site_name FROM news_items "
+            f"{where} ORDER BY snapshot_time DESC LIMIT ? OFFSET ?"
+        )
+        params.extend([limit, offset])
         rows = conn.execute(query, params).fetchall()
         items = [dict(r) for r in rows]
 
-        # Tag distribution
-        tags = Counter(it["tag"] for it in items)
-        return {"items": items, "count": len(items), "tags": dict(tags.most_common(20))}
+        # Tag distribution (across all items matching site filter, not just this page)
+        tag_params = []
+        tag_where = ""
+        if site:
+            tag_where = "WHERE site_name = ?"
+            tag_params.append(site)
+        tag_rows = conn.execute(
+            f"SELECT tag, COUNT(*) as cnt FROM news_items {tag_where} GROUP BY tag ORDER BY cnt DESC",
+            tag_params,
+        ).fetchall()
+        tags = {r["tag"]: r["cnt"] for r in tag_rows}
+
+        return {
+            "items": items,
+            "count": len(items),
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "tags": tags,
+        }
     finally:
         conn.close()
 
@@ -320,6 +359,119 @@ async def api_chart_data(
             chart_data[s] = data
 
     return {"sites": sites, "chart_data": chart_data}
+
+
+@app.get("/api/summarize")
+async def api_summarize(
+    url: str = Query(..., min_length=1, description="Article URL to summarize"),
+    title: str = Query("", description="Article title for context"),
+):
+    """Fetch article content and return an LLM-generated summary."""
+    import asyncio
+    import os
+
+    from agents.fetcher import FetcherAgent
+    from agents.base_agent import BaseAgent
+
+    # Reuse the same LLM config from environment
+    api_key = os.environ.get("ZHIPU_API_KEY")
+    if not api_key:
+        return JSONResponse({"error": "LLM not configured"}, status_code=503)
+
+    config = {
+        "llm": {
+            "api_key": api_key,
+            "model": os.environ.get("ZHIPU_MODEL", "glm-4-flash"),
+            "base_url": os.environ.get("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"),
+        }
+    }
+
+    try:
+        # Step 1: fetch article HTML
+        fetcher = FetcherAgent(config)
+        fetch_result = await fetcher.run_async(url, use_browser=False)
+        html = fetch_result.get("html", "")
+
+        if not html:
+            return {"url": url, "title": title, "summary": "无法获取文章内容。"}
+
+        # Step 2: extract text from HTML
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, "lxml")
+        # Remove script/style/nav/footer
+        for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
+            tag.decompose()
+        text = soup.get_text(separator="\n", strip=True)
+        # Trim to reasonable length
+        text = text[:3000]
+
+        # Step 3: LLM summarize
+        agent = BaseAgent("Summarizer", config)
+        summary = await agent.call_llm_async(
+            system_prompt="你是一个新闻摘要助手。用 2-3 句中文简洁准确地概括文章核心内容，不超过 120 字。",
+            user_prompt=f"标题：{title}\n\n文章内容：\n{text}\n\n请用中文摘要这篇文章的要点。",
+            max_tokens=250,
+            temperature=0.2,
+            fallback=None,
+        )
+
+        return {"url": url, "title": title, "summary": summary or "摘要生成失败，请稍后重试。"}
+
+    except Exception as e:
+        logger.warning("[API] Summarize failed for %s: %s", url, e)
+        return {"url": url, "title": title, "summary": f"摘要生成失败: {str(e)[:100]}"}
+
+
+# ── Action endpoints (CLI features in dashboard) ────────────────────
+
+# Coordinator reference — set by _cmd_serve_async on startup
+_coordinator = None
+_config = None
+
+
+def set_runtime_refs(coordinator, config: dict):
+    """Called from main._cmd_serve_async to inject runtime instances."""
+    global _coordinator, _config
+    _coordinator = coordinator
+    _config = config
+
+
+@app.post("/api/trigger-run")
+async def api_trigger_run(
+    site: str = Query(..., min_length=1),
+    url: str = Query(..., min_length=1),
+    use_browser: bool = Query(False),
+):
+    """Trigger a pipeline run for a specific site."""
+    if _coordinator is None:
+        return JSONResponse({"error": "Coordinator not initialized"}, status_code=503)
+
+    try:
+        result = await _coordinator.run_async(url, site, use_browser=use_browser)
+        return {
+            "status": result.get("status"),
+            "site_name": site,
+            "items_found": result.get("report", {}).get("current_count", 0) if result.get("report") else 0,
+            "timestamp": result.get("report", {}).get("timestamp", "") if result.get("report") else "",
+        }
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/reset")
+async def api_reset(site: str = Query(..., min_length=1)):
+    """Reset all history for a site."""
+    import sqlite3
+    db_path = _config.get("storage", {}).get("db_path", "data/monitor.db") if _config else str(DB_PATH)
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("DELETE FROM news_items WHERE site_name = ?", (site,))
+            conn.execute("DELETE FROM snapshots WHERE site_name = ?", (site,))
+            conn.execute("DELETE FROM run_logs WHERE site_name = ?", (site,))
+            conn.commit()
+        return {"status": "ok", "site_name": site, "message": f"Reset history for {site}"}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # ── WebSocket ──────────────────────────────────────────────────────

@@ -156,35 +156,79 @@ class AnalyzerAgent(BaseAgent):
         if not candidates:
             return
 
-        titles = [it.get("title", "") for it in candidates[:30]]
+        titles = [it.get("title", "") for it in candidates[:100]]
 
         user_prompt = "请对以下新闻标题逐一进行情感分类，只返回 positive、negative 或 neutral。\n\n"
         for i, t in enumerate(titles, 1):
             user_prompt += f"{i}. {t}\n"
-        user_prompt += "\n请按行输出，每行格式为「序号. 分类」，不要额外解释。"
+        user_prompt += "\n按行输出，每行格式为「序号. 分类」，只输出结果不要额外解释。"
 
         try:
             result = await self.call_llm_async(
                 system_prompt="你是一个新闻情感分析助手。只输出分类结果，每行一个。",
                 user_prompt=user_prompt,
-                max_tokens=500,
+                max_tokens=1500,
                 temperature=0.0,
             )
             if result:
-                for line in result.strip().split("\n"):
-                    line = line.strip()
-                    if "." in line:
-                        parts = line.split(".", 1)
-                        try:
-                            idx = int(parts[0].strip()) - 1
-                            label = parts[1].strip().lower()
-                            if label in ("positive", "negative", "neutral") and idx < len(candidates):
-                                candidates[idx]["sentiment"] = label
-                        except (ValueError, IndexError):
-                            pass
-            logger.info("[Analyzer] Sentiment classified for %d items", len(candidates))
+                self._parse_sentiment_result(result, candidates)
+            logger.info("[Analyzer] Sentiment classified for %d/%d items",
+                        sum(1 for it in items if it.get("sentiment")), len(items))
         except Exception as e:
             logger.warning("[Analyzer] Sentiment analysis failed: %s", e)
+
+    def _parse_sentiment_result(self, result: str, candidates: list):
+        """Robust sentiment result parser — supports Chinese/English delimiters and labels."""
+        # Label mapping: Chinese + English → canonical
+        label_map = {
+            "positive": "positive", "积极": "positive", "正面": "positive",
+            "利好": "positive", "乐观": "positive", "看涨": "positive",
+            "negative": "negative", "消极": "negative", "负面": "negative",
+            "利空": "negative", "悲观": "negative", "看跌": "negative",
+            "neutral": "neutral", "中立": "neutral", "中性": "neutral",
+            "一般": "neutral", "平稳": "neutral",
+        }
+
+        import re
+        # Match patterns like: 1. positive, 2) negative, 3、中立, 4:positive, 5 - 正面
+        line_pattern = re.compile(r'^\s*(\d+)\s*[.。、:：\-\)]\s*(.+?)\s*$')
+
+        parsed = 0
+        for line in result.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            m = line_pattern.match(line)
+            if not m:
+                # Try looser: just find a number and a word
+                m2 = re.match(r'^\s*(\d+)\s*[^\w]*\s*(\S+)', line)
+                if m2:
+                    idx_str, label_str = m2.group(1), m2.group(2)
+                else:
+                    continue
+            else:
+                idx_str, label_str = m.group(1), m.group(2)
+
+            try:
+                idx = int(idx_str) - 1
+            except ValueError:
+                continue
+
+            label_clean = re.sub(r'[^\w\u4e00-\u9fff]', '', label_str).strip()
+            canonical = label_map.get(label_clean.lower())
+            if not canonical:
+                # Fallback substring match
+                for key, val in label_map.items():
+                    if key in label_clean:
+                        canonical = val
+                        break
+
+            if canonical and 0 <= idx < len(candidates):
+                candidates[idx]["sentiment"] = canonical
+                parsed += 1
+
+        if parsed == 0:
+            logger.warning("[Analyzer] Sentiment parsing yielded 0 results. Raw: %s", result[:200])
 
     def _sentiment_distribution(self, items: list) -> dict:
         dist = {}
