@@ -111,10 +111,14 @@ class CoordinatorAgent(BaseAgent):
             # Step 6: Get snapshots for trends
             snapshots = self.store.get_all_snapshots(site_name) if self.store else []
 
-            # Step 7: Visualize (run in thread — matplotlib is sync)
-            chart_result = await asyncio.to_thread(
-                self.visualizer.run, report, snapshots
-            )
+            # Step 7: Visualize (skip for article sources)
+            is_article = profile.is_article_source if profile else False
+            if is_article:
+                chart_result = None
+            else:
+                chart_result = await asyncio.to_thread(
+                    self.visualizer.run, report, snapshots
+                )
 
             # Step 8: Record evolution
             if self.evolution:

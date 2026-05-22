@@ -13,7 +13,7 @@ class SiteProfile:
     domain_patterns: list[str] = field(default_factory=list)
     use_browser: bool = False
 
-    # extraction strategy: "section_walk" | "css_selector"
+    # extraction strategy: "section_walk" | "css_selector" | "llm" | "rss"
     strategy: str = "section_walk"
 
     # ── section_walk params ──
@@ -33,9 +33,19 @@ class SiteProfile:
     # ── llm strategy params ──
     llm_tag_candidates: list[str] = field(default_factory=list)
 
+    # ── rss strategy params ──
+    rss_item_tag: str = "item"  # "item" for RSS 2.0, "entry" for Atom
+    rss_title_tag: str = "title"
+    rss_link_tag: str = "link"
+    rss_summary_tag: str = "description"  # "summary" for Atom
+    rss_date_tag: str = "pubDate"  # "published" or "updated" for Atom
+
     # ── common ──
     min_title_len: int = 6
     max_title_len: int = 200
+
+    # ── article mode (papers) ──
+    is_article_source: bool = False  # True = treat as paper/article, skip news analytics
 
     @classmethod
     def from_dict(cls, data: dict) -> "SiteProfile":
@@ -56,8 +66,14 @@ class SiteProfile:
             fixed_tag=data.get("fixed_tag", "新闻"),
             tag_selector=data.get("tag_selector", ""),
             llm_tag_candidates=data.get("llm_tag_candidates", []),
+            rss_item_tag=data.get("rss_item_tag", "item"),
+            rss_title_tag=data.get("rss_title_tag", "title"),
+            rss_link_tag=data.get("rss_link_tag", "link"),
+            rss_summary_tag=data.get("rss_summary_tag", "description"),
+            rss_date_tag=data.get("rss_date_tag", "pubDate"),
             min_title_len=data.get("min_title_len", 6),
             max_title_len=data.get("max_title_len", 200),
+            is_article_source=data.get("is_article_source", False),
         )
 
 
@@ -102,23 +118,6 @@ BAIDU_NEWS = SiteProfile(
     section_max_len=6,
 )
 
-THEPAPER = SiteProfile(
-    name="thepaper",
-    display_name="澎湃新闻",
-    domain_patterns=["thepaper.cn"],
-    use_browser=True,
-    strategy="llm",
-    min_title_len=4,
-    llm_tag_candidates=[
-        "时事", "国际", "财经", "科技", "教育", "文化", "体育", "娱乐",
-        "生活", "汽车", "房产", "健康", "社会", "法治", "评论",
-    ],
-    noise_patterns=[
-        r"^加载中", r"^广告", r"^\d+$",
-        r"^澎湃新闻$", r"^举报", r"^关于我们",
-    ],
-)
-
 SINA_NEWS = SiteProfile(
     name="sina_news",
     display_name="新浪新闻",
@@ -136,11 +135,63 @@ SINA_NEWS = SiteProfile(
     ],
 )
 
+# ── Article / Paper sources (RSS feeds) ─────────────────────────────
+
+DEEPMIND_BLOG = SiteProfile(
+    name="deepmind_blog",
+    display_name="DeepMind Blog",
+    domain_patterns=["deepmind.google", "blog.google"],
+    use_browser=False,
+    strategy="rss",
+    is_article_source=True,
+    fixed_tag="AI研究",
+    min_title_len=2,
+    rss_item_tag="item",
+    rss_title_tag="title",
+    rss_link_tag="link",
+    rss_summary_tag="description",
+    rss_date_tag="pubDate",
+)
+
+OPENAI_BLOG = SiteProfile(
+    name="openai_blog",
+    display_name="OpenAI Blog",
+    domain_patterns=["openai.com"],
+    use_browser=False,
+    strategy="rss",
+    is_article_source=True,
+    fixed_tag="AI研究",
+    min_title_len=2,
+    rss_item_tag="item",
+    rss_title_tag="title",
+    rss_link_tag="link",
+    rss_summary_tag="description",
+    rss_date_tag="pubDate",
+)
+
+GOOGLE_AI_BLOG = SiteProfile(
+    name="google_ai_blog",
+    display_name="Google AI Blog",
+    domain_patterns=["ai.googleblog.com", "blogger.com", "blogspot.com"],
+    use_browser=False,
+    strategy="rss",
+    is_article_source=True,
+    fixed_tag="AI研究",
+    min_title_len=2,
+    rss_item_tag="entry",  # Atom format
+    rss_title_tag="title",
+    rss_link_tag="link",
+    rss_summary_tag="summary",
+    rss_date_tag="published",
+)
+
 # Registry
 BUILTIN_PROFILES: dict[str, SiteProfile] = {
     "baidu_news": BAIDU_NEWS,
-    "thepaper": THEPAPER,
     "sina_news": SINA_NEWS,
+    "deepmind_blog": DEEPMIND_BLOG,
+    "openai_blog": OPENAI_BLOG,
+    "google_ai_blog": GOOGLE_AI_BLOG,
 }
 
 

@@ -1,4 +1,4 @@
-"""AnalyzerAgent: compare snapshots, detect changes, compute trends."""
+"""AnalyzerAgent: compare snapshots, detect changes, compute trends, generate update summary."""
 
 import asyncio
 import logging
@@ -38,11 +38,6 @@ class AnalyzerAgent(BaseAgent):
 
         trends = self._compute_trends(site_name, current_items)
 
-        # Sentiment analysis (only for new/modified items if changes exist)
-        sentiment_enabled = self.config.get("sentiment", {}).get("enabled", True)
-        if sentiment_enabled and current_items:
-            await self._analyze_sentiment_batch_async(current_items)
-
         report = {
             "site_name": site_name,
             "timestamp": datetime.now().isoformat(),
@@ -57,62 +52,71 @@ class AnalyzerAgent(BaseAgent):
             "is_first_run": not previous,
             "tag_distribution": self._tag_distribution(current_items),
             "trends": trends,
-            "sentiment_distribution": self._sentiment_distribution(current_items),
+            "sentiment_distribution": {},  # deprecated, kept for compatibility
         }
 
-        report["llm_summary"] = await self._generate_summary_async(report)
+        report["update_summary"] = await self._generate_update_summary_async(report)
 
         logger.info(
             "[Analyzer] Changes: %d new, %d removed, %d modified",
-            len(new_items),
-            len(removed_items),
-            len(modified_items),
+            len(new_items), len(removed_items), len(modified_items),
         )
 
         return report
 
-    async def _generate_summary_async(self, report: dict) -> str:
-        if not report.get("has_changes") or report.get("is_first_run"):
+    async def _generate_update_summary_async(self, report: dict) -> str:
+        """Generate a concise update summary describing what changed."""
+        site_label = report.get("site_name", "未知站点")
+        is_first = report.get("is_first_run", False)
+        total_count = report.get("current_count", 0)
+
+        if is_first or total_count == 0:
             return None
 
         new_count = len(report.get("new_items", []))
         removed_count = len(report.get("removed_items", []))
-        total_count = report.get("current_count", 0)
         tag_dist = report.get("tag_distribution", {})
+        top_tags = list(tag_dist.items())[:5]
         direction = report.get("trends", {}).get("direction", "stable")
 
-        new_titles = [it.get("title", "") for it in report.get("new_items", [])[:8]]
+        if new_count == 0 and removed_count == 0:
+            return f"「{site_label}」本次无新增内容，共 {total_count} 条。趋势：{direction}。"
+
+        # Build prompt with new/removed item samples
+        new_titles = [it.get("title", "") for it in report.get("new_items", [])[:10]]
         removed_titles = [it.get("title", "") for it in report.get("removed_items", [])[:5]]
-        top_tags = list(tag_dist.items())[:5]
 
-        site_label = report.get("site_name", "未知站点")
-        user_prompt = f"""当前抓取到{site_label}共 {total_count} 条新闻。
+        # For article sources, include summaries
+        article_samples = ""
+        for it in report.get("new_items", [])[:3]:
+            s = it.get("summary", "")
+            if s:
+                article_samples += f"\n  [{it.get('title', '')[:60]}] {s[:120]}"
 
-变化情况：
-- 新增 {new_count} 条
-- 移除 {removed_count} 条
-- 趋势方向：{direction}
+        user_prompt = f"""站点「{site_label}」本次抓取结果：
 
-分类分布 Top 5：{top_tags}
+共 {total_count} 条内容（新增 {new_count}，移除 {removed_count}）
+趋势方向：{direction}
+标签分布 Top 5：{top_tags}
 
-新增新闻标题示例：{new_titles}
-移除新闻标题示例：{removed_titles}
+新增内容示例：{new_titles}
+移除内容示例：{removed_titles}{article_samples}
 
-请用 2-3 句简短的中文总结本次新闻更新的特点。例如：集中在哪些领域、是否有重大事件迹象、新闻量变化是否异常。"""
+请用 2-3 句中文简洁总结本次更新的特点，控制在 80 字以内。"""
 
         try:
             summary = await self.call_llm_async(
-                system_prompt="你是一个新闻数据分析助手。根据提供的新闻抓取数据，用简洁的中文总结本次更新的特点。控制在 80 字以内。",
+                system_prompt="你是一个内容更新分析助手。根据提供的数据，用简洁中文总结本次更新特点。",
                 user_prompt=user_prompt,
                 max_tokens=200,
                 temperature=0.3,
                 fallback=None,
             )
             if summary:
-                logger.info("[Analyzer] LLM summary generated: %s", summary[:80])
+                logger.info("[Analyzer] Update summary: %s", summary[:80])
             return summary
         except Exception as e:
-            logger.warning("[Analyzer] LLM summary failed, continuing without it: %s", e)
+            logger.warning("[Analyzer] Update summary generation failed: %s", e)
             return None
 
     def _diff_items(self, prev: list, curr: list) -> tuple:
@@ -149,93 +153,6 @@ class AnalyzerAgent(BaseAgent):
             tag = item.get("tag", "其他") or "其他"
             dist[tag] = dist.get(tag, 0) + 1
         return dict(sorted(dist.items(), key=lambda x: x[1], reverse=True))
-
-    async def _analyze_sentiment_batch_async(self, items: list):
-        """Classify sentiment for items without one using LLM batch inference."""
-        candidates = [it for it in items if not it.get("sentiment")]
-        if not candidates:
-            return
-
-        titles = [it.get("title", "") for it in candidates[:100]]
-
-        user_prompt = "请对以下新闻标题逐一进行情感分类，只返回 positive、negative 或 neutral。\n\n"
-        for i, t in enumerate(titles, 1):
-            user_prompt += f"{i}. {t}\n"
-        user_prompt += "\n按行输出，每行格式为「序号. 分类」，只输出结果不要额外解释。"
-
-        try:
-            result = await self.call_llm_async(
-                system_prompt="你是一个新闻情感分析助手。只输出分类结果，每行一个。",
-                user_prompt=user_prompt,
-                max_tokens=1500,
-                temperature=0.0,
-            )
-            if result:
-                self._parse_sentiment_result(result, candidates)
-            logger.info("[Analyzer] Sentiment classified for %d/%d items",
-                        sum(1 for it in items if it.get("sentiment")), len(items))
-        except Exception as e:
-            logger.warning("[Analyzer] Sentiment analysis failed: %s", e)
-
-    def _parse_sentiment_result(self, result: str, candidates: list):
-        """Robust sentiment result parser — supports Chinese/English delimiters and labels."""
-        # Label mapping: Chinese + English → canonical
-        label_map = {
-            "positive": "positive", "积极": "positive", "正面": "positive",
-            "利好": "positive", "乐观": "positive", "看涨": "positive",
-            "negative": "negative", "消极": "negative", "负面": "negative",
-            "利空": "negative", "悲观": "negative", "看跌": "negative",
-            "neutral": "neutral", "中立": "neutral", "中性": "neutral",
-            "一般": "neutral", "平稳": "neutral",
-        }
-
-        import re
-        # Match patterns like: 1. positive, 2) negative, 3、中立, 4:positive, 5 - 正面
-        line_pattern = re.compile(r'^\s*(\d+)\s*[.。、:：\-\)]\s*(.+?)\s*$')
-
-        parsed = 0
-        for line in result.strip().split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-            m = line_pattern.match(line)
-            if not m:
-                # Try looser: just find a number and a word
-                m2 = re.match(r'^\s*(\d+)\s*[^\w]*\s*(\S+)', line)
-                if m2:
-                    idx_str, label_str = m2.group(1), m2.group(2)
-                else:
-                    continue
-            else:
-                idx_str, label_str = m.group(1), m.group(2)
-
-            try:
-                idx = int(idx_str) - 1
-            except ValueError:
-                continue
-
-            label_clean = re.sub(r'[^\w\u4e00-\u9fff]', '', label_str).strip()
-            canonical = label_map.get(label_clean.lower())
-            if not canonical:
-                # Fallback substring match
-                for key, val in label_map.items():
-                    if key in label_clean:
-                        canonical = val
-                        break
-
-            if canonical and 0 <= idx < len(candidates):
-                candidates[idx]["sentiment"] = canonical
-                parsed += 1
-
-        if parsed == 0:
-            logger.warning("[Analyzer] Sentiment parsing yielded 0 results. Raw: %s", result[:200])
-
-    def _sentiment_distribution(self, items: list) -> dict:
-        dist = {}
-        for item in items:
-            s = item.get("sentiment") or "unknown"
-            dist[s] = dist.get(s, 0) + 1
-        return dist
 
     def _compute_trends(self, site_name: str, current_items: list) -> dict:
         if not self.store:

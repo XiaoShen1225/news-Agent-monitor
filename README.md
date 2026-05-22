@@ -4,14 +4,14 @@
 
 ## 功能特性
 
-- **多源监控**：支持 3+ 新闻站点（百度新闻、澎湃、新浪），每站点独立配置抓取策略和调度间隔
+- **多源监控**：新闻站点（百度、新浪）+ AI 论文 RSS 源（DeepMind / OpenAI / Google AI）
 - **浏览器渲染**：Playwright 无头 Chromium 渲染 JS 页面 + 渐进式滚动触发懒加载
-- **三种提取策略**：section_walk（DOM 章节匹配）/ css_selector / LLM 智能过滤分类
-- **SiteProfile**：可扩展任意站点，LLM 策略支持自定义标签候选集
+- **四种提取策略**：section_walk / css_selector / LLM 智能过滤 / RSS/Atom XML 解析
+- **导航切换**：新闻监控 + 论文追踪双页面，论文页不含复杂数据分析
 - **异步管道**：httpx.AsyncClient + Playwright async API + AsyncOpenAI，多站点 asyncio.gather 并发
 - **变更分析**：SHA256 内容哈希快速跳过无变化页面；标题级 Diff 识别新增/移除/修改
-- **情感分析**：LLM 批量推理（每次 100 条），中英文输出兼容解析，每条目标注 positive / negative / neutral
-- **AI 摘要**：LLM 生成 2-3 句中文新闻趋势总结 + 点击文章可即时获取内容摘要
+- **AI 更新摘要**：LLM 自动生成每次更新的中文摘要（替换情感分析），突出新增内容和变化趋势
+- **文章摘要**：点击任意条目可即时获取文章内容摘要
 - **向量语义搜索**：ChromaDB + text2vec-base-chinese 本地嵌入，`/api/search` 端点
 - **Web 仪表盘**：FastAPI + ECharts 5.5 实时交互图表 + 暗色主题，WebSocket 实时推送
 - **分页加载**：News Items 支持分页浏览（30 条/页），避免一次性加载全部数据
@@ -97,7 +97,7 @@ Visualization/
 ├── agents/
 │   ├── base_agent.py              # Agent 基类（AsyncOpenAI、重试、JSON 容错解析）
 │   ├── fetcher.py                 # 网站抓取（httpx + Playwright）+ SHA256 变更检测
-│   ├── parser.py                  # section_walk / css_selector / LLM 三种提取策略
+│   ├── parser.py                  # section_walk / css_selector / LLM / RSS 四种提取策略
 │   ├── analyzer.py                # 标题 Diff + 趋势计算 + 情感分析 + LLM 摘要
 │   ├── visualizer.py              # matplotlib 10 种图表 + 六组留存策略
 │   ├── coordinator.py             # 流水线编排，集成通知 + 向量存储
@@ -204,7 +204,9 @@ Visualization/
 | `GET /api/charts` | PNG 图表文件列表 |
 | `GET /api/chart-data?site=` | ECharts 实时图表数据 |
 | `GET /api/summarize?url=&title=` | 文章内容即时摘要 |
+| `GET /api/papers?site=&limit=&offset=` | 论文/文章条目查询 |
 | `GET /api/targets` | 已配置的监控目标列表 |
+| `GET /api/schedule` | 调度器状态和配置 |
 | `POST /api/trigger-run?site=&url=` | 手动触发单次抓取 |
 | `POST /api/reset?site=` | 重置站点历史数据 |
 | `WS /ws` | WebSocket 实时推送 |

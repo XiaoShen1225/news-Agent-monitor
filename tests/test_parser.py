@@ -169,10 +169,12 @@ class TestProfileAutoDetection:
                           site_name="baidu_news")
         assert len(result["items"]) == 1
 
-    def test_thepaper_profile(self, agent):
-        result = agent.run("<html><body></body></html>",
-                          site_name="thepaper")
-        assert result["extraction_confidence"] == 1.0
+    def test_rss_profile(self, agent):
+        from agents.site_profiles import DEEPMIND_BLOG
+        result = agent.run("<rss><channel><item><title>Test Paper</title><link>http://a.com/1</link></item></channel></rss>",
+                          site_name="deepmind_blog", profile=DEEPMIND_BLOG)
+        assert len(result["items"]) == 1
+        assert result["items"][0]["tag"] == "AI研究"
 
     def test_unknown_fallback(self, agent):
         result = agent.run("<html><a href='/n'>未知网站测试新闻标题</a></html>",

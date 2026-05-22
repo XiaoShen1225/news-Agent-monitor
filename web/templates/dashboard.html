@@ -19,6 +19,14 @@
   header .status { display: flex; gap: 8px; align-items: center; font-size: 13px; }
   header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
   header .dot.offline { background: var(--red); }
+  /* Nav tabs */
+  .nav-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 20px; }
+  .nav-tab { padding: 10px 24px; cursor: pointer; font-size: 14px; color: var(--muted);
+    border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; }
+  .nav-tab:hover { color: var(--text); }
+  .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .page { display: none; }
+  .page.active { display: block; }
   main { max-width: 1400px; margin: 0 auto; padding: 20px; display: grid;
     grid-template-columns: 1fr 1fr; gap: 16px; }
   .full { grid-column: 1 / -1; }
@@ -78,6 +86,14 @@
 </header>
 
 <main>
+  <div class="nav-tabs full">
+    <div class="nav-tab active" onclick="switchPage('news')">新闻监控</div>
+    <div class="nav-tab" onclick="switchPage('papers')">论文追踪</div>
+  </div>
+
+  <!-- ═══ NEWS PAGE ═══ -->
+  <div id="page-news" class="page active" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
   <!-- Stats -->
   <section class="card full">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
@@ -103,22 +119,24 @@
     <div class="echarts-grid" id="echarts-grid">
       <div class="echart-card">
         <h3>Category Distribution</h3>
-        <div id="chart-tag-pie" style="height:320px"></div>
+        <div id="chart-tag-pie" style="height:300px"></div>
       </div>
       <div class="echart-card">
         <h3>News Volume Trend</h3>
-        <div id="chart-trend-line" style="height:320px"></div>
+        <div id="chart-trend-line" style="height:300px"></div>
       </div>
       <div class="echart-card">
         <h3>Change Summary</h3>
-        <div id="chart-change-bar" style="height:320px"></div>
+        <div id="chart-change-bar" style="height:300px"></div>
       </div>
       <div class="echart-card">
-        <h3>Sentiment Distribution</h3>
-        <div id="chart-sentiment-pie" style="height:320px"></div>
+        <h3>Update Summary</h3>
+        <div id="chart-update-summary" style="height:300px;overflow-y:auto;color:var(--text);font-size:13px;line-height:1.7;padding:4px 0">
+          Select a site to view update summary.
+        </div>
       </div>
       <div class="echart-card wide">
-        <h3>Summary</h3>
+        <h3>Overview</h3>
         <div id="chart-summary" style="min-height:100px;padding:8px 0;color:var(--muted)">
           Select a site to view data.
         </div>
@@ -166,6 +184,40 @@
       <tbody id="runs-body"><tr><td colspan="7" style="color:var(--muted)">Loading...</td></tr></tbody></table>
     </div>
   </section>
+  </div><!-- /page-news -->
+
+  <!-- ═══ PAPERS PAGE ═══ -->
+  <div id="page-papers" class="page" style="display:none">
+  <section class="card" style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <h2 style="margin:0">Paper Tracker</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap" id="paper-action-buttons"></div>
+    </div>
+    <div class="stats" style="margin-top:12px">
+      <div class="stat"><div class="val" id="papers-total">--</div><div class="lbl">Total Papers</div></div>
+      <div class="stat"><div class="val" id="papers-deepmind">--</div><div class="lbl">DeepMind</div></div>
+      <div class="stat"><div class="val" id="papers-openai">--</div><div class="lbl">OpenAI</div></div>
+      <div class="stat"><div class="val" id="papers-googleai">--</div><div class="lbl">Google AI</div></div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-bottom:16px">
+    <h2>Papers</h2>
+    <div class="filters">
+      <select id="paper-filter-source" onchange="loadPapers(0)"><option value="">All Sources</option></select>
+      <input type="text" id="paper-filter-search" placeholder="Search title...">
+      <button class="tab active" onclick="loadPapers(0)" style="cursor:pointer">Search</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table><thead><tr>
+        <th>Title</th><th>Source</th><th>Summary</th><th>Date</th><th></th>
+      </tr></thead>
+      <tbody id="papers-body"><tr><td colspan="5" style="color:var(--muted)">Loading...</td></tr></tbody></table>
+    </div>
+    <div id="papers-pagination" style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap"></div>
+  </section>
+  </div><!-- /page-papers -->
+
 </main>
 
 <div id="modal" onclick="this.classList.remove('show')">
@@ -210,7 +262,7 @@ let echartSiteData = {};
 let echartCurrentSite = null;
 
 function initECharts() {
-  ['chart-tag-pie', 'chart-trend-line', 'chart-change-bar', 'chart-sentiment-pie'].forEach(id => {
+  ['chart-tag-pie', 'chart-trend-line', 'chart-change-bar'].forEach(id => {
     const dom = document.getElementById(id);
     if (dom) echartInstances[id] = echarts.init(dom);
   });
@@ -248,7 +300,7 @@ function renderAllCharts(d) {
   renderTagPie(d.tag_distribution);
   renderTrendLine(d.trends);
   renderChangeBar(d.changes);
-  renderSentimentPie(d.sentiment_distribution);
+  renderUpdateSummary(d.update_summary);
   renderSummary(d.summary);
 }
 
@@ -315,21 +367,17 @@ function renderChangeBar(data) {
   }, true);
 }
 
-function renderSentimentPie(data) {
-  const chart = echartInstances['chart-sentiment-pie'];
-  if (!chart) return;
-  const colorMap = { positive: '#4ade80', neutral: '#94a3b8', negative: '#f87171', unknown: '#475569' };
-  const colored = (data || []).map(d => ({
-    ...d, itemStyle: { color: colorMap[d.name] || '#475569' }
-  }));
-  chart.setOption({
-    tooltip: { trigger: 'item', formatter: '{b}: {c}' },
-    series: [{
-      type: 'pie', radius: '65%', center: ['50%', '50%'],
-      data: colored,
-      label: { color: '#e2e8f0', fontSize: 11 },
-    }],
-  }, true);
+function renderUpdateSummary(text) {
+  const el = document.getElementById('chart-update-summary');
+  if (!el) return;
+  if (text) {
+    el.innerHTML = `<div style="padding:16px;background:rgba(56,189,248,0.06);border-radius:8px;border-left:3px solid var(--accent);line-height:1.7;height:100%;box-sizing:border-box">
+      <div style="color:var(--green);font-size:11px;margin-bottom:8px">AI Update Summary</div>
+      ${text}
+    </div>`;
+  } else {
+    el.innerHTML = '<div style="color:var(--muted);padding:16px">No update data yet. Run the pipeline to generate summaries.</div>';
+  }
 }
 
 function renderSummary(s) {
@@ -586,6 +634,98 @@ async function resetSite(name) {
   } catch(e) {
     alert(`Reset failed: ${e.message}`);
   }
+}
+
+// ── Page switching ──────────────────────────────────────────────────
+let currentPage = 'news';
+
+function switchPage(page) {
+  currentPage = page;
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.textContent.includes(page === 'news' ? '新闻' : '论文')));
+  document.getElementById('page-news').style.display = page === 'news' ? '' : 'none';
+  document.getElementById('page-news').classList.toggle('active', page === 'news');
+  document.getElementById('page-papers').style.display = page === 'papers' ? '' : 'none';
+  document.getElementById('page-papers').classList.toggle('active', page === 'papers');
+  if (page === 'papers') {
+    loadPapers(0);
+    loadSchedule();
+  }
+}
+
+// ── Papers page ─────────────────────────────────────────────────────
+let papersPage = 0, papersPageSize = 30, papersTotal = 0;
+
+async function loadPapers(page) {
+  if (page !== undefined) papersPage = page;
+  const source = document.getElementById('paper-filter-source').value;
+  const search = document.getElementById('paper-filter-search').value;
+  let url = `/api/papers?limit=${papersPageSize}&offset=${papersPage * papersPageSize}`;
+  if (source) url += `&site=${encodeURIComponent(source)}`;
+
+  const res = await fetch(url);
+  const data = await res.json();
+  let items = data.items || [];
+  papersTotal = data.total || items.length;
+  if (search) items = items.filter(it => it.title.toLowerCase().includes(search.toLowerCase()));
+
+  document.getElementById('papers-total').textContent = papersTotal;
+  const sources = data.sources || {};
+  document.getElementById('papers-deepmind').textContent = sources['deepmind_blog'] || 0;
+  document.getElementById('papers-openai').textContent = sources['openai_blog'] || 0;
+  document.getElementById('papers-googleai').textContent = sources['google_ai_blog'] || 0;
+
+  const sel = document.getElementById('paper-filter-source');
+  if (sel.options.length <= 1) {
+    sel.innerHTML = '<option value="">All Sources</option>' +
+      Object.keys(sources).map(s => `<option value="${s}">${s}</option>`).join('');
+  }
+
+  document.getElementById('papers-body').innerHTML = items.length
+    ? items.map(it => `<tr>
+        <td><a href="${it.url||'#'}" target="_blank" style="color:var(--accent)">${(it.title||'').slice(0,80)}</a></td>
+        <td><span class="tag">${it.site_name||'-'}</span></td>
+        <td style="color:var(--muted);font-size:12px;max-width:360px">${(it.summary||'').slice(0,150)}</td>
+        <td style="color:var(--muted);font-size:12px">${(it.snapshot_time||'').slice(0,10)}</td>
+        <td><button onclick="fetchSummary(this, '${(it.url||'').replace(/'/g,"\\'")}', '${(it.title||'').replace(/'/g,"\\'")}')" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">摘要</button></td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" style="color:var(--muted)">No papers found.</td></tr>';
+
+  renderPapersPagination();
+}
+
+function renderPapersPagination() {
+  const totalPages = Math.ceil(papersTotal / papersPageSize);
+  const el = document.getElementById('papers-pagination');
+  if (totalPages <= 1) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <button onclick="loadPapers(0)" ${papersPage===0?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">&laquo; First</button>
+    <button onclick="loadPapers(${papersPage-1})" ${papersPage===0?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">&lsaquo; Prev</button>
+    <span style="color:var(--muted);font-size:12px">Page ${papersPage+1} / ${totalPages} (${papersTotal} items)</span>
+    <button onclick="loadPapers(${papersPage+1})" ${papersPage>=totalPages-1?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">Next &rsaquo;</button>
+    <button onclick="loadPapers(${totalPages-1})" ${papersPage>=totalPages-1?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">Last &raquo;</button>`;
+}
+
+// ── Schedule status ─────────────────────────────────────────────────
+let scheduleData = null;
+
+async function loadSchedule() {
+  try {
+    const res = await fetch('/api/schedule');
+    scheduleData = await res.json();
+    renderPaperActions();
+  } catch(e) {}
+}
+
+function renderPaperActions() {
+  if (!scheduleData) return;
+  const el = document.getElementById('paper-action-buttons');
+  const targets = scheduleData.targets || [];
+  el.innerHTML = targets.filter(t => t.is_article).map(t => `
+    <button onclick="triggerRun('${t.name}','${t.url}',false)" title="Run ${t.name}"
+      style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px">
+      Fetch: ${t.name}
+    </button>
+  `).join('');
 }
 
 // ── Init ───────────────────────────────────────────────────────────

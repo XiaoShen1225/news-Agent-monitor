@@ -20,14 +20,25 @@ targets:
     interval_minutes: 60
     use_browser: true    # Playwright for JS-rendered content
 
-  - url: "https://www.thepaper.cn/"
-    name: "thepaper"
-    interval_minutes: 120
-    use_browser: false   # Static, no JS needed
-
   - url: "https://news.sina.com.cn/"
     name: "sina_news"
     interval_minutes: 120
+    use_browser: false
+
+  # ── Article / Paper sources (RSS feeds) ──
+  - url: "https://deepmind.google/blog/rss.xml"
+    name: "deepmind_blog"
+    interval_minutes: 360
+    use_browser: false
+
+  - url: "https://openai.com/blog/rss.xml"
+    name: "openai_blog"
+    interval_minutes: 360
+    use_browser: false
+
+  - url: "https://ai.googleblog.com/feeds/posts/default"
+    name: "google_ai_blog"
+    interval_minutes: 360
     use_browser: false
 
 # Scheduler settings
@@ -62,10 +73,6 @@ storage:
 #       smtp_user: "user@gmail.com"
 #       smtp_password: "${SMTP_PASSWORD}"
 #       to_addrs: ["alerts@example.com"]
-
-# Sentiment analysis via LLM (batch inference)
-sentiment:
-  enabled: true
 
 # Evolution settings
 evolution:

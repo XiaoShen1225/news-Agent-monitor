@@ -157,12 +157,11 @@ def _build_chart_data(site_name: str, store) -> dict:
         prev_items = all_snaps[-2].get("items", [])
         changes = _diff_items(prev_items, items)
 
-    # Sentiment distribution
-    sent_dist = {}
-    for item in items:
-        s = item.get("sentiment") or "unknown"
-        sent_dist[s] = sent_dist.get(s, 0) + 1
-    sent_list = [{"name": k, "value": v} for k, v in sent_dist.items()]
+    # Sentiment distribution (deprecated — kept empty for compatibility)
+    sent_list = []
+
+    # Get update_summary from latest snapshot
+    update_summary = snap.get("update_summary", "") or ""
 
     return {
         "tag_distribution": tag_list,
@@ -175,6 +174,7 @@ def _build_chart_data(site_name: str, store) -> dict:
         },
         "changes": changes,
         "sentiment_distribution": sent_list,
+        "update_summary": update_summary,
         "summary": {
             "site_name": site_name,
             "timestamp": snap.get("timestamp", ""),
@@ -182,7 +182,7 @@ def _build_chart_data(site_name: str, store) -> dict:
             "previous_count": all_snaps[-2].get("items_count", 0) if len(all_snaps) >= 2 else 0,
             "total_changes": changes["new"] + changes["removed"] + changes["modified"],
             "trend_direction": direction,
-            "llm_summary": None,
+            "llm_summary": update_summary,
             "new_count": changes["new"],
             "removed_count": changes["removed"],
             "modified_count": changes["modified"],
@@ -205,6 +205,72 @@ async def api_targets():
             }
             for t in targets
         ]
+    }
+
+
+@app.get("/api/papers")
+async def api_papers(
+    site: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """Query papers/articles from article-type sources."""
+    conn = _get_db()
+    try:
+        article_sources = ["deepmind_blog", "openai_blog", "google_ai_blog"]
+        if site:
+            source_list = [site] if site in article_sources else article_sources
+        else:
+            source_list = article_sources
+
+        placeholders = ",".join("?" for _ in source_list)
+        count_query = f"SELECT COUNT(*) FROM news_items WHERE site_name IN ({placeholders})"
+        total_row = conn.execute(count_query, source_list).fetchone()
+        total = total_row[0] if total_row else 0
+
+        query = (
+            f"SELECT title, url, tag, summary, snapshot_time, site_name FROM news_items "
+            f"WHERE site_name IN ({placeholders}) "
+            f"ORDER BY snapshot_time DESC LIMIT ? OFFSET ?"
+        )
+        rows = conn.execute(query, source_list + [limit, offset]).fetchall()
+        items = [dict(r) for r in rows]
+
+        sources = {}
+        for s in source_list:
+            cnt = conn.execute(
+                "SELECT COUNT(*) FROM news_items WHERE site_name = ?", (s,)
+            ).fetchone()[0]
+            sources[s] = cnt
+
+        return {
+            "items": items,
+            "count": len(items),
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "sources": sources,
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/api/schedule")
+async def api_schedule_status():
+    """Return current scheduler status and config."""
+    targets = _config.get("targets", []) if _config else []
+    scheduler_cfg = _config.get("scheduler", {}) if _config else {}
+    return {
+        "targets": [
+            {
+                "name": t.get("name", ""),
+                "url": t.get("url", ""),
+                "interval_minutes": t.get("interval_minutes", scheduler_cfg.get("default_interval_minutes", 60)),
+                "is_article": t.get("name", "") in ["deepmind_blog", "openai_blog", "google_ai_blog"],
+            }
+            for t in targets
+        ],
+        "default_interval": scheduler_cfg.get("default_interval_minutes", 60),
     }
 
 
@@ -282,7 +348,7 @@ async def api_query(
         total = total_row[0] if total_row else 0
 
         query = (
-            f"SELECT title, url, tag, snapshot_time, site_name FROM news_items "
+            f"SELECT title, url, tag, summary, snapshot_time, site_name FROM news_items "
             f"{where} ORDER BY snapshot_time DESC LIMIT ? OFFSET ?"
         )
         params.extend([limit, offset])

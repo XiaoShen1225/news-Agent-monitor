@@ -276,10 +276,8 @@ async def _cmd_serve_async(config: dict, port: int):
                     "removed": len(report.get("removed_items", [])),
                     "modified": len(report.get("modified_items", [])),
                 },
-                "sentiment_distribution": [
-                    {"name": k, "value": v}
-                    for k, v in report.get("sentiment_distribution", {}).items()
-                ],
+                "sentiment_distribution": [],
+                "update_summary": report.get("update_summary", ""),
                 "summary": {
                     "site_name": site_name,
                     "timestamp": report.get("timestamp", ""),
@@ -287,7 +285,7 @@ async def _cmd_serve_async(config: dict, port: int):
                     "previous_count": report.get("previous_count", 0),
                     "total_changes": report.get("total_changes", 0),
                     "trend_direction": trends.get("direction", "stable"),
-                    "llm_summary": report.get("llm_summary"),
+                    "llm_summary": report.get("update_summary", ""),
                     "new_count": len(report.get("new_items", [])),
                     "removed_count": len(report.get("removed_items", [])),
                     "modified_count": len(report.get("modified_items", [])),

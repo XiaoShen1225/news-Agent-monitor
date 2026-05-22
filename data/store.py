@@ -45,10 +45,14 @@ class DataStore:
                     FOREIGN KEY (snapshot_id) REFERENCES snapshots(id)
                 )
             """)
-            # Add sentiment column for existing databases (check first)
+            # Add new columns for existing databases (check first)
             cols = {r[1] for r in conn.execute("PRAGMA table_info(news_items)").fetchall()}
             if "sentiment" not in cols:
                 conn.execute("ALTER TABLE news_items ADD COLUMN sentiment TEXT DEFAULT ''")
+            if "summary" not in cols:
+                conn.execute("ALTER TABLE news_items ADD COLUMN summary TEXT DEFAULT ''")
+            if "published" not in cols:
+                conn.execute("ALTER TABLE news_items ADD COLUMN published TEXT DEFAULT ''")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS run_logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,11 +130,14 @@ class DataStore:
             # Insert individual news items into SQLite
             for item in items:
                 conn.execute(
-                    "INSERT INTO news_items (snapshot_id, site_name, title, url, tag, sentiment, snapshot_time) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO news_items (snapshot_id, site_name, title, url, tag, sentiment, summary, published, snapshot_time) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (snapshot_id, site_name, item.get("title", ""),
                      item.get("url", ""), item.get("tag", ""),
-                     item.get("sentiment", ""), now_iso),
+                     item.get("sentiment", ""),
+                     item.get("summary", ""),
+                     item.get("published", ""),
+                     now_iso),
                 )
             conn.commit()
 
@@ -145,7 +152,7 @@ class DataStore:
         with open(self.csv_path, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             if not file_exists:
-                writer.writerow(["site_name", "snapshot_time", "title", "url", "tag", "sentiment"])
+                writer.writerow(["site_name", "snapshot_time", "title", "url", "tag", "summary"])
             for item in items:
                 writer.writerow([
                     site_name,
@@ -153,7 +160,7 @@ class DataStore:
                     item.get("title", ""),
                     item.get("url", ""),
                     item.get("tag", ""),
-                    item.get("sentiment", ""),
+                    item.get("summary", ""),
                 ])
 
     def query_items(self, site_name: str = None, tag: str = None,
@@ -176,14 +183,14 @@ class DataStore:
             params.append(date_to)
 
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        query = f"SELECT title, url, tag, snapshot_time, site_name FROM news_items {where} ORDER BY snapshot_time DESC LIMIT ?"
+        query = f"SELECT title, url, tag, summary, snapshot_time, site_name FROM news_items {where} ORDER BY snapshot_time DESC LIMIT ?"
         params.append(limit)
 
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(query, params).fetchall()
         return [
             {"title": r[0], "url": r[1], "tag": r[2],
-             "snapshot_time": r[3], "site_name": r[4]}
+             "summary": r[3], "snapshot_time": r[4], "site_name": r[5]}
             for r in rows
         ]
 

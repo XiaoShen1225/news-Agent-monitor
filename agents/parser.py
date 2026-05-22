@@ -1,9 +1,12 @@
 """ParserAgent: multi-strategy news link extraction + DOM-section-based tagging."""
 
 import asyncio
+import html as html_mod
 import logging
 import re
+import xml.etree.ElementTree as ET
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urljoin
@@ -84,6 +87,10 @@ class ParserAgent(BaseAgent):
             "[Parser] Extracting news from %s (%d bytes, strategy=%s)",
             site_name, len(html), profile_obj.strategy,
         )
+
+        if profile_obj.strategy == "rss":
+            raw_links = self._extract_rss(html, profile_obj)
+            return self._build_result(raw_links)
 
         soup = BeautifulSoup(html, "lxml")
 
@@ -347,3 +354,110 @@ class ParserAgent(BaseAgent):
                     links.append({"title": text, "url": full_url, "tag": tag})
 
         return links
+
+    # ── strategy: rss ────────────────────────────────────────────────
+
+    def _extract_rss(self, xml_text: str, profile: SiteProfile) -> list:
+        """Parse RSS 2.0 / Atom XML feed and extract entries."""
+        links = []
+        tag = profile.fixed_tag
+
+        try:
+            root = ET.fromstring(xml_text)
+        except ET.ParseError as e:
+            logger.warning("[Parser] RSS XML parse failed: %s", e)
+            return []
+
+        # Detect namespace (Atom feeds use xmlns)
+        ns = ""
+        if root.tag.startswith("{"):
+            ns = root.tag.split("}")[0] + "}"
+
+        # Determine item/entry tag
+        item_tag = profile.rss_item_tag
+        if ns:
+            item_tag = ns + item_tag
+
+        entries = root.findall(f".//{item_tag}")
+        if not entries:
+            # Try without namespace
+            entries = root.findall(f".//{profile.rss_item_tag}")
+
+        if not entries:
+            # Try both common patterns
+            for tag_name in ["item", "entry"]:
+                entries = root.findall(f".//{tag_name}")
+                if entries:
+                    break
+                if ns:
+                    entries = root.findall(f".//{ns}{tag_name}")
+                    if entries:
+                        break
+
+        logger.info("[Parser] RSS feed: found %d entries", len(entries))
+
+        for entry in entries:
+            title = self._rss_get_text(entry, profile.rss_title_tag, ns)
+            url = self._rss_get_link(entry, profile.rss_link_tag, ns)
+            summary = self._rss_get_text(entry, profile.rss_summary_tag, ns)
+            pub_date = self._rss_get_text(entry, profile.rss_date_tag, ns)
+
+            if not title or len(title.strip()) < profile.min_title_len:
+                continue
+            title = title.strip()
+            if len(title) > profile.max_title_len:
+                title = title[:profile.max_title_len]
+
+            if not url:
+                continue
+
+            # Clean summary — strip HTML tags
+            if summary:
+                summary = re.sub(r"<[^>]+>", "", summary).strip()
+                summary = html_mod.unescape(summary)
+                if len(summary) > 500:
+                    summary = summary[:500] + "..."
+
+            # Clean pubDate
+            if pub_date:
+                pub_date = pub_date.strip()
+
+            links.append({
+                "title": title,
+                "url": url,
+                "tag": tag,
+                "summary": summary or "",
+                "published": pub_date or "",
+            })
+
+        logger.info("[Parser] RSS extracted %d valid entries", len(links))
+        return links
+
+    def _rss_get_text(self, element, tag_name: str, ns: str) -> str:
+        """Get text content from RSS/Atom element, trying with and without namespace."""
+        el = element.find(f"{ns}{tag_name}") if ns else element.find(tag_name)
+        if el is None and ns:
+            el = element.find(tag_name)
+        if el is not None and el.text:
+            return el.text
+        return ""
+
+    def _rss_get_link(self, element, link_tag: str, ns: str) -> str:
+        """Get link href from RSS/Atom — handles both text content and href attr."""
+        el = element.find(f"{ns}{link_tag}") if ns else element.find(link_tag)
+        if el is None and ns:
+            el = element.find(link_tag)
+        if el is None:
+            return ""
+        # Atom: <link href="..."/>
+        href = el.get("href", "")
+        if href:
+            return href
+        # RSS: <link>http://...</link>
+        if el.text:
+            return el.text.strip()
+        # Atom alternate link
+        alt = el.find(f"{ns}link[@rel='alternate']") if ns else None
+        if alt is not None:
+            return alt.get("href", "")
+        return ""
