@@ -95,6 +95,101 @@ def _get_sites() -> list:
         return []
 
 
+def _get_data_store():
+    """Create a DataStore instance pointing at the project data dirs."""
+    from data.store import DataStore
+    return DataStore(
+        history_dir=str(PROJECT_ROOT / "data" / "history"),
+        db_path=str(DB_PATH),
+    )
+
+
+def _diff_items(prev_items: list, curr_items: list) -> dict:
+    """Compare two item lists by title; return new/removed/modified counts."""
+    prev_titles = {it.get("title", ""): it for it in prev_items}
+    curr_titles = {it.get("title", ""): it for it in curr_items}
+    new = sum(1 for t in curr_titles if t and t not in prev_titles)
+    removed = sum(1 for t in prev_titles if t and t not in curr_titles)
+    modified = 0
+    for t in curr_titles:
+        if t and t in prev_titles:
+            p, c = prev_titles[t], curr_titles[t]
+            if p.get("tag") != c.get("tag") or p.get("summary") != c.get("summary"):
+                modified += 1
+    return {"new": new, "removed": removed, "modified": modified}
+
+
+def _build_chart_data(site_name: str, store) -> dict:
+    """Build ECharts-friendly data dict for a single site from persisted snapshots."""
+    snap = store.get_last_snapshot(site_name)
+    if not snap:
+        return None
+
+    items = snap.get("items", [])
+
+    # Tag distribution
+    tag_dist = {}
+    for item in items:
+        t = item.get("tag", "其他") or "其他"
+        tag_dist[t] = tag_dist.get(t, 0) + 1
+    tag_list = [{"name": k, "value": v} for k, v in
+                sorted(tag_dist.items(), key=lambda x: x[1], reverse=True)]
+
+    # Trends from all snapshots
+    all_snaps = store.get_all_snapshots(site_name)
+    counts = [s.get("items_count", 0) for s in all_snaps]
+    times = [s.get("timestamp", "") for s in all_snaps]
+
+    direction = "stable"
+    recent_avg = 0
+    older_avg = 0
+    if len(counts) >= 2:
+        recent_avg = sum(counts[-3:]) / min(3, len(counts[-3:]))
+        older_avg = sum(counts[:max(1, len(counts) - 3)]) / max(1, len(counts) - 3)
+        if recent_avg > older_avg * 1.1:
+            direction = "up"
+        elif recent_avg < older_avg * 0.9:
+            direction = "down"
+
+    # Changes: diff two most recent snapshots
+    changes = {"new": 0, "removed": 0, "modified": 0}
+    if len(all_snaps) >= 2:
+        prev_items = all_snaps[-2].get("items", [])
+        changes = _diff_items(prev_items, items)
+
+    # Sentiment distribution
+    sent_dist = {}
+    for item in items:
+        s = item.get("sentiment") or "unknown"
+        sent_dist[s] = sent_dist.get(s, 0) + 1
+    sent_list = [{"name": k, "value": v} for k, v in sent_dist.items()]
+
+    return {
+        "tag_distribution": tag_list,
+        "trends": {
+            "snapshot_counts": counts,
+            "snapshot_times": times,
+            "direction": direction,
+            "recent_average": round(recent_avg, 1),
+            "older_average": round(older_avg, 1),
+        },
+        "changes": changes,
+        "sentiment_distribution": sent_list,
+        "summary": {
+            "site_name": site_name,
+            "timestamp": snap.get("timestamp", ""),
+            "current_count": len(items),
+            "previous_count": all_snaps[-2].get("items_count", 0) if len(all_snaps) >= 2 else 0,
+            "total_changes": changes["new"] + changes["removed"] + changes["modified"],
+            "trend_direction": direction,
+            "llm_summary": None,
+            "new_count": changes["new"],
+            "removed_count": changes["removed"],
+            "modified_count": changes["modified"],
+        },
+    }
+
+
 # ── REST API ───────────────────────────────────────────────────────
 
 @app.get("/api/stats")
@@ -205,6 +300,26 @@ async def api_charts():
             if files:
                 chart_sets[cs] = files
     return chart_sets
+
+
+@app.get("/api/chart-data")
+async def api_chart_data(
+    site: Optional[str] = Query(None),
+):
+    """Return structured chart data for ECharts rendering."""
+    store = _get_data_store()
+    sites = _get_sites()
+    if not sites:
+        return {"sites": [], "chart_data": {}}
+
+    target_sites = [site] if site and site in sites else sites
+    chart_data = {}
+    for s in target_sites:
+        data = _build_chart_data(s, store)
+        if data:
+            chart_data[s] = data
+
+    return {"sites": sites, "chart_data": chart_data}
 
 
 # ── WebSocket ──────────────────────────────────────────────────────

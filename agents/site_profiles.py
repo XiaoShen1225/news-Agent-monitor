@@ -30,6 +30,9 @@ class SiteProfile:
     fixed_tag: str = "新闻"
     tag_selector: str = ""
 
+    # ── llm strategy params ──
+    llm_tag_candidates: list[str] = field(default_factory=list)
+
     # ── common ──
     min_title_len: int = 6
     max_title_len: int = 200
@@ -52,6 +55,7 @@ class SiteProfile:
             tag_from=data.get("tag_from", "fixed"),
             fixed_tag=data.get("fixed_tag", "新闻"),
             tag_selector=data.get("tag_selector", ""),
+            llm_tag_candidates=data.get("llm_tag_candidates", []),
             min_title_len=data.get("min_title_len", 6),
             max_title_len=data.get("max_title_len", 200),
         )
@@ -103,13 +107,12 @@ THEPAPER = SiteProfile(
     display_name="澎湃新闻",
     domain_patterns=["thepaper.cn"],
     use_browser=False,
-    strategy="css_selector",
-    article_selector="div.news_li, div.news_txt, li.news_item, div.card",
-    title_selector="a",
-    link_attr="href",
-    tag_from="fixed",
-    fixed_tag="新闻",
+    strategy="llm",
     min_title_len=4,
+    llm_tag_candidates=[
+        "时事", "国际", "财经", "科技", "教育", "文化", "体育", "娱乐",
+        "生活", "汽车", "房产", "健康", "社会", "法治", "评论",
+    ],
     noise_patterns=[
         r"^加载中", r"^广告", r"^\d+$",
         r"^澎湃新闻$", r"^举报", r"^关于我们",
@@ -121,13 +124,12 @@ SINA_NEWS = SiteProfile(
     display_name="新浪新闻",
     domain_patterns=["news.sina.com.cn", "sina.com.cn"],
     use_browser=False,
-    strategy="css_selector",
-    article_selector="div.news-item, li.news-item, div.feed-card-item, div.item",
-    title_selector="a",
-    link_attr="href",
-    tag_from="fixed",
-    fixed_tag="新闻",
+    strategy="llm",
     min_title_len=4,
+    llm_tag_candidates=[
+        "国内", "国际", "军事", "财经", "科技", "体育", "娱乐",
+        "社会", "教育", "健康", "汽车", "房产", "游戏", "女性",
+    ],
     noise_patterns=[
         r"^加载中", r"^广告", r"^\d+$",
         r"^新浪", r"^微博", r"^登录",

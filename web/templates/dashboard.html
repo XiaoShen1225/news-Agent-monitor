@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>News Agent Monitor</title>
+<script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.0/echarts.min.js"
+        onerror="this.onerror=null;this.src='https://unpkg.zhimg.com/echarts@5.5.0/dist/echarts.min.js'"></script>
 <style>
   :root { --bg: #0f172a; --card: #1e293b; --border: #334155; --text: #e2e8f0;
           --muted: #94a3b8; --accent: #38bdf8; --green: #4ade80; --red: #f87171;
@@ -27,6 +29,16 @@
   .stat { background: var(--bg); border-radius: 8px; padding: 12px; text-align: center; }
   .stat .val { font-size: 24px; font-weight: 700; color: var(--accent); }
   .stat .lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .filters { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+  .filters select, .filters input { background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 10px; border-radius: 6px; font-size: 13px; }
+  /* ECharts grid */
+  .echarts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .echart-card { background: var(--bg); border-radius: 8px; padding: 12px;
+    border: 1px solid var(--border); }
+  .echart-card h3 { font-size: 13px; color: var(--muted); margin-bottom: 8px; font-weight: 600; }
+  .echart-card.wide { grid-column: 1 / -1; }
+  /* PNG chart grid (kept for historical) */
   .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 8px; }
   .chart-grid img { width: 100%; border-radius: 6px; cursor: pointer;
@@ -42,9 +54,6 @@
   tr:hover td { background: rgba(56,189,248,.05); }
   .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
     background: rgba(56,189,248,.15); color: var(--accent); }
-  .filters { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
-  .filters select, .filters input { background: var(--bg); border: 1px solid var(--border);
-    color: var(--text); padding: 6px 10px; border-radius: 6px; font-size: 13px; }
   .run-row { font-size: 12px; }
   .status-ok { color: var(--green); } .status-skip { color: var(--orange); }
   .status-err { color: var(--red); }
@@ -52,7 +61,10 @@
     z-index: 100; justify-content: center; align-items: center; }
   #modal.show { display: flex; }
   #modal img { max-width: 90vw; max-height: 90vh; border-radius: 8px; }
-  @media (max-width: 768px) { main { grid-template-columns: 1fr; } }
+  @media (max-width: 768px) {
+    main { grid-template-columns: 1fr; }
+    .echarts-grid { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -77,12 +89,46 @@
     </div>
   </section>
 
-  <!-- Charts -->
+  <!-- Realtime ECharts -->
   <section class="card full">
-    <h2>Charts</h2>
+    <h2>Realtime Charts</h2>
+    <div class="filters">
+      <select id="echart-site" onchange="switchEChartsSite()">
+        <option value="">Select a site...</option>
+      </select>
+    </div>
+    <div class="echarts-grid" id="echarts-grid">
+      <div class="echart-card">
+        <h3>Category Distribution</h3>
+        <div id="chart-tag-pie" style="height:320px"></div>
+      </div>
+      <div class="echart-card">
+        <h3>News Volume Trend</h3>
+        <div id="chart-trend-line" style="height:320px"></div>
+      </div>
+      <div class="echart-card">
+        <h3>Change Summary</h3>
+        <div id="chart-change-bar" style="height:320px"></div>
+      </div>
+      <div class="echart-card">
+        <h3>Sentiment Distribution</h3>
+        <div id="chart-sentiment-pie" style="height:320px"></div>
+      </div>
+      <div class="echart-card wide">
+        <h3>Summary</h3>
+        <div id="chart-summary" style="min-height:100px;padding:8px 0;color:var(--muted)">
+          Select a site to view data.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Historical PNG Charts -->
+  <section class="card full">
+    <h2>Historical Charts (PNG)</h2>
     <div class="tabs" id="chart-tabs"></div>
     <div class="chart-grid" id="chart-grid">
-      <div style="color:var(--muted)">Loading charts...</div>
+      <div style="color:var(--muted)">Loading historical charts...</div>
     </div>
   </section>
 
@@ -123,6 +169,7 @@
 </div>
 
 <script>
+// ── WebSocket ──────────────────────────────────────────────────────
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 const ws = new WebSocket(`${wsProtocol}//${location.host}/ws`);
 ws.onopen = () => { document.getElementById('ws-dot').classList.remove('offline');
@@ -131,21 +178,183 @@ ws.onclose = () => { document.getElementById('ws-dot').classList.add('offline');
   document.getElementById('ws-text').textContent = 'Offline'; };
 ws.onmessage = (e) => {
   const data = JSON.parse(e.data);
-  if (data.type === 'pipeline_update') { loadAll(); }
-  if (data.type === 'pong') { /* heartbeat ok */ }
+  if (data.type === 'pipeline_update') {
+    if (data.chart_data) {
+      const site = data.chart_data.site_name;
+      echartSiteData[site] = data.chart_data;
+      const sel = document.getElementById('echart-site');
+      if (![...sel.options].some(o => o.value === site)) {
+        sel.innerHTML += `<option value="${site}">${site}</option>`;
+      }
+      if (site === echartCurrentSite || !echartCurrentSite) {
+        if (!echartCurrentSite) { echartCurrentSite = site; sel.value = site; }
+        renderAllCharts(data.chart_data);
+      }
+    }
+    loadStats(); loadCharts(); loadItems(); loadRuns();
+  }
 };
 
-setInterval(() => { ws.send('ping'); }, 30000);
+setInterval(() => { if (ws.readyState === WebSocket.OPEN) ws.send('ping'); }, 30000);
 setInterval(() => {
   document.getElementById('clock').textContent = new Date().toLocaleTimeString();
 }, 1000);
 
+// ── ECharts ────────────────────────────────────────────────────────
+let echartInstances = {};
+let echartSiteData = {};
+let echartCurrentSite = null;
+
+function initECharts() {
+  ['chart-tag-pie', 'chart-trend-line', 'chart-change-bar', 'chart-sentiment-pie'].forEach(id => {
+    const dom = document.getElementById(id);
+    if (dom) echartInstances[id] = echarts.init(dom);
+  });
+  window.addEventListener('resize', () => {
+    Object.values(echartInstances).forEach(c => c.resize());
+  });
+}
+
+async function loadChartData() {
+  const res = await fetch('/api/chart-data');
+  const data = await res.json();
+  echartSiteData = data.chart_data || {};
+
+  const sel = document.getElementById('echart-site');
+  const sites = Object.keys(echartSiteData);
+  sel.innerHTML = '<option value="">Select a site...</option>' +
+    sites.map(s => `<option value="${s}">${s}</option>`).join('');
+
+  if (sites.length > 0) {
+    sel.value = sites[0];
+    echartCurrentSite = sites[0];
+    renderAllCharts(echartSiteData[sites[0]]);
+  }
+}
+
+function switchEChartsSite() {
+  const site = document.getElementById('echart-site').value;
+  if (!site) return;
+  echartCurrentSite = site;
+  if (echartSiteData[site]) renderAllCharts(echartSiteData[site]);
+}
+
+function renderAllCharts(d) {
+  if (!d) return;
+  renderTagPie(d.tag_distribution);
+  renderTrendLine(d.trends);
+  renderChangeBar(d.changes);
+  renderSentimentPie(d.sentiment_distribution);
+  renderSummary(d.summary);
+}
+
+function renderTagPie(data) {
+  const chart = echartInstances['chart-tag-pie'];
+  if (!chart) return;
+  chart.setOption({
+    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+    legend: { orient: 'vertical', right: 8, top: 'center',
+              textStyle: { color: '#94a3b8', fontSize: 10 } },
+    series: [{
+      type: 'pie', radius: ['40%', '72%'], center: ['38%', '50%'],
+      itemStyle: { borderRadius: 5, borderColor: '#1e293b', borderWidth: 2 },
+      label: { color: '#e2e8f0', fontSize: 10 },
+      data: data || [],
+    }],
+  }, true);
+}
+
+function renderTrendLine(data) {
+  const chart = echartInstances['chart-trend-line'];
+  if (!chart) return;
+  const counts = data.snapshot_counts || [];
+  const times = (data.snapshot_times || []).map(t => t.slice(0, 10));
+  chart.setOption({
+    tooltip: { trigger: 'axis' },
+    grid: { left: '3%', right: '4%', bottom: '12%', containLabel: true },
+    xAxis: { type: 'category', data: times, axisLabel: { color: '#94a3b8', rotate: 45, fontSize: 9 } },
+    yAxis: { type: 'value', axisLabel: { color: '#94a3b8' } },
+    series: [{
+      type: 'line', data: counts, smooth: true, symbol: 'circle', symbolSize: 8,
+      lineStyle: { color: '#38bdf8', width: 2 },
+      itemStyle: { color: '#38bdf8' },
+      areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+        { offset: 0, color: 'rgba(56,189,248,0.25)' },
+        { offset: 1, color: 'rgba(56,189,248,0.02)' }
+      ]) },
+      markLine: { silent: true, symbol: 'none',
+        data: [{ yAxis: data.recent_average, label: { formatter: 'Avg: {c}', color: '#f87171', fontSize: 10 },
+                 lineStyle: { color: '#f87171', type: 'dashed' } }],
+      },
+    }],
+  }, true);
+}
+
+function renderChangeBar(data) {
+  const chart = echartInstances['chart-change-bar'];
+  if (!chart) return;
+  chart.setOption({
+    tooltip: { trigger: 'axis' },
+    xAxis: { type: 'category', data: ['New', 'Removed', 'Modified'],
+             axisLabel: { color: '#94a3b8' } },
+    yAxis: { type: 'value', axisLabel: { color: '#94a3b8' } },
+    series: [{
+      type: 'bar',
+      data: [
+        { value: data.new || 0, itemStyle: { color: '#4ade80' } },
+        { value: data.removed || 0, itemStyle: { color: '#f87171' } },
+        { value: data.modified || 0, itemStyle: { color: '#fb923c' } },
+      ],
+      barWidth: '50%',
+      label: { show: true, position: 'top', color: '#e2e8f0', fontWeight: 'bold' },
+    }],
+  }, true);
+}
+
+function renderSentimentPie(data) {
+  const chart = echartInstances['chart-sentiment-pie'];
+  if (!chart) return;
+  const colorMap = { positive: '#4ade80', neutral: '#94a3b8', negative: '#f87171', unknown: '#475569' };
+  const colored = (data || []).map(d => ({
+    ...d, itemStyle: { color: colorMap[d.name] || '#475569' }
+  }));
+  chart.setOption({
+    tooltip: { trigger: 'item', formatter: '{b}: {c}' },
+    series: [{
+      type: 'pie', radius: '65%', center: ['50%', '50%'],
+      data: colored,
+      label: { color: '#e2e8f0', fontSize: 11 },
+    }],
+  }, true);
+}
+
+function renderSummary(s) {
+  const el = document.getElementById('chart-summary');
+  if (!el || !s) return;
+  const dirIcon = s.trend_direction === 'up' ? '\u2191' :
+                  s.trend_direction === 'down' ? '\u2193' : '\u2194';
+  const dirColor = s.trend_direction === 'up' ? 'var(--green)' :
+                   s.trend_direction === 'down' ? 'var(--red)' : 'var(--muted)';
+  el.innerHTML = `
+    <div class="stats" style="margin-bottom:8px">
+      <div class="stat"><div class="val">${s.current_count||0}</div><div class="lbl">Current</div></div>
+      <div class="stat"><div class="val">${s.previous_count||0}</div><div class="lbl">Previous</div></div>
+      <div class="stat"><div class="val">${s.total_changes||0}</div><div class="lbl">Changes</div></div>
+      <div class="stat"><div class="val" style="color:${dirColor}">${dirIcon} ${s.trend_direction||'stable'}</div><div class="lbl">Trend</div></div>
+      <div class="stat"><div class="val" style="color:var(--green)">+${s.new_count||0}</div><div class="lbl">New</div></div>
+      <div class="stat"><div class="val" style="color:var(--red)">-${s.removed_count||0}</div><div class="lbl">Removed</div></div>
+    </div>
+    ${s.llm_summary ? `<div style="padding:10px 14px;background:rgba(56,189,248,0.06);border-radius:8px;border-left:3px solid var(--accent);font-size:13px;color:var(--text);line-height:1.6">
+      <strong style="color:var(--accent)">AI Summary:</strong> ${s.llm_summary}</div>` : ''}
+    <div style="font-size:11px;color:var(--muted);margin-top:6px">Last update: ${(s.timestamp||'').slice(0,19)}</div>
+  `;
+}
+
+// ── PNG historical charts ──────────────────────────────────────────
 function showModal(src) {
   document.getElementById('modal-img').src = src;
   document.getElementById('modal').classList.add('show');
 }
-
-async function loadAll() { await Promise.all([loadStats(), loadCharts(), loadItems(), loadRuns()]); }
 
 async function loadStats() {
   const res = await fetch('/api/stats');
@@ -162,24 +371,13 @@ async function loadStats() {
     <div class="stat"><div class="val">${(data.sites||[]).length}</div><div class="lbl">Sites</div></div>
     <div class="stat"><div class="val">${lastRun}</div><div class="lbl">Last Run</div></div>`;
 
-  // Update site filters
-  const sites = data.sites || [];
   ['filter-site', 'run-site'].forEach(id => {
     const sel = document.getElementById(id);
     const val = sel.value;
     sel.innerHTML = '<option value="">All Sites</option>' +
-      sites.map(s => `<option value="${s}">${s}</option>`).join('');
+      (data.sites||[]).map(s => `<option value="${s}">${s}</option>`).join('');
     sel.value = val;
   });
-
-  // Tags filter
-  if (data.snapshots) {
-    const tags = new Set();
-    const tagSel = document.getElementById('filter-tag');
-    const tagVal = tagSel.value;
-    tagSel.innerHTML = '<option value="">All Tags</option>';
-    tagSel.value = tagVal;
-  }
 }
 
 async function loadCharts() {
@@ -187,14 +385,12 @@ async function loadCharts() {
   const data = await res.json();
   const tabs = document.getElementById('chart-tabs');
   const grid = document.getElementById('chart-grid');
-
   const sets = Object.keys(data);
-  if (!sets.length) { grid.innerHTML = '<div style="color:var(--muted)">No charts yet. Run a pipeline first.</div>'; return; }
+  if (!sets.length) { grid.innerHTML = '<div style="color:var(--muted)">No charts yet. Run a pipeline first.</div>'; tabs.innerHTML = ''; return; }
 
   tabs.innerHTML = sets.map((s, i) =>
     `<span class="tab${i===0?' active':''}" onclick="showChartSet('${s}')">${s}</span>`
   ).join('');
-
   showChartSet(sets[0]);
   window._chartData = data;
 }
@@ -204,31 +400,23 @@ function showChartSet(name) {
   const grid = document.getElementById('chart-grid');
   const files = data[name] || [];
   document.querySelectorAll('#chart-tabs .tab').forEach(t => t.classList.toggle('active', t.textContent === name));
-
-  if (!files.length) {
-    grid.innerHTML = '<div style="color:var(--muted)">No charts in this set.</div>';
-    return;
-  }
-  grid.innerHTML = files.map(f =>
-    `<img src="/charts/${name}/${f}" alt="${f}" onclick="showModal(this.src)" loading="lazy">`
-  ).join('');
+  grid.innerHTML = files.length
+    ? files.map(f => `<img src="/charts/${name}/${f}" alt="${f}" onclick="showModal(this.src)" loading="lazy">`).join('')
+    : '<div style="color:var(--muted)">No charts in this set.</div>';
 }
 
 async function loadItems() {
   const site = document.getElementById('filter-site').value;
   const tag = document.getElementById('filter-tag').value;
   const search = document.getElementById('filter-search').value;
-
   let url = `/api/query?limit=50`;
   if (site) url += `&site=${encodeURIComponent(site)}`;
   if (tag) url += `&tag=${encodeURIComponent(tag)}`;
-
   const res = await fetch(url);
   const data = await res.json();
   const items = (data.items || []).filter(it =>
     !search || it.title.toLowerCase().includes(search.toLowerCase())
   );
-
   document.getElementById('items-body').innerHTML = items.length
     ? items.map(it => `<tr>
         <td><a href="${it.url||'#'}" target="_blank" style="color:var(--accent)">${it.title.slice(0,60)}</a></td>
@@ -245,7 +433,6 @@ async function loadRuns() {
   const res = await fetch(url);
   const data = await res.json();
   const runs = data.runs || [];
-
   document.getElementById('runs-body').innerHTML = runs.length
     ? runs.slice(0, 30).map(r => `<tr class="run-row">
         <td style="color:var(--muted)">${(r.created_at||'').slice(0,19)}</td>
@@ -259,9 +446,14 @@ async function loadRuns() {
     : '<tr><td colspan="7" style="color:var(--muted)">No runs yet.</td></tr>';
 }
 
-// Init
-loadAll();
-setInterval(loadAll, 60000); // auto-refresh every 60s
+// ── Init ───────────────────────────────────────────────────────────
+initECharts();
+loadChartData();
+loadStats();
+loadCharts();
+loadItems();
+loadRuns();
+setInterval(() => { loadStats(); loadCharts(); loadItems(); loadRuns(); }, 60000);
 </script>
 </body>
 </html>

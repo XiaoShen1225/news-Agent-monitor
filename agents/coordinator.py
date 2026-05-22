@@ -88,9 +88,8 @@ class CoordinatorAgent(BaseAgent):
                     self.store.log_run(site_name, "skipped_no_change", processing_time_ms=elapsed)
                 return result
 
-            # Step 3: Parse (with site profile) — run in thread to avoid blocking event loop
-            parse_result = await asyncio.to_thread(
-                self.parser.run,
+            # Step 3: Parse (with site profile) — async for LLM strategy support
+            parse_result = await self.parser.run_async(
                 fetch_result["html"], site_name, url, profile,
             )
             items = parse_result["items"]

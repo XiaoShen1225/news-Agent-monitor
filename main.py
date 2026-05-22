@@ -254,12 +254,51 @@ async def _cmd_serve_async(config: dict, port: int):
     async def run_with_broadcast(url, site_name="default", use_browser=False, profile=None):
         result = await original_run(url, site_name, use_browser, profile)
         try:
+            report = result.get("report", {}) or {}
+            trends = report.get("trends", {}) or {}
+            # Build chart payload from live report for instant frontend update
+            chart_payload = {
+                "site_name": site_name,
+                "tag_distribution": [
+                    {"name": k, "value": v}
+                    for k, v in report.get("tag_distribution", {}).items()
+                ],
+                "trends": {
+                    "snapshot_counts": trends.get("snapshot_counts", []),
+                    "snapshot_times": trends.get("snapshot_times", []),
+                    "direction": trends.get("direction", "stable"),
+                    "recent_average": trends.get("recent_average", 0),
+                    "older_average": trends.get("older_average", 0),
+                },
+                "changes": {
+                    "new": len(report.get("new_items", [])),
+                    "removed": len(report.get("removed_items", [])),
+                    "modified": len(report.get("modified_items", [])),
+                },
+                "sentiment_distribution": [
+                    {"name": k, "value": v}
+                    for k, v in report.get("sentiment_distribution", {}).items()
+                ],
+                "summary": {
+                    "site_name": site_name,
+                    "timestamp": report.get("timestamp", ""),
+                    "current_count": report.get("current_count", 0),
+                    "previous_count": report.get("previous_count", 0),
+                    "total_changes": report.get("total_changes", 0),
+                    "trend_direction": trends.get("direction", "stable"),
+                    "llm_summary": report.get("llm_summary"),
+                    "new_count": len(report.get("new_items", [])),
+                    "removed_count": len(report.get("removed_items", [])),
+                    "modified_count": len(report.get("modified_items", [])),
+                },
+            }
             await ws_manager.broadcast({
                 "type": "pipeline_update",
                 "site_name": site_name,
                 "status": result.get("status"),
-                "items": result.get("report", {}).get("current_count", 0),
-                "time": result.get("report", {}).get("timestamp", ""),
+                "items": report.get("current_count", 0),
+                "time": report.get("timestamp", ""),
+                "chart_data": chart_payload,
             })
         except Exception:
             pass

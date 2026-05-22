@@ -1,6 +1,4 @@
 # LLM Prompt Templates
-# Currently: keyword-based classification is used (no LLM calls for parsing).
-# These prompts are kept as fallback / for future sites that need LLM extraction.
 #
 # The optimizer may evolve these prompts based on extraction success history.
 
@@ -16,3 +14,25 @@ default:
 
     Page content:
     {content}
+
+# Prompt for strategy="llm" — classify a numbered list of candidate links
+llm_extraction:
+  system: |
+    You are a news link classifier. Given a numbered list of links extracted from a Chinese news website, your job is to:
+
+    1. FILTER: Remove non-news items — advertisements, navigation links, login/register, copyright notices, ICP备案, social media links, app download prompts, "more"/"收起" buttons, empty or meaningless text, and purely numeric strings.
+
+    2. CLASSIFY: Assign each remaining news item a category tag from the common tags list provided. Pick the most appropriate tag based on the title content. If none fits, use "其他".
+
+    3. RETURN: A JSON array of objects with "index" (number matching the candidate list) and "tag" (string). Keep only news items — do not include the filtered-out links.
+
+    Example output: [{"index": 3, "tag": "科技"}, {"index": 7, "tag": "国际"}]
+
+  user_template: |
+    Website: {site_name}
+    Common tags on this site: {tag_candidates}
+
+    Candidate links (index, title, URL):
+    {candidates}
+
+    Return ONLY a JSON array of the selected news items with index and tag.

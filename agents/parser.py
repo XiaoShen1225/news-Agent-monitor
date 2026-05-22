@@ -1,11 +1,14 @@
 """ParserAgent: multi-strategy news link extraction + DOM-section-based tagging."""
 
+import asyncio
 import logging
 import re
 from collections import Counter
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urljoin
 
+import yaml
 from bs4 import BeautifulSoup, NavigableString
 
 from .base_agent import BaseAgent
@@ -33,6 +36,20 @@ _UNIVERSAL_NOISE = [
     re.compile(r"^关于我们"), re.compile(r"^广告"),
 ]
 
+_PROMPT_PATH = Path("prompts/extraction.yaml")
+_LLM_PROMPT_CACHE: Optional[dict] = None
+
+
+def _get_llm_prompts() -> dict:
+    global _LLM_PROMPT_CACHE
+    if _LLM_PROMPT_CACHE is None:
+        if _PROMPT_PATH.exists():
+            with open(_PROMPT_PATH, "r", encoding="utf-8") as f:
+                _LLM_PROMPT_CACHE = yaml.safe_load(f) or {}
+        else:
+            _LLM_PROMPT_CACHE = {}
+    return _LLM_PROMPT_CACHE
+
 
 class ParserAgent(BaseAgent):
     def __init__(self, config: dict):
@@ -44,8 +61,22 @@ class ParserAgent(BaseAgent):
         self, html: str, site_name: str = "default", page_url: str = "",
         profile: Optional[SiteProfile] = None,
     ) -> dict:
+        """Sync entry point. Delegates to run_async for LLM strategy."""
         profile_obj = profile or get_profile(site_name)
 
+        if profile_obj.strategy == "llm":
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return asyncio.run(self.run_async(html, site_name, page_url, profile_obj))
+            raise RuntimeError("Parser.run() with LLM strategy in async context — use run_async()")
+
+        return self._run_sync_impl(html, site_name, page_url, profile_obj)
+
+    def _run_sync_impl(
+        self, html: str, site_name: str, page_url: str, profile_obj: SiteProfile,
+    ) -> dict:
+        """Synchronous HTML parsing for section_walk / css_selector strategies."""
         self.min_title_len = profile_obj.min_title_len
         self.max_title_len = profile_obj.max_title_len
 
@@ -61,7 +92,130 @@ class ParserAgent(BaseAgent):
         else:
             raw_links = self._extract_section_walk(soup, page_url, profile_obj)
 
-        # Deduplicate by title
+        return self._build_result(raw_links)
+
+    # ── async LLM extraction ──────────────────────────────────────────
+
+    async def run_async(
+        self, html: str, site_name: str = "default", page_url: str = "",
+        profile: Optional[SiteProfile] = None,
+    ) -> dict:
+        """Async entry point for parsing (required for LLM strategy)."""
+        profile_obj = profile or get_profile(site_name)
+
+        if profile_obj.strategy != "llm":
+            return self._run_sync_impl(html, site_name, page_url, profile_obj)
+
+        self.min_title_len = profile_obj.min_title_len
+        self.max_title_len = profile_obj.max_title_len
+
+        logger.info(
+            "[Parser] LLM extraction for %s (%d bytes)",
+            site_name, len(html),
+        )
+
+        soup = BeautifulSoup(html, "lxml")
+        raw_links = await self._extract_llm_async(soup, page_url, profile_obj, site_name)
+        return self._build_result(raw_links)
+
+    def _extract_candidates(self, soup: BeautifulSoup, page_url: str,
+                            profile_obj: SiteProfile) -> list[dict]:
+        """Extract all <a> tag candidates from the page for LLM classification."""
+        candidates = []
+        seen = set()
+
+        for a_tag in soup.find_all("a"):
+            href = (a_tag.get("href") or "").strip()
+            if not href or href.startswith("javascript:") or href == "#":
+                continue
+            text = a_tag.get_text(strip=True)
+            if not text or len(text) < self.min_title_len or len(text) > self.max_title_len:
+                continue
+            # Pre-filter obvious noise
+            if any(p.search(text) for p in _UNIVERSAL_NOISE):
+                continue
+            if any(p.search(text) for p in SECTION_PATTERNS):
+                continue
+            if text in seen:
+                continue
+            seen.add(text)
+            full_url = urljoin(page_url, href) if page_url else href
+            candidates.append({"title": text, "url": full_url})
+
+        return candidates
+
+    async def _extract_llm_async(self, soup: BeautifulSoup, page_url: str,
+                                  profile_obj: SiteProfile, site_name: str) -> list:
+        """Extract news items via LLM: pre-filter candidates, send to LLM, parse result."""
+        candidates = self._extract_candidates(soup, page_url, profile_obj)
+
+        if not candidates:
+            logger.warning("[Parser] No candidate links found for LLM extraction.")
+            return []
+
+        # Build numbered candidate list for LLM prompt
+        lines = []
+        for i, c in enumerate(candidates, 1):
+            url_short = c["url"][:80]
+            lines.append(f"{i}. {c['title']} | {url_short}")
+        candidate_text = "\n".join(lines)
+
+        tag_candidates = profile_obj.llm_tag_candidates or [
+            "国内", "国际", "财经", "科技", "体育", "娱乐", "社会", "军事", "教育", "健康", "其他"
+        ]
+        tag_list = "、".join(tag_candidates)
+
+        prompts = _get_llm_prompts()
+        llm_cfg = prompts.get("llm_extraction", {})
+        system_prompt = llm_cfg.get("system", "You are a news link classifier.")
+        user_template = llm_cfg.get("user_template",
+            "Site: {site_name}\nTags: {tag_candidates}\nLinks:\n{candidates}\nReturn JSON array.")
+
+        user_prompt = user_template.format(
+            site_name=site_name,
+            tag_candidates=tag_list,
+            candidates=candidate_text,
+        )
+
+        logger.info("[Parser] Sending %d candidates to LLM for classification.", len(candidates))
+        response = await self.call_llm_async(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0.0,
+            max_tokens=1500,
+        )
+
+        # Parse LLM response
+        try:
+            selections = self.parse_json_response(response)
+        except ValueError as e:
+            logger.warning("[Parser] LLM extraction parse failed: %s", e)
+            return []
+
+        if not isinstance(selections, list):
+            logger.warning("[Parser] LLM returned non-list response: %s", type(selections))
+            return []
+
+        # Map indices back to candidates
+        result = []
+        for sel in selections:
+            if not isinstance(sel, dict):
+                continue
+            idx = sel.get("index", -1) - 1  # 1-based to 0-based
+            if 0 <= idx < len(candidates):
+                result.append({
+                    "title": candidates[idx]["title"],
+                    "url": candidates[idx]["url"],
+                    "tag": sel.get("tag", "其他"),
+                })
+
+        logger.info("[Parser] LLM classified %d/%d candidates as news.", len(result), len(candidates))
+        return result
+
+    # ── shared ────────────────────────────────────────────────────────
+
+    def _build_result(self, raw_links: list) -> dict:
+        """Deduplicate by title and build standard result dict."""
         seen_titles = set()
         unique_links = []
         for link in raw_links:

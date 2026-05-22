@@ -151,8 +151,12 @@ class TestCssStrategy:
 </body></html>"""
 
     def test_css_selector_extraction(self, agent):
-        result = agent.run(self.CSS_HTML, site_name="thepaper",
-                          page_url="https://www.thepaper.cn")
+        from agents.site_profiles import SiteProfile
+        custom = SiteProfile(name="test_css", display_name="Test", strategy="css_selector",
+                           article_selector="div.news_li", fixed_tag="新闻",
+                           min_title_len=4)
+        result = agent.run(self.CSS_HTML, site_name="test_css",
+                          page_url="https://example.com", profile=custom)
         items = result["items"]
         assert len(items) >= 2
         for item in items:
