@@ -453,8 +453,10 @@ async def api_summarize(
     try:
         # Step 1: fetch article HTML with browser-like headers
         import httpx
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or None
         async with httpx.AsyncClient(
             timeout=15.0, follow_redirects=True,
+            proxy=proxy,
             headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",

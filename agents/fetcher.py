@@ -65,8 +65,11 @@ class FetcherAgent(BaseAgent):
         }
 
     async def _fetch_static(self, url: str) -> str:
+        import os
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or None
         async with httpx.AsyncClient(
-            timeout=self.timeout, headers=HEADERS, follow_redirects=True
+            timeout=self.timeout, headers=HEADERS, follow_redirects=True,
+            proxy=proxy,
         ) as client:
             response = await client.get(url)
             response.raise_for_status()
