@@ -36,11 +36,6 @@ targets:
     interval_minutes: 360
     use_browser: false
 
-  - url: "https://ai.googleblog.com/feeds/posts/default"
-    name: "google_ai_blog"
-    interval_minutes: 360
-    use_browser: false
-
 # Scheduler settings
 scheduler:
   default_interval_minutes: 60

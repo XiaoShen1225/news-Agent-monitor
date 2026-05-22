@@ -196,7 +196,6 @@
       <div class="stat"><div class="val" id="papers-total">--</div><div class="lbl">Total Papers</div></div>
       <div class="stat"><div class="val" id="papers-deepmind">--</div><div class="lbl">DeepMind</div></div>
       <div class="stat"><div class="val" id="papers-openai">--</div><div class="lbl">OpenAI</div></div>
-      <div class="stat"><div class="val" id="papers-googleai">--</div><div class="lbl">Google AI</div></div>
     </div>
   </section>
 
@@ -671,8 +670,6 @@ async function loadPapers(page) {
   const sources = data.sources || {};
   document.getElementById('papers-deepmind').textContent = sources['deepmind_blog'] || 0;
   document.getElementById('papers-openai').textContent = sources['openai_blog'] || 0;
-  document.getElementById('papers-googleai').textContent = sources['google_ai_blog'] || 0;
-
   const sel = document.getElementById('paper-filter-source');
   if (sel.options.length <= 1) {
     sel.innerHTML = '<option value="">All Sources</option>' +

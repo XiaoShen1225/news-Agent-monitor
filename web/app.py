@@ -217,7 +217,7 @@ async def api_papers(
     """Query papers/articles from article-type sources."""
     conn = _get_db()
     try:
-        article_sources = ["deepmind_blog", "openai_blog", "google_ai_blog"]
+        article_sources = ["deepmind_blog", "openai_blog"]
         if site:
             source_list = [site] if site in article_sources else article_sources
         else:

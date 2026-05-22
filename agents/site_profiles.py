@@ -169,29 +169,12 @@ OPENAI_BLOG = SiteProfile(
     rss_date_tag="pubDate",
 )
 
-GOOGLE_AI_BLOG = SiteProfile(
-    name="google_ai_blog",
-    display_name="Google AI Blog",
-    domain_patterns=["ai.googleblog.com", "blogger.com", "blogspot.com"],
-    use_browser=False,
-    strategy="rss",
-    is_article_source=True,
-    fixed_tag="AI研究",
-    min_title_len=2,
-    rss_item_tag="entry",  # Atom format
-    rss_title_tag="title",
-    rss_link_tag="link",
-    rss_summary_tag="summary",
-    rss_date_tag="published",
-)
-
 # Registry
 BUILTIN_PROFILES: dict[str, SiteProfile] = {
     "baidu_news": BAIDU_NEWS,
     "sina_news": SINA_NEWS,
     "deepmind_blog": DEEPMIND_BLOG,
     "openai_blog": OPENAI_BLOG,
-    "google_ai_blog": GOOGLE_AI_BLOG,
 }
 
 
