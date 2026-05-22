@@ -1,10 +1,14 @@
 """Vector store for news items using ChromaDB + sentence-transformers embeddings."""
 
 import logging
+import os
 from pathlib import Path
 
 import chromadb
 from chromadb.utils import embedding_functions
+
+# Use HF mirror for China if no endpoint set
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 logger = logging.getLogger(__name__)
 
