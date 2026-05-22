@@ -52,6 +52,15 @@ logging.basicConfig(
 logger = logging.getLogger("main")
 
 
+def _safe_vector_store(config: dict):
+    """Create VectorStore, swallowing errors so app starts without it."""
+    try:
+        return VectorStore(config.get("storage", {}).get("vector_dir", "data/vector_db"))
+    except Exception:
+        logger.warning("VectorStore init failed, semantic search disabled", exc_info=True)
+        return None
+
+
 _ENV_PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
 
 def _resolve_env(value):
@@ -129,7 +138,7 @@ def cmd_once(config: dict, url: str, name: str):
             break
 
     notifiers = create_notifiers(config)
-    vector_store = VectorStore(config.get("storage", {}).get("vector_dir", "data/vector_db"))
+    vector_store = _safe_vector_store(config)
     coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers, vector_store=vector_store)
     result = coordinator.run(url, name, use_browser=use_browser)
 
@@ -152,7 +161,7 @@ async def _cmd_schedule_async(config: dict):
     memory = EvolutionMemory()
     optimizer = EvolutionOptimizer(config, memory) if config.get("evolution", {}).get("enabled") else None
     notifiers = create_notifiers(config)
-    vector_store = VectorStore(config.get("storage", {}).get("vector_dir", "data/vector_db"))
+    vector_store = _safe_vector_store(config)
     coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers, vector_store=vector_store)
 
     scheduler = AsyncIOScheduler()
@@ -231,7 +240,7 @@ async def _cmd_serve_async(config: dict, port: int):
     memory = EvolutionMemory()
     optimizer = EvolutionOptimizer(config, memory) if config.get("evolution", {}).get("enabled") else None
     notifiers = create_notifiers(config)
-    vector_store = VectorStore(config.get("storage", {}).get("vector_dir", "data/vector_db"))
+    vector_store = _safe_vector_store(config)
     coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers, vector_store=vector_store)
 
     targets = config.get("targets", [])

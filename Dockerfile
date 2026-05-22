@@ -20,6 +20,9 @@ RUN playwright install-deps chromium
 # Tell Playwright where to find the system Chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
+# HuggingFace mirror for downloading embedding models in CN
+ENV HF_ENDPOINT=https://hf-mirror.com
+
 # Copy project
 COPY . .
 
