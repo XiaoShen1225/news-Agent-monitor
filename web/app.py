@@ -2,7 +2,6 @@
 
 import logging
 import sqlite3
-from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -18,6 +17,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 CHARTS_DIR = OUTPUTS_DIR / "charts"
 DB_PATH = PROJECT_ROOT / "data" / "monitor.db"
+PAPERS_DB_PATH = PROJECT_ROOT / "data" / "papers.db"
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 VECTOR_DB_DIR = PROJECT_ROOT / "data" / "vector_db"
 
@@ -25,8 +25,14 @@ app = FastAPI(title="News Agent Monitor", version="0.6.0")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 # Mount chart directories as static
-for chart_set in ["today", "yesterday", "two_days_ago", "one_week_ago",
-                   "one_month_ago", "total"]:
+for chart_set in [
+    "today",
+    "yesterday",
+    "two_days_ago",
+    "one_week_ago",
+    "one_month_ago",
+    "total",
+]:
     chart_dir = CHARTS_DIR / chart_set
     chart_dir.mkdir(parents=True, exist_ok=True)
     app.mount(
@@ -37,6 +43,7 @@ for chart_set in ["today", "yesterday", "two_days_ago", "one_week_ago",
 
 
 # ── WebSocket manager ──────────────────────────────────────────────
+
 
 class ConnectionManager:
     def __init__(self):
@@ -71,14 +78,22 @@ def _get_vector_store():
     global _shared_vector_store
     if _shared_vector_store is None:
         from data.vector_store import VectorStore
+
         _shared_vector_store = VectorStore(str(VECTOR_DB_DIR))
     return _shared_vector_store
 
 
 # ── helpers ────────────────────────────────────────────────────────
 
+
 def _get_db():
     conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _get_papers_db():
+    conn = sqlite3.connect(str(PAPERS_DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -98,6 +113,7 @@ def _get_sites() -> list:
 def _get_data_store():
     """Create a DataStore instance pointing at the project data dirs."""
     from data.store import DataStore
+
     return DataStore(
         history_dir=str(PROJECT_ROOT / "data" / "history"),
         db_path=str(DB_PATH),
@@ -132,8 +148,10 @@ def _build_chart_data(site_name: str, store) -> dict:
     for item in items:
         t = item.get("tag", "其他") or "其他"
         tag_dist[t] = tag_dist.get(t, 0) + 1
-    tag_list = [{"name": k, "value": v} for k, v in
-                sorted(tag_dist.items(), key=lambda x: x[1], reverse=True)]
+    tag_list = [
+        {"name": k, "value": v}
+        for k, v in sorted(tag_dist.items(), key=lambda x: x[1], reverse=True)
+    ]
 
     # Trends from all snapshots
     all_snaps = store.get_all_snapshots(site_name)
@@ -145,7 +163,7 @@ def _build_chart_data(site_name: str, store) -> dict:
     older_avg = 0
     if len(counts) >= 2:
         recent_avg = sum(counts[-3:]) / min(3, len(counts[-3:]))
-        older_avg = sum(counts[:max(1, len(counts) - 3)]) / max(1, len(counts) - 3)
+        older_avg = sum(counts[: max(1, len(counts) - 3)]) / max(1, len(counts) - 3)
         if recent_avg > older_avg * 1.1:
             direction = "up"
         elif recent_avg < older_avg * 0.9:
@@ -179,7 +197,9 @@ def _build_chart_data(site_name: str, store) -> dict:
             "site_name": site_name,
             "timestamp": snap.get("timestamp", ""),
             "current_count": len(items),
-            "previous_count": all_snaps[-2].get("items_count", 0) if len(all_snaps) >= 2 else 0,
+            "previous_count": all_snaps[-2].get("items_count", 0)
+            if len(all_snaps) >= 2
+            else 0,
             "total_changes": changes["new"] + changes["removed"] + changes["modified"],
             "trend_direction": direction,
             "llm_summary": update_summary,
@@ -191,6 +211,7 @@ def _build_chart_data(site_name: str, store) -> dict:
 
 
 # ── REST API ───────────────────────────────────────────────────────
+
 
 @app.get("/api/targets")
 async def api_targets():
@@ -214,8 +235,8 @@ async def api_papers(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    """Query papers/articles from article-type sources."""
-    conn = _get_db()
+    """Query papers/articles from article-type sources (uses separate papers.db)."""
+    conn = _get_papers_db()
     try:
         article_sources = ["deepmind_blog", "openai_blog"]
         if site:
@@ -224,7 +245,9 @@ async def api_papers(
             source_list = article_sources
 
         placeholders = ",".join("?" for _ in source_list)
-        count_query = f"SELECT COUNT(*) FROM news_items WHERE site_name IN ({placeholders})"
+        count_query = (
+            f"SELECT COUNT(*) FROM news_items WHERE site_name IN ({placeholders})"
+        )
         total_row = conn.execute(count_query, source_list).fetchone()
         total = total_row[0] if total_row else 0
 
@@ -265,8 +288,12 @@ async def api_schedule_status():
             {
                 "name": t.get("name", ""),
                 "url": t.get("url", ""),
-                "interval_minutes": t.get("interval_minutes", scheduler_cfg.get("default_interval_minutes", 60)),
-                "is_article": t.get("name", "") in ["deepmind_blog", "openai_blog", "google_ai_blog"],
+                "interval_minutes": t.get(
+                    "interval_minutes",
+                    scheduler_cfg.get("default_interval_minutes", 60),
+                ),
+                "is_article": t.get("name", "")
+                in ["deepmind_blog", "openai_blog", "google_ai_blog"],
             }
             for t in targets
         ],
@@ -394,8 +421,14 @@ async def api_search(
 @app.get("/api/charts")
 async def api_charts():
     chart_sets = {}
-    for cs in ["today", "yesterday", "two_days_ago",
-               "one_week_ago", "one_month_ago", "total"]:
+    for cs in [
+        "today",
+        "yesterday",
+        "two_days_ago",
+        "one_week_ago",
+        "one_month_ago",
+        "total",
+    ]:
         chart_dir = CHARTS_DIR / cs
         if chart_dir.exists():
             files = sorted(
@@ -446,15 +479,19 @@ async def api_summarize(
         "llm": {
             "api_key": api_key,
             "model": os.environ.get("ZHIPU_MODEL", "glm-4-flash"),
-            "base_url": os.environ.get("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"),
+            "base_url": os.environ.get(
+                "ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"
+            ),
         }
     }
 
     try:
         # Step 1: fetch article HTML with browser-like headers
         import httpx
+
         async with httpx.AsyncClient(
-            timeout=15.0, follow_redirects=True,
+            timeout=15.0,
+            follow_redirects=True,
             headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -479,6 +516,7 @@ async def api_summarize(
 
         # Step 2: extract text from HTML
         from bs4 import BeautifulSoup
+
         soup = BeautifulSoup(html, "lxml")
         # Remove script/style/nav/footer
         for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
@@ -497,7 +535,11 @@ async def api_summarize(
             fallback=None,
         )
 
-        return {"url": url, "title": title, "summary": summary or "摘要生成失败，请稍后重试。"}
+        return {
+            "url": url,
+            "title": title,
+            "summary": summary or "摘要生成失败，请稍后重试。",
+        }
 
     except Exception as e:
         logger.warning("[API] Summarize failed for %s: %s", url, e)
@@ -533,8 +575,12 @@ async def api_trigger_run(
         return {
             "status": result.get("status"),
             "site_name": site,
-            "items_found": result.get("report", {}).get("current_count", 0) if result.get("report") else 0,
-            "timestamp": result.get("report", {}).get("timestamp", "") if result.get("report") else "",
+            "items_found": result.get("report", {}).get("current_count", 0)
+            if result.get("report")
+            else 0,
+            "timestamp": result.get("report", {}).get("timestamp", "")
+            if result.get("report")
+            else "",
         }
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -542,21 +588,43 @@ async def api_trigger_run(
 
 @app.post("/api/reset")
 async def api_reset(site: str = Query(..., min_length=1)):
-    """Reset all history for a site."""
+    """Reset all history for a site (checks both news and papers DBs)."""
     import sqlite3
-    db_path = _config.get("storage", {}).get("db_path", "data/monitor.db") if _config else str(DB_PATH)
+
+    paper_sources = {"deepmind_blog", "openai_blog"}
+    is_paper = site in paper_sources
+
+    db_paths = (
+        [str(PAPERS_DB_PATH)]
+        if is_paper
+        else [
+            _config.get("storage", {}).get("db_path", "data/monitor.db")
+            if _config
+            else str(DB_PATH),
+            str(PAPERS_DB_PATH),
+        ]
+    )
     try:
-        with sqlite3.connect(db_path) as conn:
-            conn.execute("DELETE FROM news_items WHERE site_name = ?", (site,))
-            conn.execute("DELETE FROM snapshots WHERE site_name = ?", (site,))
-            conn.execute("DELETE FROM run_logs WHERE site_name = ?", (site,))
-            conn.commit()
-        return {"status": "ok", "site_name": site, "message": f"Reset history for {site}"}
+        for db_path in db_paths:
+            try:
+                with sqlite3.connect(db_path) as conn:
+                    conn.execute("DELETE FROM news_items WHERE site_name = ?", (site,))
+                    conn.execute("DELETE FROM snapshots WHERE site_name = ?", (site,))
+                    conn.execute("DELETE FROM run_logs WHERE site_name = ?", (site,))
+                    conn.commit()
+            except Exception:
+                pass
+        return {
+            "status": "ok",
+            "site_name": site,
+            "message": f"Reset history for {site}",
+        }
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # ── WebSocket ──────────────────────────────────────────────────────
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -565,7 +633,9 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             data = await websocket.receive_text()
             if data == "ping":
-                await websocket.send_json({"type": "pong", "time": datetime.now().isoformat()})
+                await websocket.send_json(
+                    {"type": "pong", "time": datetime.now().isoformat()}
+                )
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
 
@@ -577,6 +647,7 @@ async def broadcast_pipeline_update(data: dict):
 
 # ── Dashboard page ─────────────────────────────────────────────────
 
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     return templates.TemplateResponse(request, "dashboard.html")
@@ -584,6 +655,8 @@ async def dashboard(request: Request):
 
 @app.get("/favicon.ico")
 async def favicon():
-    return FileResponse(str(PROJECT_ROOT / "web" / "templates" / "favicon.ico")) \
-        if (PROJECT_ROOT / "web" / "templates" / "favicon.ico").exists() \
+    return (
+        FileResponse(str(PROJECT_ROOT / "web" / "templates" / "favicon.ico"))
+        if (PROJECT_ROOT / "web" / "templates" / "favicon.ico").exists()
         else JSONResponse({}, status_code=404)
+    )

@@ -22,6 +22,7 @@ import yaml
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+
 # Load .env file
 def _load_dotenv():
     env_file = PROJECT_ROOT / ".env"
@@ -34,6 +35,7 @@ def _load_dotenv():
                     key, value = key.strip(), value.strip()
                     if key not in os.environ:
                         os.environ[key] = value
+
 
 _load_dotenv()
 
@@ -55,25 +57,33 @@ logger = logging.getLogger("main")
 def _safe_vector_store(config: dict):
     """Create VectorStore, swallowing errors so app starts without it."""
     try:
-        return VectorStore(config.get("storage", {}).get("vector_dir", "data/vector_db"))
+        return VectorStore(
+            config.get("storage", {}).get("vector_dir", "data/vector_db")
+        )
     except Exception:
-        logger.warning("VectorStore init failed, semantic search disabled", exc_info=True)
+        logger.warning(
+            "VectorStore init failed, semantic search disabled", exc_info=True
+        )
         return None
 
 
 _ENV_PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
 
+
 def _resolve_env(value):
     """Recursively resolve ${VAR} placeholders in config values."""
     if isinstance(value, str):
+
         def _repl(m):
             return os.environ.get(m.group(1), "")
+
         return _ENV_PLACEHOLDER.sub(_repl, value)
     if isinstance(value, dict):
         return {k: _resolve_env(v) for k, v in value.items()}
     if isinstance(value, list):
         return [_resolve_env(v) for v in value]
     return value
+
 
 def load_config(config_path: str = "config.yaml") -> dict:
     with open(config_path, "r", encoding="utf-8") as f:
@@ -100,9 +110,11 @@ def print_summary(result: dict, charts: dict = None):
 
     if report:
         print(f"  Items extracted: {report.get('current_count', 0)}")
-        print(f"  New: {len(report.get('new_items', []))}  "
-              f"Removed: {len(report.get('removed_items', []))}  "
-              f"Modified: {len(report.get('modified_items', []))}")
+        print(
+            f"  New: {len(report.get('new_items', []))}  "
+            f"Removed: {len(report.get('removed_items', []))}  "
+            f"Modified: {len(report.get('modified_items', []))}"
+        )
         print(f"  Trend direction: {report.get('trends', {}).get('direction', 'N/A')}")
         print(f"  Tag distribution: {report.get('tag_distribution', {})}")
 
@@ -122,13 +134,19 @@ def print_summary(result: dict, charts: dict = None):
 
 def cmd_once(config: dict, url: str, name: str):
     """Run a single monitoring pass."""
-    store = DataStore(
-        history_dir=config.get("storage", {}).get("history_dir", "data/history"),
-        db_path=config.get("storage", {}).get("db_path", "data/monitor.db"),
+    storage = config.get("storage", {})
+    news_store = DataStore(
+        history_dir=storage.get("history_dir", "data/history"),
+        db_path=storage.get("db_path", "data/monitor.db"),
     )
+    paper_store = DataStore(source_type="paper")
 
     memory = EvolutionMemory()
-    optimizer = EvolutionOptimizer(config, memory) if config.get("evolution", {}).get("enabled") else None
+    optimizer = (
+        EvolutionOptimizer(config, memory)
+        if config.get("evolution", {}).get("enabled")
+        else None
+    )
 
     # Look up target config for use_browser etc.
     use_browser = False
@@ -139,7 +157,14 @@ def cmd_once(config: dict, url: str, name: str):
 
     notifiers = create_notifiers(config)
     vector_store = _safe_vector_store(config)
-    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers, vector_store=vector_store)
+    coordinator = CoordinatorAgent(
+        config,
+        data_store=news_store,
+        paper_store=paper_store,
+        evolution=optimizer,
+        notifiers=notifiers,
+        vector_store=vector_store,
+    )
     result = coordinator.run(url, name, use_browser=use_browser)
 
     print_summary(result, result.get("charts"))
@@ -154,15 +179,28 @@ def cmd_schedule(config: dict):
 async def _cmd_schedule_async(config: dict):
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-    store = DataStore(
-        history_dir=config.get("storage", {}).get("history_dir", "data/history"),
-        db_path=config.get("storage", {}).get("db_path", "data/monitor.db"),
+    storage = config.get("storage", {})
+    news_store = DataStore(
+        history_dir=storage.get("history_dir", "data/history"),
+        db_path=storage.get("db_path", "data/monitor.db"),
     )
+    paper_store = DataStore(source_type="paper")
     memory = EvolutionMemory()
-    optimizer = EvolutionOptimizer(config, memory) if config.get("evolution", {}).get("enabled") else None
+    optimizer = (
+        EvolutionOptimizer(config, memory)
+        if config.get("evolution", {}).get("enabled")
+        else None
+    )
     notifiers = create_notifiers(config)
     vector_store = _safe_vector_store(config)
-    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers, vector_store=vector_store)
+    coordinator = CoordinatorAgent(
+        config,
+        data_store=news_store,
+        paper_store=paper_store,
+        evolution=optimizer,
+        notifiers=notifiers,
+        vector_store=vector_store,
+    )
 
     scheduler = AsyncIOScheduler()
     targets = config.get("targets", [])
@@ -182,7 +220,9 @@ async def _cmd_schedule_async(config: dict):
             if isinstance(result, Exception):
                 logger.error("Initial fetch for '%s' failed: %s", name, result)
             else:
-                logger.info("Initial fetch for '%s': %s", name, result.get("status", "?"))
+                logger.info(
+                    "Initial fetch for '%s': %s", name, result.get("status", "?")
+                )
     except Exception as e:
         logger.error("Initial batch fetch failed: %s", e)
 
@@ -200,14 +240,18 @@ async def _cmd_schedule_async(config: dict):
             id=f"monitor_{target['name']}",
             name=f"Monitor {target['name']}",
         )
-        logger.info("Scheduled '%s': every %d min → %s", target["name"], interval, target["url"])
+        logger.info(
+            "Scheduled '%s': every %d min → %s", target["name"], interval, target["url"]
+        )
 
     logger.info("Scheduler started. Press Ctrl+C to stop.")
     print("\n" + "=" * 60)
     print("  Monitor Running")
     print("=" * 60)
     for t in targets:
-        print(f"  {t['name']}: every {t.get('interval_minutes', default_interval)} min → {t['url']}")
+        print(
+            f"  {t['name']}: every {t.get('interval_minutes', default_interval)} min → {t['url']}"
+        )
     print("  Press Ctrl+C to stop")
     print("=" * 60 + "\n")
 
@@ -233,15 +277,28 @@ async def _cmd_serve_async(config: dict, port: int):
     import uvicorn
     from web.app import app, ws_manager, set_runtime_refs
 
-    store = DataStore(
-        history_dir=config.get("storage", {}).get("history_dir", "data/history"),
-        db_path=config.get("storage", {}).get("db_path", "data/monitor.db"),
+    storage = config.get("storage", {})
+    news_store = DataStore(
+        history_dir=storage.get("history_dir", "data/history"),
+        db_path=storage.get("db_path", "data/monitor.db"),
     )
+    paper_store = DataStore(source_type="paper")
     memory = EvolutionMemory()
-    optimizer = EvolutionOptimizer(config, memory) if config.get("evolution", {}).get("enabled") else None
+    optimizer = (
+        EvolutionOptimizer(config, memory)
+        if config.get("evolution", {}).get("enabled")
+        else None
+    )
     notifiers = create_notifiers(config)
     vector_store = _safe_vector_store(config)
-    coordinator = CoordinatorAgent(config, data_store=store, evolution=optimizer, notifiers=notifiers, vector_store=vector_store)
+    coordinator = CoordinatorAgent(
+        config,
+        data_store=news_store,
+        paper_store=paper_store,
+        evolution=optimizer,
+        notifiers=notifiers,
+        vector_store=vector_store,
+    )
     set_runtime_refs(coordinator, config)
 
     targets = config.get("targets", [])
@@ -252,7 +309,9 @@ async def _cmd_serve_async(config: dict, port: int):
     # Patch coordinator to broadcast after each run
     original_run = coordinator.run_async
 
-    async def run_with_broadcast(url, site_name="default", use_browser=False, profile=None):
+    async def run_with_broadcast(
+        url, site_name="default", use_browser=False, profile=None
+    ):
         result = await original_run(url, site_name, use_browser, profile)
         try:
             report = result.get("report", {}) or {}
@@ -291,14 +350,16 @@ async def _cmd_serve_async(config: dict, port: int):
                     "modified_count": len(report.get("modified_items", [])),
                 },
             }
-            await ws_manager.broadcast({
-                "type": "pipeline_update",
-                "site_name": site_name,
-                "status": result.get("status"),
-                "items": report.get("current_count", 0),
-                "time": report.get("timestamp", ""),
-                "chart_data": chart_payload,
-            })
+            await ws_manager.broadcast(
+                {
+                    "type": "pipeline_update",
+                    "site_name": site_name,
+                    "status": result.get("status"),
+                    "items": report.get("current_count", 0),
+                    "time": report.get("timestamp", ""),
+                    "chart_data": chart_payload,
+                }
+            )
         except Exception:
             pass
         return result
@@ -306,15 +367,19 @@ async def _cmd_serve_async(config: dict, port: int):
     coordinator.run_async = run_with_broadcast
 
     async def run_all_with_broadcast():
-        return await asyncio.gather(*[
-            run_with_broadcast(t["url"], t["name"], t.get("use_browser", False))
-            for t in targets
-        ], return_exceptions=True)
+        return await asyncio.gather(
+            *[
+                run_with_broadcast(t["url"], t["name"], t.get("use_browser", False))
+                for t in targets
+            ],
+            return_exceptions=True,
+        )
 
     coordinator.run_all_targets_async = run_all_with_broadcast
 
     # Start scheduler in background task
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
     scheduler = AsyncIOScheduler()
     default_interval = config.get("scheduler", {}).get("default_interval_minutes", 60)
 
@@ -346,7 +411,9 @@ async def _cmd_serve_async(config: dict, port: int):
     print(f"  API Docs:  http://localhost:{port}/docs")
     print("=" * 60)
     for t in targets:
-        print(f"  {t['name']}: every {t.get('interval_minutes', default_interval)} min → {t['url']}")
+        print(
+            f"  {t['name']}: every {t.get('interval_minutes', default_interval)} min → {t['url']}"
+        )
     print("=" * 60 + "\n")
 
     config_obj = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
@@ -356,9 +423,11 @@ async def _cmd_serve_async(config: dict, port: int):
 
 def cmd_stats(config: dict, name: str):
     """Show statistics for a monitored site."""
+    storage = config.get("storage", {})
     store = DataStore(
-        history_dir=config.get("storage", {}).get("history_dir", "data/history"),
-        db_path=config.get("storage", {}).get("db_path", "data/monitor.db"),
+        history_dir=storage.get("history_dir"),
+        db_path=storage.get("db_path"),
+        source_type="news",
     )
     memory = EvolutionMemory()
 
@@ -380,9 +449,15 @@ def cmd_stats(config: dict, name: str):
     if runs:
         print("\n  Recent runs:")
         for r in runs[:10]:
-            status_icon = "✓" if r["status"] == "success" else ("○" if "skip" in r["status"] else "✗")
-            print(f"    {status_icon} {r['created_at']} | items={r['items_found']} "
-                  f"changes={r['changes_detected']} conf={r['extraction_confidence']:.2f}")
+            status_icon = (
+                "✓"
+                if r["status"] == "success"
+                else ("○" if "skip" in r["status"] else "✗")
+            )
+            print(
+                f"    {status_icon} {r['created_at']} | items={r['items_found']} "
+                f"changes={r['changes_detected']} conf={r['extraction_confidence']:.2f}"
+            )
 
     # Latest snapshot
     snap = store.get_last_snapshot(name)
@@ -394,28 +469,52 @@ def cmd_stats(config: dict, name: str):
 
 
 def cmd_reset(config: dict, name: str):
-    """Reset history for a site."""
+    """Reset history for a site (checks both news and paper databases)."""
     import sqlite3
-    db_path = config.get("storage", {}).get("db_path", "data/monitor.db")
-    with sqlite3.connect(db_path) as conn:
-        conn.execute("DELETE FROM news_items WHERE site_name = ?", (name,))
-        conn.execute("DELETE FROM snapshots WHERE site_name = ?", (name,))
-        conn.execute("DELETE FROM run_logs WHERE site_name = ?", (name,))
-        conn.commit()
+
+    paper_sources = {"deepmind_blog", "openai_blog"}
+    is_paper = name in paper_sources
+
+    storage = config.get("storage", {})
+    if is_paper:
+        db_paths = ["data/papers.db"]
+    else:
+        db_paths = [storage.get("db_path", "data/monitor.db"), "data/papers.db"]
+
+    for db_path in db_paths:
+        try:
+            with sqlite3.connect(db_path) as conn:
+                conn.execute("DELETE FROM news_items WHERE site_name = ?", (name,))
+                conn.execute("DELETE FROM snapshots WHERE site_name = ?", (name,))
+                conn.execute("DELETE FROM run_logs WHERE site_name = ?", (name,))
+                conn.commit()
+        except Exception:
+            pass
     print(f"Reset history for: {name}")
 
 
-def cmd_query(config: dict, name: str, tag: str = None, date_from: str = None,
-              date_to: str = None, limit: int = 100):
+def cmd_query(
+    config: dict,
+    name: str,
+    tag: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    limit: int = 100,
+):
     """Query news items from the database."""
+    storage = config.get("storage", {})
     store = DataStore(
-        history_dir=config.get("storage", {}).get("history_dir", "data/history"),
-        db_path=config.get("storage", {}).get("db_path", "data/monitor.db"),
+        history_dir=storage.get("history_dir"),
+        db_path=storage.get("db_path"),
+        source_type="news",
     )
 
     items = store.query_items(
         site_name=name if name != "default" else None,
-        tag=tag, date_from=date_from, date_to=date_to, limit=limit,
+        tag=tag,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
     )
 
     if not items:
@@ -424,6 +523,7 @@ def cmd_query(config: dict, name: str, tag: str = None, date_from: str = None,
 
     # Tag distribution
     from collections import Counter
+
     tags = Counter(it["tag"] for it in items)
 
     print("\n" + "=" * 60)
@@ -451,18 +551,32 @@ def main():
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
     parser.add_argument("--once", action="store_true", help="Run once and exit")
     parser.add_argument("--schedule", action="store_true", help="Run in scheduled mode")
-    parser.add_argument("--serve", action="store_true", help="Start web dashboard + scheduler")
-    parser.add_argument("--port", type=int, default=8080, help="Dashboard port (default: 8080)")
+    parser.add_argument(
+        "--serve", action="store_true", help="Start web dashboard + scheduler"
+    )
+    parser.add_argument(
+        "--port", type=int, default=8080, help="Dashboard port (default: 8080)"
+    )
     parser.add_argument("--stats", action="store_true", help="Show statistics")
     parser.add_argument("--reset", action="store_true", help="Reset history for a site")
-    parser.add_argument("--query", action="store_true", help="Query news items from database")
+    parser.add_argument(
+        "--query", action="store_true", help="Query news items from database"
+    )
     parser.add_argument("--tag", help="Filter by tag (for --query)")
-    parser.add_argument("--from", dest="date_from", help="Filter from date YYYY-MM-DD (for --query)")
-    parser.add_argument("--to", dest="date_to", help="Filter to date YYYY-MM-DD (for --query)")
-    parser.add_argument("--limit", type=int, default=100, help="Max items to return (for --query)")
+    parser.add_argument(
+        "--from", dest="date_from", help="Filter from date YYYY-MM-DD (for --query)"
+    )
+    parser.add_argument(
+        "--to", dest="date_to", help="Filter to date YYYY-MM-DD (for --query)"
+    )
+    parser.add_argument(
+        "--limit", type=int, default=100, help="Max items to return (for --query)"
+    )
     parser.add_argument("--url", help="Target URL for --once mode")
     parser.add_argument("--name", default="default", help="Site name identifier")
-    parser.add_argument("--interval", type=int, help="Override schedule interval (minutes)")
+    parser.add_argument(
+        "--interval", type=int, help="Override schedule interval (minutes)"
+    )
 
     args = parser.parse_args()
 
@@ -481,8 +595,14 @@ def main():
     if args.reset:
         cmd_reset(config, args.name)
     elif args.query:
-        cmd_query(config, args.name, tag=args.tag, date_from=args.date_from,
-                  date_to=args.date_to, limit=args.limit)
+        cmd_query(
+            config,
+            args.name,
+            tag=args.tag,
+            date_from=args.date_from,
+            date_to=args.date_to,
+            limit=args.limit,
+        )
     elif args.stats:
         cmd_stats(config, args.name)
     elif args.once:

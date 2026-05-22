@@ -18,10 +18,10 @@
 - **仪表盘操作**：Run Now（手动触发抓取）、Reset（重置站点历史）集成到前端
 - **Webhook 通知**：钉钉 / 企业微信 / 邮件（SMTP），管道完成后自动推送
 - **自动可视化**：matplotlib 生成 10 种 PNG 图表，6 组时间轮替留存
-- **三层存储**：JSON 快照 + SQLite（含情感字段）+ CSV 通用导出
+- **新闻/论文分离存储**：新闻与论文使用独立 SQLite 数据库 + JSON 快照目录 + CSV 文件，自动清理旧快照
 - **Docker 部署**：一键 `docker compose up -d`，含中文字体 + Chromium
 - **自进化**：运行指标追踪 + 调度频率自适应 + 提示词调优
-- **85 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
+- **91 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
 
 ## 快速开始
 
@@ -103,9 +103,12 @@ Visualization/
 │   ├── coordinator.py             # 流水线编排，集成通知 + 向量存储
 │   └── site_profiles.py           # SiteProfile 数据类 + 内置站点配置
 ├── data/
-│   ├── store.py                   # JSON + SQLite + CSV 三层存储
+│   ├── store.py                   # JSON + SQLite + CSV 存储（新闻/论文分离路径）
 │   ├── vector_store.py            # ChromaDB 向量存储 + 语义搜索
-│   ├── history/                   # 历史快照 JSON
+│   ├── history/                   # 新闻历史快照 JSON
+│   ├── papers_history/            # 论文历史快照 JSON
+│   ├── monitor.db                 # 新闻 SQLite 数据库
+│   ├── papers.db                  # 论文 SQLite 数据库
 │   └── vector_db/                 # ChromaDB 持久化数据
 ├── web/
 │   ├── app.py                     # FastAPI 应用（REST API + WebSocket）
@@ -120,7 +123,7 @@ Visualization/
 ├── evolution/
 │   ├── memory.py                  # 运行指标记录
 │   └── optimizer.py               # 自进化：Prompt 调优 + 调度频率自适应
-├── tests/                         # 85 个测试
+├── tests/                         # 91 个测试
 │   ├── test_base_agent.py         # LLM JSON 解析容错测试
 │   ├── test_fetcher.py            # HTML 清洗 + 哈希测试
 │   ├── test_parser.py             # 过滤 + 章节匹配 + DOM 提取 + Profile 测试
@@ -137,7 +140,8 @@ Visualization/
 │   │   ├── one_month_ago/         # 一月前快照
 │   │   └── total/                 # 累计历史趋势
 │   └── data/
-│       └── news_items.csv         # 所有条目统一 CSV
+│       ├── news_items.csv         # 新闻条目 CSV
+│       └── papers.csv             # 论文条目 CSV
 └── report.md                      # 课程报告
 ```
 
@@ -226,6 +230,6 @@ Visualization/
 | 可视化 | matplotlib（SimHei 中文字体） |
 | 调度 | APScheduler (AsyncIOScheduler) |
 | 通知 | 钉钉 / 企业微信 / SMTP 邮件 |
-| 测试 | pytest（85 tests）+ ruff + pre-commit |
+| 测试 | pytest（91 tests）+ ruff + pre-commit |
 | CI/CD | GitHub Actions |
 | 部署 | Docker + Docker Compose |

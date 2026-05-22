@@ -10,8 +10,9 @@ from data.store import DataStore
 def store(tmp_path):
     history = tmp_path / "history"
     db = tmp_path / "test.db"
-    ds = DataStore(history_dir=str(history), db_path=str(db),
-                   csv_path=str(tmp_path / "out.csv"))
+    ds = DataStore(
+        history_dir=str(history), db_path=str(db), csv_path=str(tmp_path / "out.csv")
+    )
     return ds
 
 
@@ -52,11 +53,15 @@ class TestQuery:
         assert results[0]["title"] == "Tech News"
 
     def test_query_by_date_range(self, store):
-        store.save_snapshot("test", "https://x.com", "h1", [
-            {"title": "Old", "url": "/o", "tag": "科技"}
-        ])
-        results = store.query_items(site_name="test", date_from="2020-01-01",
-                                    date_to="2030-01-01")
+        store.save_snapshot(
+            "test",
+            "https://x.com",
+            "h1",
+            [{"title": "Old", "url": "/o", "tag": "科技"}],
+        )
+        results = store.query_items(
+            site_name="test", date_from="2020-01-01", date_to="2030-01-01"
+        )
         assert len(results) == 1
 
     def test_query_empty(self, store):
@@ -82,10 +87,12 @@ class TestRunLogs:
 
 class TestGetAllSnapshots:
     def test_ordered_by_id(self, store):
-        store.save_snapshot("s", "https://x.com", "h1",
-                           [{"title": "First", "url": "/1", "tag": "A"}])
-        store.save_snapshot("s", "https://x.com", "h2",
-                           [{"title": "Second", "url": "/2", "tag": "B"}])
+        store.save_snapshot(
+            "s", "https://x.com", "h1", [{"title": "First", "url": "/1", "tag": "A"}]
+        )
+        store.save_snapshot(
+            "s", "https://x.com", "h2", [{"title": "Second", "url": "/2", "tag": "B"}]
+        )
 
         snaps = store.get_all_snapshots("s")
         assert len(snaps) == 2
@@ -104,3 +111,59 @@ class TestTagStats:
         stats = store.get_tag_stats(site_name="test")
         assert stats["科技"] == 2
         assert stats["体育"] == 1
+
+
+class TestSourceType:
+    def test_news_defaults(self, tmp_path):
+        ds = DataStore(source_type="news")
+        assert "monitor.db" in ds.db_path
+        assert "history" in str(ds.history_dir)
+        assert "news_items.csv" in str(ds.csv_path)
+
+    def test_paper_defaults(self, tmp_path):
+        ds = DataStore(source_type="paper")
+        assert "papers.db" in ds.db_path
+        assert "papers_history" in str(ds.history_dir)
+        assert "papers.csv" in str(ds.csv_path)
+
+    def test_explicit_overrides_source_type(self, tmp_path):
+        db = tmp_path / "custom.db"
+        ds = DataStore(source_type="news", db_path=str(db))
+        assert ds.db_path == str(db)
+
+
+class TestPruneSnapshots:
+    def test_prune_keeps_recent(self, store):
+        for i in range(5):
+            store.save_snapshot(
+                "s",
+                "https://x.com",
+                f"h{i}",
+                [{"title": f"N{i}", "url": f"/{i}", "tag": "T"}],
+            )
+        store.prune_snapshots("s", keep_count=3)
+        snaps = store.get_all_snapshots("s")
+        assert len(snaps) == 3
+        # Oldest removed, newest kept
+        titles = [it["title"] for snap in snaps for it in snap["items"]]
+        assert "N0" not in titles
+        assert "N1" not in titles
+        assert "N4" in titles
+
+    def test_prune_noop_when_under_limit(self, store):
+        store.save_snapshot(
+            "s", "https://x.com", "h0", [{"title": "X", "url": "/x", "tag": "T"}]
+        )
+        store.prune_snapshots("s", keep_count=10)
+        assert len(store.get_all_snapshots("s")) == 1
+
+    def test_prune_zero_disabled(self, store):
+        for i in range(5):
+            store.save_snapshot(
+                "s",
+                "https://x.com",
+                f"h{i}",
+                [{"title": f"N{i}", "url": f"/{i}", "tag": "T"}],
+            )
+        store.prune_snapshots("s", keep_count=0)
+        assert len(store.get_all_snapshots("s")) == 5

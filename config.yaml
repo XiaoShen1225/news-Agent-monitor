@@ -53,6 +53,7 @@ visualization:
 storage:
   history_dir: "data/history"
   db_path: "data/monitor.db"
+  max_snapshots_per_site: 50
 
 # Webhook / notification settings (optional)
 # Uncomment and fill in to enable.

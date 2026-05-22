@@ -25,18 +25,25 @@ class AnalyzerAgent(BaseAgent):
 
     # ── async ───────────────────────────────────────────────────────
 
-    async def run_async(self, current_items: list, site_name: str, content_hash: str) -> dict:
+    async def run_async(
+        self, current_items: list, site_name: str, content_hash: str, store=None
+    ) -> dict:
         """Compare current items with previous snapshot."""
-        logger.info("[Analyzer] Analyzing %d items for %s", len(current_items), site_name)
+        logger.info(
+            "[Analyzer] Analyzing %d items for %s", len(current_items), site_name
+        )
 
-        previous = self.store.get_last_snapshot(site_name) if self.store else None
+        _store = store or self.store
+        previous = _store.get_last_snapshot(site_name) if _store else None
         prev_items = previous.get("items", []) if previous else []
 
-        new_items, removed_items, modified_items = self._diff_items(prev_items, current_items)
+        new_items, removed_items, modified_items = self._diff_items(
+            prev_items, current_items
+        )
 
         total_changes = len(new_items) + len(removed_items) + len(modified_items)
 
-        trends = self._compute_trends(site_name, current_items)
+        trends = self._compute_trends(site_name, current_items, _store)
 
         report = {
             "site_name": site_name,
@@ -59,7 +66,9 @@ class AnalyzerAgent(BaseAgent):
 
         logger.info(
             "[Analyzer] Changes: %d new, %d removed, %d modified",
-            len(new_items), len(removed_items), len(modified_items),
+            len(new_items),
+            len(removed_items),
+            len(modified_items),
         )
 
         return report
@@ -84,7 +93,9 @@ class AnalyzerAgent(BaseAgent):
 
         # Build prompt with new/removed item samples
         new_titles = [it.get("title", "") for it in report.get("new_items", [])[:10]]
-        removed_titles = [it.get("title", "") for it in report.get("removed_items", [])[:5]]
+        removed_titles = [
+            it.get("title", "") for it in report.get("removed_items", [])[:5]
+        ]
 
         # For article sources, include summaries
         article_samples = ""
@@ -125,11 +136,13 @@ class AnalyzerAgent(BaseAgent):
 
         new_items = [
             {"title": t, **curr_titles[t]}
-            for t in curr_titles if t and t not in prev_titles
+            for t in curr_titles
+            if t and t not in prev_titles
         ]
         removed_items = [
             {"title": t, **prev_titles[t]}
-            for t in prev_titles if t and t not in curr_titles
+            for t in prev_titles
+            if t and t not in curr_titles
         ]
 
         modified_items = []
@@ -137,13 +150,16 @@ class AnalyzerAgent(BaseAgent):
             if t and t in prev_titles:
                 prev_item = prev_titles[t]
                 curr_item = curr_titles[t]
-                if prev_item.get("summary") != curr_item.get("summary") or \
-                   prev_item.get("tag") != curr_item.get("tag"):
-                    modified_items.append({
-                        "title": t,
-                        "previous": prev_item,
-                        "current": curr_item,
-                    })
+                if prev_item.get("summary") != curr_item.get(
+                    "summary"
+                ) or prev_item.get("tag") != curr_item.get("tag"):
+                    modified_items.append(
+                        {
+                            "title": t,
+                            "previous": prev_item,
+                            "current": curr_item,
+                        }
+                    )
 
         return new_items, removed_items, modified_items
 
@@ -154,18 +170,22 @@ class AnalyzerAgent(BaseAgent):
             dist[tag] = dist.get(tag, 0) + 1
         return dict(sorted(dist.items(), key=lambda x: x[1], reverse=True))
 
-    def _compute_trends(self, site_name: str, current_items: list) -> dict:
-        if not self.store:
+    def _compute_trends(self, site_name: str, current_items: list, store=None) -> dict:
+        _store = store or self.store
+        if not _store:
             return {}
-        snapshots = self.store.get_all_snapshots(site_name)
+        snapshots = _store.get_all_snapshots(site_name)
         if len(snapshots) < 2:
-            return {"status": "insufficient_data", "message": "Need at least 2 snapshots"}
+            return {
+                "status": "insufficient_data",
+                "message": "Need at least 2 snapshots",
+            }
 
         counts = [s["items_count"] for s in snapshots]
         timestamps = [s["timestamp"] for s in snapshots]
 
         recent_avg = sum(counts[-3:]) / min(3, len(counts[-3:]))
-        older_avg = sum(counts[:max(1, len(counts) - 3)]) / max(1, len(counts) - 3)
+        older_avg = sum(counts[: max(1, len(counts) - 3)]) / max(1, len(counts) - 3)
 
         if recent_avg > older_avg * 1.1:
             direction = "up"

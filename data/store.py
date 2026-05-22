@@ -9,14 +9,38 @@ from datetime import datetime
 from typing import Optional
 
 
+# Default path mapping per source type
+_SOURCE_DEFAULTS = {
+    "news": {
+        "history_dir": "data/history",
+        "db_path": "data/monitor.db",
+        "csv_path": "outputs/data/news_items.csv",
+    },
+    "paper": {
+        "history_dir": "data/papers_history",
+        "db_path": "data/papers.db",
+        "csv_path": "outputs/data/papers.csv",
+    },
+}
+
+
 class DataStore:
-    def __init__(self, history_dir: str = "data/history", db_path: str = "data/monitor.db",
-                 csv_path: str = "outputs/data/news_items.csv"):
-        self.history_dir = Path(history_dir)
+    def __init__(
+        self,
+        history_dir: str = None,
+        db_path: str = None,
+        csv_path: str = None,
+        source_type: str = None,
+    ):
+        # Resolve defaults: explicit args take priority, then source_type, then news defaults
+        st = source_type or "news"
+        defaults = _SOURCE_DEFAULTS.get(st, _SOURCE_DEFAULTS["news"])
+        self.history_dir = Path(history_dir or defaults["history_dir"])
         self.history_dir.mkdir(parents=True, exist_ok=True)
-        self.db_path = db_path
-        self.csv_path = Path(csv_path)
+        self.db_path = db_path or defaults["db_path"]
+        self.csv_path = Path(csv_path or defaults["csv_path"])
         self.csv_path.parent.mkdir(parents=True, exist_ok=True)
+        self.source_type = st
         self._init_db()
 
     def _init_db(self):
@@ -46,13 +70,21 @@ class DataStore:
                 )
             """)
             # Add new columns for existing databases (check first)
-            cols = {r[1] for r in conn.execute("PRAGMA table_info(news_items)").fetchall()}
+            cols = {
+                r[1] for r in conn.execute("PRAGMA table_info(news_items)").fetchall()
+            }
             if "sentiment" not in cols:
-                conn.execute("ALTER TABLE news_items ADD COLUMN sentiment TEXT DEFAULT ''")
+                conn.execute(
+                    "ALTER TABLE news_items ADD COLUMN sentiment TEXT DEFAULT ''"
+                )
             if "summary" not in cols:
-                conn.execute("ALTER TABLE news_items ADD COLUMN summary TEXT DEFAULT ''")
+                conn.execute(
+                    "ALTER TABLE news_items ADD COLUMN summary TEXT DEFAULT ''"
+                )
             if "published" not in cols:
-                conn.execute("ALTER TABLE news_items ADD COLUMN published TEXT DEFAULT ''")
+                conn.execute(
+                    "ALTER TABLE news_items ADD COLUMN published TEXT DEFAULT ''"
+                )
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS run_logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,6 +107,30 @@ class DataStore:
                 CREATE INDEX IF NOT EXISTS idx_news_items_tag
                 ON news_items(site_name, tag)
             """)
+            conn.commit()
+
+    def prune_snapshots(self, site_name: str, keep_count: int):
+        """Keep only the most recent N snapshots for a site, delete older JSON + DB rows."""
+        if keep_count <= 0:
+            return
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, snapshot_path FROM snapshots WHERE site_name = ? ORDER BY id DESC",
+                (site_name,),
+            ).fetchall()
+            if len(rows) <= keep_count:
+                return
+            to_delete = rows[keep_count:]  # oldest beyond keep_count
+            for row in to_delete:
+                snap_id, snap_path = row[0], row[1]
+                # Delete JSON file
+                try:
+                    Path(snap_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+                # Delete associated news_items and snapshot row
+                conn.execute("DELETE FROM news_items WHERE snapshot_id = ?", (snap_id,))
+                conn.execute("DELETE FROM snapshots WHERE id = ?", (snap_id,))
             conn.commit()
 
     def compute_hash(self, text: str) -> str:
@@ -101,8 +157,10 @@ class DataStore:
             ).fetchone()
         return row[0] if row else None
 
-    def save_snapshot(self, site_name: str, url: str, content_hash: str, items: list) -> str:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    def save_snapshot(
+        self, site_name: str, url: str, content_hash: str, items: list
+    ) -> str:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         filename = f"{site_name}_{timestamp}.json"
         filepath = self.history_dir / filename
         now_iso = datetime.now().isoformat()
@@ -132,12 +190,17 @@ class DataStore:
                 conn.execute(
                     "INSERT INTO news_items (snapshot_id, site_name, title, url, tag, sentiment, summary, published, snapshot_time) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (snapshot_id, site_name, item.get("title", ""),
-                     item.get("url", ""), item.get("tag", ""),
-                     item.get("sentiment", ""),
-                     item.get("summary", ""),
-                     item.get("published", ""),
-                     now_iso),
+                    (
+                        snapshot_id,
+                        site_name,
+                        item.get("title", ""),
+                        item.get("url", ""),
+                        item.get("tag", ""),
+                        item.get("sentiment", ""),
+                        item.get("summary", ""),
+                        item.get("published", ""),
+                        now_iso,
+                    ),
                 )
             conn.commit()
 
@@ -152,20 +215,29 @@ class DataStore:
         with open(self.csv_path, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             if not file_exists:
-                writer.writerow(["site_name", "snapshot_time", "title", "url", "tag", "summary"])
+                writer.writerow(
+                    ["site_name", "snapshot_time", "title", "url", "tag", "summary"]
+                )
             for item in items:
-                writer.writerow([
-                    site_name,
-                    timestamp,
-                    item.get("title", ""),
-                    item.get("url", ""),
-                    item.get("tag", ""),
-                    item.get("summary", ""),
-                ])
+                writer.writerow(
+                    [
+                        site_name,
+                        timestamp,
+                        item.get("title", ""),
+                        item.get("url", ""),
+                        item.get("tag", ""),
+                        item.get("summary", ""),
+                    ]
+                )
 
-    def query_items(self, site_name: str = None, tag: str = None,
-                    date_from: str = None, date_to: str = None,
-                    limit: int = 500) -> list:
+    def query_items(
+        self,
+        site_name: str = None,
+        tag: str = None,
+        date_from: str = None,
+        date_to: str = None,
+        limit: int = 500,
+    ) -> list:
         """Query news items from SQLite with optional filters."""
         conditions = []
         params = []
@@ -189,8 +261,14 @@ class DataStore:
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(query, params).fetchall()
         return [
-            {"title": r[0], "url": r[1], "tag": r[2],
-             "summary": r[3], "snapshot_time": r[4], "site_name": r[5]}
+            {
+                "title": r[0],
+                "url": r[1],
+                "tag": r[2],
+                "summary": r[3],
+                "snapshot_time": r[4],
+                "site_name": r[5],
+            }
             for r in rows
         ]
 
@@ -212,16 +290,30 @@ class DataStore:
             rows = conn.execute(query, params).fetchall()
         return {r[0]: r[1] for r in rows}
 
-    def log_run(self, site_name: str, status: str, items_found: int = 0,
-                changes_detected: int = 0, extraction_confidence: float = 0.0,
-                processing_time_ms: float = 0, error_message: str = None):
+    def log_run(
+        self,
+        site_name: str,
+        status: str,
+        items_found: int = 0,
+        changes_detected: int = 0,
+        extraction_confidence: float = 0.0,
+        processing_time_ms: float = 0,
+        error_message: str = None,
+    ):
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "INSERT INTO run_logs (site_name, status, items_found, changes_detected, "
                 "extraction_confidence, processing_time_ms, error_message) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (site_name, status, items_found, changes_detected,
-                 extraction_confidence, processing_time_ms, error_message),
+                (
+                    site_name,
+                    status,
+                    items_found,
+                    changes_detected,
+                    extraction_confidence,
+                    processing_time_ms,
+                    error_message,
+                ),
             )
             conn.commit()
 
@@ -235,8 +327,12 @@ class DataStore:
             ).fetchall()
         return [
             {
-                "status": r[0], "items_found": r[1], "changes_detected": r[2],
-                "extraction_confidence": r[3], "processing_time_ms": r[4], "created_at": r[5],
+                "status": r[0],
+                "items_found": r[1],
+                "changes_detected": r[2],
+                "extraction_confidence": r[3],
+                "processing_time_ms": r[4],
+                "created_at": r[5],
             }
             for r in rows
         ]

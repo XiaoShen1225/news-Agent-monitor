@@ -18,7 +18,15 @@ logger = logging.getLogger(__name__)
 class CoordinatorAgent(BaseAgent):
     """Orchestrates Fetcher → Parser → Analyzer → Visualizer pipeline."""
 
-    def __init__(self, config: dict, data_store=None, evolution=None, notifiers=None, vector_store=None):
+    def __init__(
+        self,
+        config: dict,
+        data_store=None,
+        paper_store=None,
+        evolution=None,
+        notifiers=None,
+        vector_store=None,
+    ):
         super().__init__("Coordinator", config)
         self.config = config
         self.fetcher = FetcherAgent(config)
@@ -26,13 +34,17 @@ class CoordinatorAgent(BaseAgent):
         self.analyzer = AnalyzerAgent(config, data_store)
         self.visualizer = VisualizationAgent(config)
         self.store = data_store
+        self.paper_store = paper_store or data_store
         self.evolution = evolution
         self.notifiers = notifiers or []
         self.vector_store = vector_store
+        self.max_snapshots = config.get("storage", {}).get("max_snapshots_per_site", 0)
 
     # ── sync (wraps async) ──────────────────────────────────────────
 
-    def run(self, url: str, site_name: str = "default", use_browser: bool = False) -> dict:
+    def run(
+        self, url: str, site_name: str = "default", use_browser: bool = False
+    ) -> dict:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
@@ -51,10 +63,18 @@ class CoordinatorAgent(BaseAgent):
     # ── async single target ─────────────────────────────────────────
 
     async def run_async(
-        self, url: str, site_name: str = "default", use_browser: bool = False,
+        self,
+        url: str,
+        site_name: str = "default",
+        use_browser: bool = False,
         profile: SiteProfile = None,
     ) -> dict:
         profile = profile or get_profile(site_name)
+        is_article = profile.is_article_source if profile else False
+        active_store = self.paper_store if is_article else self.store
+        if active_store:
+            self.analyzer.store = active_store
+
         start_time = time.time()
         result = {
             "site_name": site_name,
@@ -71,7 +91,7 @@ class CoordinatorAgent(BaseAgent):
             content_hash = fetch_result["content_hash"]
 
             # Step 2: Check if content changed
-            last_hash = self.store.get_last_hash(site_name) if self.store else None
+            last_hash = active_store.get_last_hash(site_name) if active_store else None
             if last_hash == content_hash and last_hash is not None:
                 logger.info(
                     "[Coordinator] No content change for %s, skipping.", site_name
@@ -83,14 +103,19 @@ class CoordinatorAgent(BaseAgent):
                     "has_changes": False,
                     "is_first_run": False,
                 }
-                if self.store:
+                if active_store:
                     elapsed = (time.time() - start_time) * 1000
-                    self.store.log_run(site_name, "skipped_no_change", processing_time_ms=elapsed)
+                    active_store.log_run(
+                        site_name, "skipped_no_change", processing_time_ms=elapsed
+                    )
                 return result
 
             # Step 3: Parse (with site profile) — async for LLM strategy support
             parse_result = await self.parser.run_async(
-                fetch_result["html"], site_name, url, profile,
+                fetch_result["html"],
+                site_name,
+                url,
+                profile,
             )
             items = parse_result["items"]
             confidence = parse_result["extraction_confidence"]
@@ -99,8 +124,11 @@ class CoordinatorAgent(BaseAgent):
             report = await self.analyzer.run_async(items, site_name, content_hash)
 
             # Step 5: Save snapshot
-            if self.store:
-                self.store.save_snapshot(site_name, url, content_hash, items)
+            if active_store:
+                active_store.save_snapshot(site_name, url, content_hash, items)
+                # Prune old snapshots
+                if self.max_snapshots > 0:
+                    active_store.prune_snapshots(site_name, self.max_snapshots)
                 # Index items in vector store for semantic search
                 if self.vector_store:
                     try:
@@ -109,10 +137,11 @@ class CoordinatorAgent(BaseAgent):
                         logger.warning("Vector store indexing failed: %s", e)
 
             # Step 6: Get snapshots for trends
-            snapshots = self.store.get_all_snapshots(site_name) if self.store else []
+            snapshots = (
+                active_store.get_all_snapshots(site_name) if active_store else []
+            )
 
             # Step 7: Visualize (skip for article sources)
-            is_article = profile.is_article_source if profile else False
             if is_article:
                 chart_result = None
             else:
@@ -130,9 +159,9 @@ class CoordinatorAgent(BaseAgent):
             result["report"] = report
             result["charts"] = chart_result
 
-            if self.store:
+            if active_store:
                 elapsed = (time.time() - start_time) * 1000
-                self.store.log_run(
+                active_store.log_run(
                     site_name,
                     "success",
                     items_found=len(items),
@@ -149,18 +178,26 @@ class CoordinatorAgent(BaseAgent):
             error_str = str(e)
             # Give user-friendly hints for common network errors
             if "ConnectError" in type(e).__name__ or "ConnectError" in error_str:
-                logger.error("[Coordinator] Pipeline failed for %s: Cannot connect to %s (network blocked or unreachable)", site_name, url)
+                logger.error(
+                    "[Coordinator] Pipeline failed for %s: Cannot connect to %s (network blocked or unreachable)",
+                    site_name,
+                    url,
+                )
             elif "403" in error_str:
-                logger.error("[Coordinator] Pipeline failed for %s: Access denied (403) for %s", site_name, url)
+                logger.error(
+                    "[Coordinator] Pipeline failed for %s: Access denied (403) for %s",
+                    site_name,
+                    url,
+                )
             else:
                 logger.error("[Coordinator] Pipeline failed for %s: %s", site_name, e)
                 logger.error("[Coordinator] Traceback:\n%s", traceback.format_exc())
             result["status"] = "error"
             result["error"] = str(e)
 
-            if self.store:
+            if active_store:
                 elapsed = (time.time() - start_time) * 1000
-                self.store.log_run(
+                active_store.log_run(
                     site_name, "error", error_message=str(e), processing_time_ms=elapsed
                 )
 
