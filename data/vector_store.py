@@ -3,7 +3,7 @@
 import logging
 from pathlib import Path
 
-from chromadb import Client, Settings
+import chromadb
 from chromadb.utils import embedding_functions
 
 logger = logging.getLogger(__name__)
@@ -18,11 +18,7 @@ class VectorStore:
     def __init__(self, persist_dir: str = "data/vector_db"):
         self.persist_dir = Path(persist_dir)
         self.persist_dir.mkdir(parents=True, exist_ok=True)
-        self._client = Client(Settings(
-            chroma_db_impl="duckdb+parquet",
-            persist_directory=str(self.persist_dir),
-            anonymized_telemetry=False,
-        ))
+        self._client = chromadb.PersistentClient(path=str(self.persist_dir))
         self._ef = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name=_EMBEDDING_MODEL,
         )
