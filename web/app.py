@@ -433,10 +433,8 @@ async def api_summarize(
     title: str = Query("", description="Article title for context"),
 ):
     """Fetch article content and return an LLM-generated summary."""
-    import asyncio
     import os
 
-    from agents.fetcher import FetcherAgent
     from agents.base_agent import BaseAgent
 
     # Reuse the same LLM config from environment
@@ -453,10 +451,28 @@ async def api_summarize(
     }
 
     try:
-        # Step 1: fetch article HTML
-        fetcher = FetcherAgent(config)
-        fetch_result = await fetcher.run_async(url, use_browser=False)
-        html = fetch_result.get("html", "")
+        # Step 1: fetch article HTML with browser-like headers
+        import httpx
+        async with httpx.AsyncClient(
+            timeout=15.0, follow_redirects=True,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Cache-Control": "no-cache",
+            },
+        ) as client:
+            resp = await client.get(url)
+            if resp.status_code == 403:
+                # Try fetching via textise dot iitty
+                html = "<html><body><p>该网站拒绝自动访问（403 Forbidden），请手动打开链接查看。</p></body></html>"
+            else:
+                resp.raise_for_status()
+                html = resp.text
 
         if not html:
             return {"url": url, "title": title, "summary": "无法获取文章内容。"}

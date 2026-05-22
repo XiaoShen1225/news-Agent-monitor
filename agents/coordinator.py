@@ -146,8 +146,15 @@ class CoordinatorAgent(BaseAgent):
         except Exception as e:
             import traceback
 
-            logger.error("[Coordinator] Pipeline failed for %s: %s", site_name, e)
-            logger.error("[Coordinator] Traceback:\n%s", traceback.format_exc())
+            error_str = str(e)
+            # Give user-friendly hints for common network errors
+            if "ConnectError" in type(e).__name__ or "ConnectError" in error_str:
+                logger.error("[Coordinator] Pipeline failed for %s: Cannot connect to %s (network blocked or unreachable)", site_name, url)
+            elif "403" in error_str:
+                logger.error("[Coordinator] Pipeline failed for %s: Access denied (403) for %s", site_name, url)
+            else:
+                logger.error("[Coordinator] Pipeline failed for %s: %s", site_name, e)
+                logger.error("[Coordinator] Traceback:\n%s", traceback.format_exc())
             result["status"] = "error"
             result["error"] = str(e)
 
