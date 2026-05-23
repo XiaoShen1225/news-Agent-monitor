@@ -411,7 +411,7 @@ async def _cmd_serve_async(config: dict, port: int):
     scheduler.start()
 
     print("\n" + "=" * 60)
-    print(f"  Dashboard: http://localhost:{port}")
+    print(f"  Dashboard: http://127.0.0.1:{port}")
     print(f"  API Docs:  http://localhost:{port}/docs")
     print("=" * 60)
     for t in targets:
