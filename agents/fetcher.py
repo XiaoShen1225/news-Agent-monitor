@@ -6,10 +6,12 @@ import re
 from hashlib import sha256
 
 import httpx
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+import warnings
 
 from .base_agent import BaseAgent
 
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 logger = logging.getLogger(__name__)
 
 SCRIPT_STYLE_PATTERN = re.compile(
@@ -26,11 +28,30 @@ HEADERS = {
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
 
+MAX_RETRIES = 3
+
 
 class FetcherAgent(BaseAgent):
     def __init__(self, config: dict):
         super().__init__("Fetcher", config)
         self.timeout = 30
+        self._client = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(
+                timeout=self.timeout,
+                headers=HEADERS,
+                follow_redirects=True,
+                trust_env=False,
+                limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+            )
+        return self._client
+
+    async def aclose(self):
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     # ── sync (wraps async) ──────────────────────────────────────────
 
@@ -54,7 +75,9 @@ class FetcherAgent(BaseAgent):
         text = self._clean_html(html)
         content_hash = self._hash_text(text)
 
-        logger.info("[Fetcher] Fetched %d bytes, hash: %s", len(html), content_hash[:12])
+        logger.info(
+            "[Fetcher] Fetched %d bytes, hash: %s", len(html), content_hash[:12]
+        )
 
         return {
             "url": url,
@@ -65,12 +88,48 @@ class FetcherAgent(BaseAgent):
         }
 
     async def _fetch_static(self, url: str) -> str:
-        async with httpx.AsyncClient(
-            timeout=self.timeout, headers=HEADERS, follow_redirects=True
-        ) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            return response.text
+        """Fetch URL via shared httpx client with retry on connection errors."""
+        last_error = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                client = self._get_client()
+                response = await client.get(url)
+                response.raise_for_status()
+                return response.text
+            except httpx.ConnectError:
+                import sys
+                import traceback
+
+                exc_info = sys.exc_info()
+                last_error = exc_info[1]
+                # Log the full traceback on first attempt for diagnosis
+                if attempt == 0:
+                    logger.error(
+                        "[Fetcher] ConnectError for %s (attempt %d/%d):\n%s",
+                        url,
+                        attempt + 1,
+                        MAX_RETRIES,
+                        traceback.format_exc(),
+                    )
+                else:
+                    logger.warning(
+                        "[Fetcher] ConnectError for %s (attempt %d/%d): %s",
+                        url,
+                        attempt + 1,
+                        MAX_RETRIES,
+                        exc_info[1],
+                    )
+                if attempt < MAX_RETRIES - 1:
+                    delay = 2**attempt
+                    logger.info("[Fetcher] Retrying %s in %ds...", url, delay)
+                    await asyncio.sleep(delay)
+                    # Reset client on retry to force fresh connections
+                    await self.aclose()
+            except Exception:
+                logger.exception("[Fetcher] Fetch failed for %s", url)
+                raise
+
+        raise last_error or RuntimeError(f"All {MAX_RETRIES} attempts failed for {url}")
 
     async def _fetch_with_browser(self, url: str) -> str:
         try:
@@ -104,14 +163,20 @@ class FetcherAgent(BaseAgent):
             """)
 
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
+                await page.goto(
+                    url, wait_until="domcontentloaded", timeout=self.timeout * 1000
+                )
             except Exception:
-                await page.goto(url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
+                await page.goto(
+                    url, wait_until="domcontentloaded", timeout=self.timeout * 1000
+                )
 
             await page.wait_for_timeout(2000)
 
             for _ in range(6):
-                await page.evaluate("window.scrollBy(0, document.body.scrollHeight / 6)")
+                await page.evaluate(
+                    "window.scrollBy(0, document.body.scrollHeight / 6)"
+                )
                 await page.wait_for_timeout(1500)
 
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
