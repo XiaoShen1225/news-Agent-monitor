@@ -201,7 +201,7 @@ Visualization/
 1. **Coordinator** 接收任务（手动 `--once` 或 APScheduler 定时触发）
 2. **Fetcher** Playwright 渲染 + 滚动 → SHA256 哈希
 3. **哈希未变** → 跳过，`skipped_no_change`，**零 Token 消耗**
-4. **哈希已变** → **Parser** DOM 遍历 + SiteProfile 策略提取 → 标题+URL+分类
+4. **哈希已变** → **Parser** DOM 遍历 + SiteProfile 策略提取 → 标题+URL+分类+发布时间
 5. 数据存入 **JSON 快照** + **SQLite** + **CSV**，**Vector Store** 索引
 6. **Analyzer** 标题 Diff → 新增/移除/修改 + 趋势方向 + **批量情感分析** + **LLM 摘要**
 7. **Visualizer** 生成图表，today/total 每次更新
