@@ -25,7 +25,12 @@
 - **Docker 部署**：一键 `docker compose up -d`，含中文字体 + Chromium
 - **自进化**：运行指标追踪 + 调度频率自适应（持久化，重启不丢失）+ 提示词调优
 - **变更检测优化**：SHA256 内容哈希跳过无变化页面；difflib 模糊标题匹配识别截断/标点差异，减少虚假增删
-- **98 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
+- **相似度去重**：近重复标题（>70% 相似度）自动过滤，避免同一新闻不同来源的冗余数据
+- **断路器**：连续 5 次失败自动熔断 1 小时，避免对不可达站点的无效重试，节省 LLM Token
+- **结构化日志**：Pipeline 级别 trace_id + JSON 事件日志（pipeline_start/skip/done/error），支持根因分析
+- **健康检查**：`/api/health` 端点，返回服务状态、scheduler 运行状态、最后一次 pipeline 执行时间
+- **Windows 兼容**：信号处理兼容 Windows 平台，schedule 模式可正常 Ctrl+C 退出
+- **110 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
 
 ## 快速开始
 
@@ -224,6 +229,7 @@ Visualization/
 | `POST /api/chat` | AI 对话助手（支持 Tool Calling） |
 | `GET /api/chat/history` | 查看对话历史 |
 | `GET /api/chat/context` | 上下文使用统计（Token 数、Exchange 数） |
+| `GET /api/health` | 健康检查（状态、运行时长、scheduler 状态、最后执行时间） |
 | `DELETE /api/chat` | 清空对话历史 |
 | `WS /ws` | WebSocket 实时推送 |
 

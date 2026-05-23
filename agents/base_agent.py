@@ -30,6 +30,11 @@ class BaseAgent:
         self._client: Optional[OpenAI] = None
         self._async_client: Optional[AsyncOpenAI] = None
         self._http_client: Optional[httpx.AsyncClient] = None
+        self._last_tokens = 0
+
+    def get_last_tokens(self) -> int:
+        """Return total_tokens from the most recent LLM call, or 0 if none."""
+        return self._last_tokens
 
     @property
     def client(self) -> OpenAI:
@@ -118,10 +123,12 @@ class BaseAgent:
                     timeout=30.0,
                 )
                 content = response.choices[0].message.content
+                total_tokens = response.usage.total_tokens if response.usage else 0
+                self._last_tokens = total_tokens
                 logger.info(
                     "[%s] LLM call successful, tokens: %d",
                     self.name,
-                    response.usage.total_tokens if response.usage else 0,
+                    total_tokens,
                 )
                 return content
 

@@ -1,8 +1,10 @@
 """CoordinatorAgent: orchestrates the full multi-agent pipeline — sync + async."""
 
 import asyncio
+import json
 import logging
 import time
+import uuid
 
 from .base_agent import BaseAgent
 from .fetcher import FetcherAgent
@@ -73,6 +75,7 @@ class CoordinatorAgent(BaseAgent):
         is_article = profile.is_article_source if profile else False
         active_store = self.paper_store if is_article else self.store
 
+        trace_id = uuid.uuid4().hex[:12]
         start_time = time.time()
         result = {
             "site_name": site_name,
@@ -83,6 +86,32 @@ class CoordinatorAgent(BaseAgent):
             "charts": None,
         }
 
+        # Circuit breaker: skip sites that have failed too many times in a row
+        if active_store and active_store.is_circuit_open(site_name):
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "pipeline_skip",
+                        "trace_id": trace_id,
+                        "site": site_name,
+                        "reason": "circuit_open",
+                    }
+                )
+            )
+            result["status"] = "circuit_open"
+            return result
+
+        logger.info(
+            json.dumps(
+                {
+                    "event": "pipeline_start",
+                    "trace_id": trace_id,
+                    "site": site_name,
+                    "url": url,
+                }
+            )
+        )
+
         try:
             # Step 1: Fetch
             fetch_result = await self.fetcher.run_async(url, use_browser=use_browser)
@@ -91,8 +120,17 @@ class CoordinatorAgent(BaseAgent):
             # Step 2: Check if content changed
             last_hash = active_store.get_last_hash(site_name) if active_store else None
             if last_hash == content_hash and last_hash is not None:
+                elapsed = (time.time() - start_time) * 1000
                 logger.info(
-                    "[Coordinator] No content change for %s, skipping.", site_name
+                    json.dumps(
+                        {
+                            "event": "pipeline_skip",
+                            "trace_id": trace_id,
+                            "site": site_name,
+                            "reason": "no_change",
+                            "duration_ms": round(elapsed),
+                        }
+                    )
                 )
                 result["status"] = "skipped_no_change"
                 result["report"] = {
@@ -102,9 +140,12 @@ class CoordinatorAgent(BaseAgent):
                     "is_first_run": False,
                 }
                 if active_store:
-                    elapsed = (time.time() - start_time) * 1000
+                    active_store.reset_failure(site_name)
                     active_store.log_run(
-                        site_name, "skipped_no_change", processing_time_ms=elapsed
+                        site_name,
+                        "skipped_no_change",
+                        processing_time_ms=elapsed,
+                        trace_id=trace_id,
                     )
                 return result
 
@@ -171,8 +212,26 @@ class CoordinatorAgent(BaseAgent):
             result["report"] = report
             result["charts"] = chart_result
 
+            elapsed = (time.time() - start_time) * 1000
+            total_tokens = (
+                self.parser.get_last_tokens() + self.analyzer.get_last_tokens()
+            )
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "pipeline_done",
+                        "trace_id": trace_id,
+                        "site": site_name,
+                        "duration_ms": round(elapsed),
+                        "items": len(items),
+                        "changes": report.get("total_changes", 0),
+                        "tokens": total_tokens,
+                    }
+                )
+            )
+
             if active_store:
-                elapsed = (time.time() - start_time) * 1000
+                active_store.reset_failure(site_name)
                 active_store.log_run(
                     site_name,
                     "success",
@@ -180,6 +239,7 @@ class CoordinatorAgent(BaseAgent):
                     changes_detected=report.get("total_changes", 0),
                     extraction_confidence=confidence,
                     processing_time_ms=elapsed,
+                    trace_id=trace_id,
                 )
 
             await notify_all(self.notifiers, build_event(result))
@@ -187,33 +247,36 @@ class CoordinatorAgent(BaseAgent):
         except Exception as e:
             import traceback
 
+            elapsed = (time.time() - start_time) * 1000
             error_str = str(e)
-            # Give user-friendly hints for common network errors
-            if "ConnectError" in type(e).__name__ or "ConnectError" in error_str:
-                logger.error(
-                    "[Coordinator] Pipeline failed for %s: Cannot connect to %s — %s: %s",
-                    site_name,
-                    url,
-                    type(e).__name__,
-                    e,
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "pipeline_error",
+                        "trace_id": trace_id,
+                        "site": site_name,
+                        "error": error_str,
+                        "duration_ms": round(elapsed),
+                    }
                 )
-            elif "403" in error_str:
-                logger.error(
-                    "[Coordinator] Pipeline failed for %s: Access denied (403) for %s — %s",
-                    site_name,
-                    url,
-                    e,
-                )
-            else:
-                logger.error("[Coordinator] Pipeline failed for %s: %s", site_name, e)
-                logger.error("[Coordinator] Traceback:\n%s", traceback.format_exc())
+            )
+            logger.error("[Coordinator] Traceback:\n%s", traceback.format_exc())
             result["status"] = "error"
             result["error"] = str(e)
 
             if active_store:
-                elapsed = (time.time() - start_time) * 1000
+                is_open = active_store.increment_failure(site_name)
+                if is_open:
+                    logger.warning(
+                        "[Coordinator] Circuit breaker OPEN for %s — will skip for 1 hour",
+                        site_name,
+                    )
                 active_store.log_run(
-                    site_name, "error", error_message=str(e), processing_time_ms=elapsed
+                    site_name,
+                    "error",
+                    error_message=str(e),
+                    processing_time_ms=elapsed,
+                    trace_id=trace_id,
                 )
 
             await notify_all(self.notifiers, build_event(result))

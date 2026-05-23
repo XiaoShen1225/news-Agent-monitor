@@ -640,6 +640,9 @@ async def api_summarize(
 # Coordinator reference — set by _cmd_serve_async on startup
 _coordinator = None
 _config = None
+_app_start = datetime.now()
+_last_run_time = None
+_scheduler = None
 
 
 def set_runtime_refs(coordinator, config: dict):
@@ -647,6 +650,12 @@ def set_runtime_refs(coordinator, config: dict):
     global _coordinator, _config
     _coordinator = coordinator
     _config = config
+
+
+def set_scheduler(scheduler):
+    """Called from main._cmd_serve_async to inject the APScheduler instance."""
+    global _scheduler
+    _scheduler = scheduler
 
 
 @app.post("/api/trigger-run")
@@ -804,6 +813,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
 async def broadcast_pipeline_update(data: dict):
     """Called from coordinator after each pipeline run."""
+    global _last_run_time
+    _last_run_time = datetime.now()
     await ws_manager.broadcast(data)
 
 
@@ -821,3 +832,17 @@ async def favicon():
     if icon.exists():
         return FileResponse(str(icon))
     return Response(status_code=204)
+
+
+@app.get("/api/health")
+async def health():
+    """Liveness/readiness probe for external monitoring."""
+    uptime = (datetime.now() - _app_start).total_seconds()
+    scheduler_running = _scheduler is not None and _scheduler.running
+    return {
+        "status": "ok",
+        "uptime_seconds": round(uptime, 1),
+        "scheduler_running": scheduler_running,
+        "last_pipeline_run": _last_run_time.isoformat() if _last_run_time else None,
+        "version": "0.6.0",
+    }

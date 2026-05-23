@@ -1,12 +1,16 @@
 """Data persistence layer: JSON snapshots + SQLite metadata + CSV export."""
 
+import difflib
 import json
 import csv
 import hashlib
+import logging
 import sqlite3
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 # Default path mapping per source type
@@ -95,9 +99,15 @@ class DataStore:
                     extraction_confidence REAL DEFAULT 0.0,
                     processing_time_ms REAL DEFAULT 0,
                     error_message TEXT,
+                    trace_id TEXT DEFAULT '',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Migration: add trace_id column to existing run_logs tables
+            try:
+                conn.execute("ALTER TABLE run_logs ADD COLUMN trace_id TEXT DEFAULT ''")
+            except Exception:
+                pass  # Column already exists
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS site_metadata (
                     site_name TEXT PRIMARY KEY,
@@ -105,9 +115,21 @@ class DataStore:
                     latest_tag_distribution TEXT DEFAULT '{}',
                     latest_changes TEXT DEFAULT '{}',
                     latest_update_summary TEXT DEFAULT '',
+                    consecutive_failures INTEGER DEFAULT 0,
+                    circuit_breaker_until TEXT DEFAULT '',
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Migration: add circuit breaker columns to existing site_metadata tables
+            for col in ["consecutive_failures", "circuit_breaker_until"]:
+                try:
+                    conn.execute(
+                        f"ALTER TABLE site_metadata ADD COLUMN {col} INTEGER DEFAULT 0"
+                        if col == "consecutive_failures"
+                        else f"ALTER TABLE site_metadata ADD COLUMN {col} TEXT DEFAULT ''"
+                    )
+                except Exception:
+                    pass  # Column already exists
             # Index for fast queries
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_news_items_site_time
@@ -207,6 +229,125 @@ class DataStore:
             "updated_at": row[4] or "",
         }
 
+    # ── Circuit breaker ──────────────────────────────────────────────
+
+    def increment_failure(self, site_name: str) -> bool:
+        """Increment consecutive_failures. Returns True if circuit is now OPEN."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """INSERT INTO site_metadata (site_name, consecutive_failures)
+                   VALUES (?, 1)
+                   ON CONFLICT(site_name) DO UPDATE SET
+                   consecutive_failures = consecutive_failures + 1,
+                   updated_at = excluded.updated_at""",
+                (site_name,),
+            )
+            row = conn.execute(
+                "SELECT consecutive_failures FROM site_metadata WHERE site_name = ?",
+                (site_name,),
+            ).fetchone()
+            failures = row[0] if row else 1
+            if failures >= 5:
+                until = (
+                    datetime.now().replace(minute=0, second=0, microsecond=0)
+                    + timedelta(hours=1)
+                ).isoformat()
+                conn.execute(
+                    "UPDATE site_metadata SET circuit_breaker_until = ? WHERE site_name = ?",
+                    (until, site_name),
+                )
+                conn.commit()
+                return True
+            conn.commit()
+            return False
+
+    def reset_failure(self, site_name: str):
+        """Reset consecutive_failures to 0 and clear circuit breaker."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """INSERT INTO site_metadata (site_name, consecutive_failures, circuit_breaker_until)
+                   VALUES (?, 0, '')
+                   ON CONFLICT(site_name) DO UPDATE SET
+                   consecutive_failures = 0,
+                   circuit_breaker_until = '',
+                   updated_at = CURRENT_TIMESTAMP""",
+                (site_name,),
+            )
+            conn.commit()
+
+    def is_circuit_open(self, site_name: str) -> bool:
+        """Return True if the circuit breaker is currently OPEN for this site."""
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT circuit_breaker_until FROM site_metadata WHERE site_name = ?",
+                (site_name,),
+            ).fetchone()
+        if not row or not row[0]:
+            return False
+        return row[0] > datetime.now().isoformat()
+
+    # ── Deduplication ────────────────────────────────────────────────
+
+    @staticmethod
+    def _is_similar(a: str, b: str, threshold: float = 0.7) -> bool:
+        """Check if two title strings likely refer to the same underlying item."""
+        if not a or not b:
+            return False
+        a_norm = a.strip()
+        b_norm = b.strip()
+        if a_norm == b_norm:
+            return True
+        return difflib.SequenceMatcher(None, a_norm, b_norm).ratio() >= threshold
+
+    def _deduplicate_items(self, items: list, site_name: str) -> list:
+        """Filter out items whose titles are near-duplicates of recent snapshots."""
+        recent_items = self._get_recent_items(site_name, snapshots=3)
+        if not recent_items:
+            return items
+
+        kept = []
+        removed = 0
+        for item in items:
+            title = item.get("title", "")
+            if any(
+                self._is_similar(title, existing_title)
+                for existing_title in recent_items
+            ):
+                removed += 1
+            else:
+                kept.append(item)
+
+        if removed > 0:
+            logger.info(
+                "Dedup: removed %d/%d near-duplicate items for %s",
+                removed,
+                len(items),
+                site_name,
+            )
+        return kept
+
+    def _get_recent_items(self, site_name: str, snapshots: int = 3) -> list:
+        """Get all item titles from the most recent N snapshots for a site."""
+        titles = []
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT snapshot_path FROM snapshots WHERE site_name = ? "
+                "ORDER BY id DESC LIMIT ?",
+                (site_name, snapshots),
+            ).fetchall()
+        for (path_str,) in rows:
+            path = Path(path_str)
+            if path.exists():
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        snap = json.load(f)
+                    for item in snap.get("items", []):
+                        if item.get("title"):
+                            titles.append(item["title"])
+                except Exception:
+                    pass
+        return titles
+
     def compute_hash(self, text: str) -> str:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -234,6 +375,9 @@ class DataStore:
     def save_snapshot(
         self, site_name: str, url: str, content_hash: str, items: list
     ) -> str:
+        # Deduplicate near-duplicate items before saving
+        items = self._deduplicate_items(items, site_name)
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         filename = f"{site_name}_{timestamp}.json"
         filepath = self.history_dir / filename
@@ -373,12 +517,13 @@ class DataStore:
         extraction_confidence: float = 0.0,
         processing_time_ms: float = 0,
         error_message: str = None,
+        trace_id: str = "",
     ):
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "INSERT INTO run_logs (site_name, status, items_found, changes_detected, "
-                "extraction_confidence, processing_time_ms, error_message) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "extraction_confidence, processing_time_ms, error_message, trace_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     site_name,
                     status,
@@ -387,6 +532,7 @@ class DataStore:
                     extraction_confidence,
                     processing_time_ms,
                     error_message,
+                    trace_id,
                 ),
             )
             conn.commit()

@@ -11,9 +11,11 @@ import argparse
 import asyncio
 import logging
 import os
+import platform
 import re
 import signal
 import sys
+import threading
 from pathlib import Path
 
 import yaml
@@ -263,11 +265,20 @@ async def _cmd_schedule_async(config: dict):
     try:
         await scheduler.start()
         # Keep running until interrupted
-        stop_event = asyncio.Event()
-        loop = asyncio.get_running_loop()
-        loop.add_signal_handler(signal.SIGINT, lambda: stop_event.set())
-        loop.add_signal_handler(signal.SIGTERM, lambda: stop_event.set())
-        await stop_event.wait()
+        stop_event = threading.Event()
+        if platform.system() == "Windows":
+            signal.signal(signal.SIGINT, lambda s, f: stop_event.set())
+            # SIGTERM not available on Windows, but set it anyway (no-op)
+            try:
+                signal.signal(signal.SIGTERM, lambda s, f: stop_event.set())
+            except ValueError:
+                pass
+        else:
+            loop = asyncio.get_running_loop()
+            loop.add_signal_handler(signal.SIGINT, stop_event.set)
+            loop.add_signal_handler(signal.SIGTERM, stop_event.set)
+        while not stop_event.is_set():
+            await asyncio.sleep(0.5)
         scheduler.shutdown(wait=False)
     except KeyboardInterrupt:
         logger.info("Scheduler stopped.")
@@ -280,7 +291,7 @@ def cmd_serve(config: dict, port: int = 8080):
 
 async def _cmd_serve_async(config: dict, port: int):
     import uvicorn
-    from web.app import app, ws_manager, set_runtime_refs
+    from web.app import app, ws_manager, set_runtime_refs, set_scheduler
 
     storage = config.get("storage", {})
     news_store = DataStore(
@@ -413,6 +424,7 @@ async def _cmd_serve_async(config: dict, port: int):
         )
 
     scheduler.start()
+    set_scheduler(scheduler)
 
     print("\n" + "=" * 60)
     print(f"  Dashboard: http://127.0.0.1:{port}")

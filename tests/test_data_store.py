@@ -196,3 +196,97 @@ class TestMetadata:
         assert meta["count_history"][0][1] == 10
         assert meta["count_history"][1][1] == 15
         assert meta["latest_tag_distribution"] == {"B": 15}
+
+
+class TestDedup:
+    def test_is_similar_exact_match(self, store):
+        assert store._is_similar("Hello World", "Hello World") is True
+
+    def test_is_similar_high_similarity(self, store):
+        assert (
+            store._is_similar(
+                "Breaking News: Something Important Happens Today",
+                "Breaking News: Something Important Happens...",
+            )
+            is True
+        )
+
+    def test_is_similar_low_similarity(self, store):
+        assert (
+            store._is_similar("Weather Report: Sunny", "Financial Report: Stocks Rise")
+            is False
+        )
+
+    def test_is_similar_empty_strings(self, store):
+        assert store._is_similar("", "") is False
+        assert store._is_similar("A", "") is False
+
+    def test_deduplicate_items_removes_duplicates(self, store):
+        # Save a snapshot first to build history
+        store.save_snapshot(
+            "dd",
+            "https://x.com",
+            "h0",
+            [
+                {
+                    "title": "Breaking News: Something Important Happens Today",
+                    "url": "/1",
+                    "tag": "国际",
+                }
+            ],
+        )
+        # Second save: nearly duplicate title should be filtered
+        items = [
+            {
+                "title": "Breaking News: Something Important Happens...",
+                "url": "/1b",
+                "tag": "国际",
+            },
+            {"title": "Completely Different News", "url": "/2", "tag": "科技"},
+        ]
+        result = store._deduplicate_items(items, "dd")
+        assert len(result) == 1
+        assert result[0]["title"] == "Completely Different News"
+
+    def test_deduplicate_items_no_history(self, store):
+        items = [{"title": "News A", "url": "/a"}, {"title": "News B", "url": "/b"}]
+        result = store._deduplicate_items(items, "new_site")
+        assert len(result) == 2
+
+    def test_deduplicate_items_single_character_titles_not_merged(self, store):
+        """Short titles like 'N0' and 'N1' should not be considered duplicates."""
+        store.save_snapshot("sc", "https://x.com", "h0", [{"title": "N0", "url": "/0"}])
+        items = [{"title": "N1", "url": "/1"}]
+        result = store._deduplicate_items(items, "sc")
+        assert len(result) == 1  # "N1" not similar enough to "N0"
+
+
+class TestCircuitBreaker:
+    def test_no_circuit_initially(self, store):
+        assert store.is_circuit_open("cb_test") is False
+
+    def test_circuit_closed_after_few_failures(self, store):
+        for _ in range(3):
+            store.increment_failure("cb_test")
+        assert store.is_circuit_open("cb_test") is False
+
+    def test_circuit_opens_after_5_failures(self, store):
+        for _ in range(5):
+            store.increment_failure("cb_test")
+        assert store.is_circuit_open("cb_test") is True
+
+    def test_reset_failure_closes_circuit(self, store):
+        for _ in range(5):
+            store.increment_failure("cb_test")
+        assert store.is_circuit_open("cb_test") is True
+        store.reset_failure("cb_test")
+        assert store.is_circuit_open("cb_test") is False
+
+    def test_reset_failure_before_threshold(self, store):
+        for _ in range(3):
+            store.increment_failure("cb_test")
+        store.reset_failure("cb_test")
+        # After reset, failures should start from 0
+        for _ in range(4):
+            store.increment_failure("cb_test")
+        assert store.is_circuit_open("cb_test") is False  # Only 4 failures after reset
