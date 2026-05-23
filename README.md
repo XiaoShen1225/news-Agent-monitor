@@ -17,7 +17,7 @@
 - **分页加载**：News Items 支持分页浏览（30 条/页），避免一次性加载全部数据
 - **仪表盘操作**：Refresh All（一键刷新全部）、Run Now（手动触发抓取）、Reset（重置站点历史）集成到前端
 - **AI 对话助手**：基于 Tool Calling 的智能助手，支持查询新闻、站点统计、语义搜索、文章摘要抓取
-- **上下文管理**：Token 预算滑动窗口 + Exchange 边界裁剪，参考 ChatGPT/Claude 的混合策略
+- **上下文管理**：Token 预算滑动窗口 + Exchange 边界裁剪，参考 ChatGPT/Claude 的混合策略；主动压缩旧对话摘要，工具结果自动清理
 - **Webhook 通知**：钉钉 / 企业微信 / 邮件（SMTP），管道完成后自动推送
 - **自动可视化**：matplotlib 生成 10 种 PNG 图表，6 组时间轮替留存
 - **新闻/论文分离存储**：新闻与论文使用独立 SQLite 数据库 + JSON 快照目录 + CSV 文件，自动清理旧快照
@@ -30,7 +30,7 @@
 - **结构化日志**：Pipeline 级别 trace_id + JSON 事件日志（pipeline_start/skip/done/error），支持根因分析
 - **健康检查**：`/api/health` 端点，返回服务状态、scheduler 运行状态、最后一次 pipeline 执行时间
 - **Windows 兼容**：信号处理兼容 Windows 平台，schedule 模式可正常 Ctrl+C 退出
-- **110 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
+- **125 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
 
 ## 快速开始
 

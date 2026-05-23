@@ -201,6 +201,9 @@ MAX_HISTORY_TOKENS = (
     4000  # budget for _history only; system prompt + response use separate budget
 )
 MIN_EXCHANGES = 1  # always keep at least this many exchanges
+COMPRESSION_THRESHOLD = 0.6  # compress when history exceeds 60% of budget
+COMPRESSION_TARGET = 0.4  # compress the oldest ~40% of exchanges
+MAX_TOOL_RESULTS = 5  # keep this many recent tool results; older ones truncated
 
 
 class ChatAgent(BaseAgent):
@@ -227,6 +230,8 @@ class ChatAgent(BaseAgent):
         self._history: list[dict] = []
         self._fetch_client: httpx.AsyncClient | None = None
         self._total_trimmed = 0  # lifetime counter for observability
+        self._total_compressed = 0
+        self._total_cleaned = 0
 
     def _get_fetch_client(self) -> httpx.AsyncClient:
         if self._fetch_client is None:
@@ -251,6 +256,117 @@ class ChatAgent(BaseAgent):
 
     # ── context management ────────────────────────────────────────────
 
+    def _get_exchanges(self) -> list[list[dict]]:
+        """Partition _history into exchange groups.
+
+        Each exchange starts with a ``user`` message and includes all
+        subsequent assistant + tool messages until the next user message.
+        """
+        exchanges: list[list[dict]] = []
+        current: list[dict] = []
+        for msg in self._history:
+            if msg["role"] == "user" and current:
+                exchanges.append(current)
+                current = []
+            current.append(msg)
+        if current:
+            exchanges.append(current)
+        return exchanges
+
+    async def _compress_exchanges(self, exchanges: list[list[dict]]) -> str:
+        """Summarize a list of exchanges into a short Chinese paragraph."""
+        lines = []
+        for ex in exchanges:
+            for m in ex:
+                content = m.get("content", "")
+                if (
+                    isinstance(content, str)
+                    and content
+                    and m.get("role") in ("user", "assistant")
+                ):
+                    lines.append(f"[{m['role']}]: {content[:200]}")
+        if not lines:
+            return ""
+
+        conversation = "\n".join(lines)
+        prompt = (
+            "请用 3-5 句中文摘要以下对话的关键信息"
+            "（用户关注的话题、已查询的站点/标签、重要结论）：\n\n" + conversation
+        )
+        try:
+            response = await self.async_client.chat.completions.create(
+                model=self.llm_config.get("model", "glm-4-flash"),
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=256,
+                timeout=20.0,
+            )
+            return response.choices[0].message.content or ""
+        except Exception as e:
+            logger.warning("[ChatAgent] Compression summary failed: %s", e)
+            return ""
+
+    async def _maybe_compress(self):
+        """Proactively compress oldest exchanges when token usage exceeds threshold."""
+        tokens = _messages_tokens(self._history)
+        if tokens <= self.max_history_tokens * COMPRESSION_THRESHOLD:
+            return
+
+        exchanges = self._get_exchanges()
+        if len(exchanges) <= MIN_EXCHANGES + 1:
+            return  # need at least 2 exchanges for meaningful compression
+
+        # Compress oldest ~40% of exchanges, keeping at least MIN_EXCHANGES
+        compress_count = max(1, int(len(exchanges) * COMPRESSION_TARGET))
+        compress_count = min(compress_count, len(exchanges) - MIN_EXCHANGES)
+        if compress_count <= 0:
+            return
+
+        to_compress = exchanges[:compress_count]
+        keep = exchanges[compress_count:]
+
+        summary = await self._compress_exchanges(to_compress)
+        if not summary:
+            return
+
+        # Replace compressed exchanges with a synthetic summary message
+        self._history = [{"role": "system", "content": f"[对话摘要] {summary}"}] + [
+            m for ex in keep for m in ex
+        ]
+        self._total_compressed += 1
+        logger.info(
+            "[ChatAgent] Compressed %d exchange(s) into summary (%d chars); "
+            "history: ~%d tokens, %d exchanges remaining",
+            compress_count,
+            len(summary),
+            _messages_tokens(self._history),
+            len(keep),
+        )
+
+    def _cleanup_old_tool_results(self):
+        """Truncate old tool result contents, keeping the most recent N intact."""
+        tool_indices = [
+            i for i, m in enumerate(self._history) if m.get("role") == "tool"
+        ]
+        if len(tool_indices) <= MAX_TOOL_RESULTS:
+            return
+
+        cleaned = 0
+        for idx in tool_indices[:-MAX_TOOL_RESULTS]:
+            msg = self._history[idx]
+            if len(msg.get("content", "")) > 30:
+                tc_id = msg.get("tool_call_id", "unknown")
+                msg["content"] = f"[已清除: 旧查询结果 — {tc_id}]"
+                cleaned += 1
+
+        if cleaned:
+            self._total_cleaned += cleaned
+            logger.info(
+                "[ChatAgent] Cleaned %d old tool result(s); %d lifetime cleaned",
+                cleaned,
+                self._total_cleaned,
+            )
+
     def _trim_context(self) -> int:
         """Remove oldest exchanges until history fits in the token budget.
 
@@ -264,17 +380,7 @@ class ChatAgent(BaseAgent):
         if tokens <= self.max_history_tokens:
             return 0
 
-        # Partition history into exchange groups
-        exchanges: list[list[dict]] = []
-        current: list[dict] = []
-        for msg in self._history:
-            if msg["role"] == "user" and current:
-                exchanges.append(current)
-                current = []
-            current.append(msg)
-        if current:
-            exchanges.append(current)
-
+        exchanges = self._get_exchanges()
         if len(exchanges) <= MIN_EXCHANGES:
             return 0
 
@@ -309,6 +415,8 @@ class ChatAgent(BaseAgent):
             "exchanges": exchanges,
             "max_history_tokens": self.max_history_tokens,
             "lifetime_trimmed": self._total_trimmed,
+            "lifetime_compressed": self._total_compressed,
+            "lifetime_cleaned": self._total_cleaned,
         }
 
     # ── article fetching ─────────────────────────────────────────────
@@ -496,7 +604,9 @@ class ChatAgent(BaseAgent):
             reply = msg.content or ""
             self._history.append({"role": "assistant", "content": reply})
 
-            # Trim if over budget
+            # Compress old exchanges (preserve info) → clean old tool results (save tokens) → trim (hard budget)
+            await self._maybe_compress()
+            self._cleanup_old_tool_results()
             trimmed = self._trim_context()
 
             return {
@@ -519,4 +629,6 @@ class ChatAgent(BaseAgent):
     def clear_history(self):
         self._history.clear()
         self._total_trimmed = 0
+        self._total_compressed = 0
+        self._total_cleaned = 0
         logger.info("[ChatAgent] History cleared")
