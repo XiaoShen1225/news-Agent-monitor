@@ -62,14 +62,25 @@ def _safe_vector_store(config: dict):
     """Lazily create and cache a VectorStore instance.
 
     Deferred import avoids loading huggingface_hub / sentence_transformers
-    at module import time (expensive and may fail without network).
+    at module import time. HuggingFace model download may fail without
+    network (GFW blocks huggingface.co); returns None on failure.
     """
     global _shared_vector_store
     if _shared_vector_store is None:
-        from data.vector_store import VectorStore
+        try:
+            from data.vector_store import VectorStore
 
-        persist_dir = config.get("storage", {}).get("history_dir", "data/history")
-        _shared_vector_store = VectorStore(str(Path(persist_dir).parent / "vector_db"))
+            persist_dir = config.get("storage", {}).get("history_dir", "data/history")
+            _shared_vector_store = VectorStore(
+                str(Path(persist_dir).parent / "vector_db")
+            )
+        except Exception as e:
+            logger.warning(
+                "[Main] VectorStore init failed (model download / network): %s. "
+                "Semantic search will be unavailable.",
+                e,
+            )
+            _shared_vector_store = None
     return _shared_vector_store
 
 
