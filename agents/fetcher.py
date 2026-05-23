@@ -34,7 +34,8 @@ MAX_RETRIES = 3
 class FetcherAgent(BaseAgent):
     def __init__(self, config: dict):
         super().__init__("Fetcher", config)
-        self.timeout = 30
+        self.timeout = httpx.Timeout(connect=15.0, read=30.0, write=15.0, pool=5.0)
+        self._browser_timeout_ms = 30_000
         self._client = None
 
     def _get_client(self) -> httpx.AsyncClient:
@@ -164,11 +165,11 @@ class FetcherAgent(BaseAgent):
 
             try:
                 await page.goto(
-                    url, wait_until="domcontentloaded", timeout=self.timeout * 1000
+                    url, wait_until="domcontentloaded", timeout=self._browser_timeout_ms
                 )
             except Exception:
                 await page.goto(
-                    url, wait_until="domcontentloaded", timeout=self.timeout * 1000
+                    url, wait_until="domcontentloaded", timeout=self._browser_timeout_ms
                 )
 
             await page.wait_for_timeout(2000)
