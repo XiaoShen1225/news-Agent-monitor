@@ -11,8 +11,18 @@ from chromadb.utils import embedding_functions
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 # Suppress noisy connection errors when network is unavailable
-logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
-logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
+for _name in [
+    "huggingface_hub",
+    "huggingface_hub.utils._http",
+    "huggingface_hub.utils",
+    "sentence_transformers",
+    "filelock",
+    "chromadb",
+]:
+    _lg = logging.getLogger(_name)
+    _lg.handlers.clear()
+    _lg.setLevel(logging.CRITICAL)
+    _lg.propagate = False
 
 logger = logging.getLogger(__name__)
 
