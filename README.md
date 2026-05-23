@@ -19,9 +19,10 @@
 - **Webhook 通知**：钉钉 / 企业微信 / 邮件（SMTP），管道完成后自动推送
 - **自动可视化**：matplotlib 生成 10 种 PNG 图表，6 组时间轮替留存
 - **新闻/论文分离存储**：新闻与论文使用独立 SQLite 数据库 + JSON 快照目录 + CSV 文件，自动清理旧快照
+- **元数据预聚合**：site_metadata 表存储预计算的标签分布、历史计数、变更摘要，仪表盘查询 O(1) 无需扫描全量快照
 - **Docker 部署**：一键 `docker compose up -d`，含中文字体 + Chromium
 - **自进化**：运行指标追踪 + 调度频率自适应 + 提示词调优
-- **91 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
+- **94 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
 
 ## 快速开始
 
@@ -123,7 +124,7 @@ Visualization/
 ├── evolution/
 │   ├── memory.py                  # 运行指标记录
 │   └── optimizer.py               # 自进化：Prompt 调优 + 调度频率自适应
-├── tests/                         # 91 个测试
+├── tests/                         # 94 个测试
 │   ├── test_base_agent.py         # LLM JSON 解析容错测试
 │   ├── test_fetcher.py            # HTML 清洗 + 哈希测试
 │   ├── test_parser.py             # 过滤 + 章节匹配 + DOM 提取 + Profile 测试
@@ -230,6 +231,6 @@ Visualization/
 | 可视化 | matplotlib（SimHei 中文字体） |
 | 调度 | APScheduler (AsyncIOScheduler) |
 | 通知 | 钉钉 / 企业微信 / SMTP 邮件 |
-| 测试 | pytest（91 tests）+ ruff + pre-commit |
+| 测试 | pytest（94 tests）+ ruff + pre-commit |
 | CI/CD | GitHub Actions |
 | 部署 | Docker + Docker Compose |

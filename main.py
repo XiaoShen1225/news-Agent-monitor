@@ -57,12 +57,16 @@ logger = logging.getLogger("main")
 def _safe_vector_store(config: dict):
     """Create VectorStore, swallowing errors so app starts without it."""
     try:
-        return VectorStore(
-            config.get("storage", {}).get("vector_dir", "data/vector_db")
-        )
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return VectorStore(
+                config.get("storage", {}).get("vector_dir", "data/vector_db")
+            )
     except Exception:
-        logger.warning(
-            "VectorStore init failed, semantic search disabled", exc_info=True
+        logger.info(
+            "VectorStore init skipped (network unavailable), semantic search disabled"
         )
         return None
 

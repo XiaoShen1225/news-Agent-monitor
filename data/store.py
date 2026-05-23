@@ -98,6 +98,16 @@ class DataStore:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS site_metadata (
+                    site_name TEXT PRIMARY KEY,
+                    count_history TEXT DEFAULT '[]',
+                    latest_tag_distribution TEXT DEFAULT '{}',
+                    latest_changes TEXT DEFAULT '{}',
+                    latest_update_summary TEXT DEFAULT '',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             # Index for fast queries
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_news_items_site_time
@@ -132,6 +142,70 @@ class DataStore:
                 conn.execute("DELETE FROM news_items WHERE snapshot_id = ?", (snap_id,))
                 conn.execute("DELETE FROM snapshots WHERE id = ?", (snap_id,))
             conn.commit()
+
+    def update_metadata(
+        self,
+        site_name: str,
+        items_count: int,
+        tag_dist: dict,
+        changes: dict,
+        update_summary: str = "",
+        timestamp: str = None,
+    ):
+        """Upsert per-site metadata for fast dashboard queries without full snapshot scan."""
+        ts = timestamp or datetime.now().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT count_history FROM site_metadata WHERE site_name = ?",
+                (site_name,),
+            ).fetchone()
+
+            if row:
+                history = json.loads(row[0] or "[]")
+            else:
+                history = []
+            history.append([ts, items_count])
+            # Keep history bounded (last 200 entries)
+            if len(history) > 200:
+                history = history[-200:]
+
+            conn.execute(
+                """INSERT INTO site_metadata (site_name, count_history, latest_tag_distribution,
+                   latest_changes, latest_update_summary, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(site_name) DO UPDATE SET
+                   count_history = excluded.count_history,
+                   latest_tag_distribution = excluded.latest_tag_distribution,
+                   latest_changes = excluded.latest_changes,
+                   latest_update_summary = excluded.latest_update_summary,
+                   updated_at = excluded.updated_at""",
+                (
+                    site_name,
+                    json.dumps(history, ensure_ascii=False),
+                    json.dumps(tag_dist, ensure_ascii=False),
+                    json.dumps(changes, ensure_ascii=False),
+                    update_summary or "",
+                    ts,
+                ),
+            )
+            conn.commit()
+
+    def get_metadata(self, site_name: str) -> dict:
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT count_history, latest_tag_distribution, latest_changes, "
+                "latest_update_summary, updated_at FROM site_metadata WHERE site_name = ?",
+                (site_name,),
+            ).fetchone()
+        if not row:
+            return {}
+        return {
+            "count_history": json.loads(row[0] or "[]"),
+            "latest_tag_distribution": json.loads(row[1] or "{}"),
+            "latest_changes": json.loads(row[2] or "{}"),
+            "latest_update_summary": row[3] or "",
+            "updated_at": row[4] or "",
+        }
 
     def compute_hash(self, text: str) -> str:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()

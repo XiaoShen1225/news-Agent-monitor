@@ -136,14 +136,66 @@ def _diff_items(prev_items: list, curr_items: list) -> dict:
 
 
 def _build_chart_data(site_name: str, store) -> dict:
-    """Build ECharts-friendly data dict for a single site from persisted snapshots."""
+    """Build ECharts-friendly data dict for a single site, preferring metadata for speed."""
+    # Try metadata first (fast path — no JSON file scan)
+    meta = store.get_metadata(site_name)
+    if meta and meta.get("count_history"):
+        history = meta["count_history"]
+        counts = [h[1] for h in history]
+        times = [h[0] for h in history]
+
+        direction = "stable"
+        recent_avg = 0
+        older_avg = 0
+        if len(counts) >= 2:
+            recent_avg = sum(counts[-3:]) / min(3, len(counts[-3:]))
+            older_avg = sum(counts[: max(1, len(counts) - 3)]) / max(1, len(counts) - 3)
+            if recent_avg > older_avg * 1.1:
+                direction = "up"
+            elif recent_avg < older_avg * 0.9:
+                direction = "down"
+
+        tag_dist = meta.get("latest_tag_distribution", {})
+        tag_list = [
+            {"name": k, "value": v}
+            for k, v in sorted(tag_dist.items(), key=lambda x: x[1], reverse=True)
+        ]
+        changes = meta.get("latest_changes", {"new": 0, "removed": 0, "modified": 0})
+        update_summary = meta.get("latest_update_summary", "")
+
+        return {
+            "tag_distribution": tag_list,
+            "trends": {
+                "snapshot_counts": counts,
+                "snapshot_times": times,
+                "direction": direction,
+                "recent_average": round(recent_avg, 1),
+                "older_average": round(older_avg, 1),
+            },
+            "changes": changes,
+            "sentiment_distribution": [],
+            "update_summary": update_summary,
+            "summary": {
+                "site_name": site_name,
+                "timestamp": times[-1] if times else "",
+                "current_count": counts[-1] if counts else 0,
+                "previous_count": counts[-2] if len(counts) >= 2 else 0,
+                "total_changes": sum(changes.values()),
+                "trend_direction": direction,
+                "llm_summary": update_summary,
+                "new_count": changes.get("new", 0),
+                "removed_count": changes.get("removed", 0),
+                "modified_count": changes.get("modified", 0),
+            },
+        }
+
+    # Slow path: fallback to full snapshot scan for existing data
     snap = store.get_last_snapshot(site_name)
     if not snap:
         return None
 
     items = snap.get("items", [])
 
-    # Tag distribution
     tag_dist = {}
     for item in items:
         t = item.get("tag", "其他") or "其他"
@@ -153,7 +205,6 @@ def _build_chart_data(site_name: str, store) -> dict:
         for k, v in sorted(tag_dist.items(), key=lambda x: x[1], reverse=True)
     ]
 
-    # Trends from all snapshots
     all_snaps = store.get_all_snapshots(site_name)
     counts = [s.get("items_count", 0) for s in all_snaps]
     times = [s.get("timestamp", "") for s in all_snaps]
@@ -169,16 +220,11 @@ def _build_chart_data(site_name: str, store) -> dict:
         elif recent_avg < older_avg * 0.9:
             direction = "down"
 
-    # Changes: diff two most recent snapshots
     changes = {"new": 0, "removed": 0, "modified": 0}
     if len(all_snaps) >= 2:
         prev_items = all_snaps[-2].get("items", [])
         changes = _diff_items(prev_items, items)
 
-    # Sentiment distribution (deprecated — kept empty for compatibility)
-    sent_list = []
-
-    # Get update_summary from latest snapshot
     update_summary = snap.get("update_summary", "") or ""
 
     return {
@@ -191,7 +237,7 @@ def _build_chart_data(site_name: str, store) -> dict:
             "older_average": round(older_avg, 1),
         },
         "changes": changes,
-        "sentiment_distribution": sent_list,
+        "sentiment_distribution": [],
         "update_summary": update_summary,
         "summary": {
             "site_name": site_name,

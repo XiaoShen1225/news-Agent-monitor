@@ -126,6 +126,18 @@ class CoordinatorAgent(BaseAgent):
             # Step 5: Save snapshot
             if active_store:
                 active_store.save_snapshot(site_name, url, content_hash, items)
+                # Update metadata for fast dashboard queries
+                active_store.update_metadata(
+                    site_name,
+                    items_count=len(items),
+                    tag_dist=report.get("tag_distribution", {}),
+                    changes={
+                        "new": len(report.get("new_items", [])),
+                        "removed": len(report.get("removed_items", [])),
+                        "modified": len(report.get("modified_items", [])),
+                    },
+                    update_summary=report.get("update_summary") or "",
+                )
                 # Prune old snapshots
                 if self.max_snapshots > 0:
                     active_store.prune_snapshots(site_name, self.max_snapshots)

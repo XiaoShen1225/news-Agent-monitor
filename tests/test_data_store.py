@@ -167,3 +167,32 @@ class TestPruneSnapshots:
             )
         store.prune_snapshots("s", keep_count=0)
         assert len(store.get_all_snapshots("s")) == 5
+
+
+class TestMetadata:
+    def test_update_and_get(self, store):
+        store.update_metadata(
+            "test",
+            items_count=42,
+            tag_dist={"科技": 20, "体育": 22},
+            changes={"new": 5, "removed": 2, "modified": 1},
+            update_summary="测试摘要",
+        )
+        meta = store.get_metadata("test")
+        assert len(meta["count_history"]) == 1
+        assert meta["count_history"][0][1] == 42
+        assert meta["latest_tag_distribution"] == {"科技": 20, "体育": 22}
+        assert meta["latest_changes"]["new"] == 5
+        assert meta["latest_update_summary"] == "测试摘要"
+
+    def test_empty_metadata(self, store):
+        assert store.get_metadata("nonexistent") == {}
+
+    def test_history_accumulates(self, store):
+        store.update_metadata("s", 10, {"A": 10}, {"new": 1})
+        store.update_metadata("s", 15, {"B": 15}, {"new": 2})
+        meta = store.get_metadata("s")
+        assert len(meta["count_history"]) == 2
+        assert meta["count_history"][0][1] == 10
+        assert meta["count_history"][1][1] == 15
+        assert meta["latest_tag_distribution"] == {"B": 15}

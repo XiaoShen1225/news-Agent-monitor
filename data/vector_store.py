@@ -10,6 +10,10 @@ from chromadb.utils import embedding_functions
 # Use HF mirror for China if no endpoint set
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
+# Suppress noisy connection errors when network is unavailable
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
+
 logger = logging.getLogger(__name__)
 
 # Lightweight Chinese embedding model — no API key needed
@@ -65,13 +69,15 @@ class VectorStore:
             doc_id = f"{site_name}:{title}"
             ids.append(doc_id)
             documents.append(title)
-            metadatas.append({
-                "site_name": site_name,
-                "url": item.get("url", ""),
-                "tag": item.get("tag", ""),
-                "sentiment": item.get("sentiment", ""),
-                "snapshot_time": item.get("snapshot_time", ""),
-            })
+            metadatas.append(
+                {
+                    "site_name": site_name,
+                    "url": item.get("url", ""),
+                    "tag": item.get("tag", ""),
+                    "sentiment": item.get("sentiment", ""),
+                    "snapshot_time": item.get("snapshot_time", ""),
+                }
+            )
 
         if not ids:
             return
@@ -86,7 +92,10 @@ class VectorStore:
     # ── search ────────────────────────────────────────────────────────
 
     def search(
-        self, query: str, site_name: str = None, limit: int = 10,
+        self,
+        query: str,
+        site_name: str = None,
+        limit: int = 10,
     ) -> list:
         """Semantic search for news items. Returns list of dicts."""
         try:
@@ -105,15 +114,21 @@ class VectorStore:
         items = []
         if results.get("ids") and results["ids"][0]:
             for i in range(len(results["ids"][0])):
-                items.append({
-                    "title": results["documents"][0][i],
-                    "site_name": results["metadatas"][0][i].get("site_name", ""),
-                    "url": results["metadatas"][0][i].get("url", ""),
-                    "tag": results["metadatas"][0][i].get("tag", ""),
-                    "sentiment": results["metadatas"][0][i].get("sentiment", ""),
-                    "snapshot_time": results["metadatas"][0][i].get("snapshot_time", ""),
-                    "score": round(1 - results["distances"][0][i], 4) if results.get("distances") else 0,
-                })
+                items.append(
+                    {
+                        "title": results["documents"][0][i],
+                        "site_name": results["metadatas"][0][i].get("site_name", ""),
+                        "url": results["metadatas"][0][i].get("url", ""),
+                        "tag": results["metadatas"][0][i].get("tag", ""),
+                        "sentiment": results["metadatas"][0][i].get("sentiment", ""),
+                        "snapshot_time": results["metadatas"][0][i].get(
+                            "snapshot_time", ""
+                        ),
+                        "score": round(1 - results["distances"][0][i], 4)
+                        if results.get("distances")
+                        else 0,
+                    }
+                )
         return items
 
     # ── stats ─────────────────────────────────────────────────────────
