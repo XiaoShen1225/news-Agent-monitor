@@ -408,7 +408,9 @@ async def _cmd_serve_async(config: dict, port: int):
         )
     print("=" * 60 + "\n")
 
-    config_obj = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+    config_obj = uvicorn.Config(
+        app, host="0.0.0.0", port=port, log_level="info", http="h11"
+    )
     server = uvicorn.Server(config_obj)
     await server.serve()
 
