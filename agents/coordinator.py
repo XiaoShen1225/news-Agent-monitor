@@ -240,6 +240,7 @@ class CoordinatorAgent(BaseAgent):
                     extraction_confidence=confidence,
                     processing_time_ms=elapsed,
                     trace_id=trace_id,
+                    total_tokens=total_tokens,
                 )
 
             await notify_all(self.notifiers, build_event(result))

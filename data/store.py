@@ -100,14 +100,19 @@ class DataStore:
                     processing_time_ms REAL DEFAULT 0,
                     error_message TEXT,
                     trace_id TEXT DEFAULT '',
+                    total_tokens INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            # Migration: add trace_id column to existing run_logs tables
-            try:
-                conn.execute("ALTER TABLE run_logs ADD COLUMN trace_id TEXT DEFAULT ''")
-            except Exception:
-                pass  # Column already exists
+            # Migrations: add new columns to existing run_logs tables
+            for col, col_def in [
+                ("trace_id", "TEXT DEFAULT ''"),
+                ("total_tokens", "INTEGER DEFAULT 0"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE run_logs ADD COLUMN {col} {col_def}")
+                except Exception:
+                    pass  # Column already exists
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS site_metadata (
                     site_name TEXT PRIMARY KEY,
@@ -518,12 +523,13 @@ class DataStore:
         processing_time_ms: float = 0,
         error_message: str = None,
         trace_id: str = "",
+        total_tokens: int = 0,
     ):
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "INSERT INTO run_logs (site_name, status, items_found, changes_detected, "
-                "extraction_confidence, processing_time_ms, error_message, trace_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "extraction_confidence, processing_time_ms, error_message, trace_id, total_tokens) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     site_name,
                     status,
@@ -533,6 +539,7 @@ class DataStore:
                     processing_time_ms,
                     error_message,
                     trace_id,
+                    total_tokens,
                 ),
             )
             conn.commit()
@@ -541,7 +548,7 @@ class DataStore:
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(
                 "SELECT status, items_found, changes_detected, extraction_confidence, "
-                "processing_time_ms, created_at FROM run_logs WHERE site_name = ? "
+                "processing_time_ms, total_tokens, created_at FROM run_logs WHERE site_name = ? "
                 "ORDER BY id DESC LIMIT ?",
                 (site_name, limit),
             ).fetchall()
@@ -552,7 +559,30 @@ class DataStore:
                 "changes_detected": r[2],
                 "extraction_confidence": r[3],
                 "processing_time_ms": r[4],
-                "created_at": r[5],
+                "total_tokens": r[5] or 0,
+                "created_at": r[6],
+            }
+            for r in rows
+        ]
+
+    def get_cost_summary(self, days: int = 7) -> list:
+        """Aggregate token usage by site over the last N days."""
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT site_name, SUM(total_tokens) as sum_tokens, COUNT(*) as runs, "
+                "AVG(total_tokens) as avg_tokens "
+                "FROM run_logs "
+                "WHERE created_at > datetime('now', ?) AND total_tokens > 0 "
+                "GROUP BY site_name "
+                "ORDER BY sum_tokens DESC",
+                (f"-{days} days",),
+            ).fetchall()
+        return [
+            {
+                "site_name": r[0],
+                "total_tokens": r[1] or 0,
+                "runs": r[2],
+                "avg_tokens": round(r[3] or 0, 1),
             }
             for r in rows
         ]

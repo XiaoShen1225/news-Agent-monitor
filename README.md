@@ -30,7 +30,9 @@
 - **结构化日志**：Pipeline 级别 trace_id + JSON 事件日志（pipeline_start/skip/done/error），支持根因分析
 - **健康检查**：`/api/health` 端点，返回服务状态、scheduler 运行状态、最后一次 pipeline 执行时间
 - **Windows 兼容**：信号处理兼容 Windows 平台，schedule 模式可正常 Ctrl+C 退出
-- **125 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
+- **131 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
+- **成本追踪**：Token 用量按站点聚合入库，`/api/cost` 端点查询，支持按天数筛选
+- **LLM 输出评估**：离线评估工具 `eval/judge.py`，faithfulness/relevance 双维度评分
 
 ## 快速开始
 
@@ -230,6 +232,7 @@ Visualization/
 | `GET /api/chat/history` | 查看对话历史 |
 | `GET /api/chat/context` | 上下文使用统计（Token 数、Exchange 数） |
 | `GET /api/health` | 健康检查（状态、运行时长、scheduler 状态、最后执行时间） |
+| `GET /api/cost?days=7` | Token 用量统计（按站点聚合，支持天数筛选） |
 | `DELETE /api/chat` | 清空对话历史 |
 | `WS /ws` | WebSocket 实时推送 |
 

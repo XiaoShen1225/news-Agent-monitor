@@ -846,3 +846,36 @@ async def health():
         "last_pipeline_run": _last_run_time.isoformat() if _last_run_time else None,
         "version": "0.6.0",
     }
+
+
+@app.get("/api/cost")
+async def api_cost(days: int = Query(7, ge=1, le=90)):
+    """Return token usage aggregated by site over the last N days."""
+    results = []
+    if _coordinator is not None:
+        for store in [_coordinator.store, _coordinator.paper_store]:
+            if store is not None:
+                try:
+                    results.extend(store.get_cost_summary(days=days))
+                except Exception:
+                    pass
+    # Merge duplicate site entries (same site may appear in both stores)
+    merged = {}
+    for r in results:
+        sn = r["site_name"]
+        if sn in merged:
+            merged[sn]["total_tokens"] += r["total_tokens"]
+            merged[sn]["runs"] += r["runs"]
+            merged[sn]["avg_tokens"] = round(
+                merged[sn]["total_tokens"] / max(merged[sn]["runs"], 1), 1
+            )
+        else:
+            merged[sn] = dict(r)
+    total = sum(m["total_tokens"] for m in merged.values())
+    return {
+        "days": days,
+        "total_tokens": total,
+        "by_site": sorted(
+            merged.values(), key=lambda x: x["total_tokens"], reverse=True
+        ),
+    }

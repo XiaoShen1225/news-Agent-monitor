@@ -71,18 +71,41 @@ class TestQuery:
 
 class TestRunLogs:
     def test_log_and_retrieve(self, store):
-        store.log_run("test", "success", items_found=10, changes_detected=3)
+        store.log_run(
+            "test", "success", items_found=10, changes_detected=3, total_tokens=500
+        )
         store.log_run("test", "skipped_no_change", items_found=0, changes_detected=0)
 
         history = store.get_run_history("test", limit=10)
         assert len(history) == 2
         assert history[0]["status"] == "skipped_no_change"
+        assert history[0]["total_tokens"] == 0
         assert history[1]["status"] == "success"
+        assert history[1]["total_tokens"] == 500
 
     def test_log_error(self, store):
         store.log_run("test", "error", error_message="timeout", processing_time_ms=5000)
         history = store.get_run_history("test")
         assert history[0]["status"] == "error"
+
+    def test_cost_summary_aggregates(self, store):
+        store.log_run("site_a", "success", total_tokens=300, trace_id="t1")
+        store.log_run("site_a", "success", total_tokens=500, trace_id="t2")
+        store.log_run("site_b", "success", total_tokens=100, trace_id="t3")
+        summary = store.get_cost_summary(days=365)
+        assert len(summary) == 2
+        site_a = next(s for s in summary if s["site_name"] == "site_a")
+        assert site_a["total_tokens"] == 800
+        assert site_a["runs"] == 2
+        assert site_a["avg_tokens"] == 400.0
+        site_b = next(s for s in summary if s["site_name"] == "site_b")
+        assert site_b["total_tokens"] == 100
+
+    def test_cost_summary_excludes_zero_tokens(self, store):
+        store.log_run("site_x", "skipped_no_change", total_tokens=0)
+        store.log_run("site_x", "error", total_tokens=0)
+        summary = store.get_cost_summary(days=365)
+        assert len(summary) == 0  # Zero-token runs excluded
 
 
 class TestGetAllSnapshots:
