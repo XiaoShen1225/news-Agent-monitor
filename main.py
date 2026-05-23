@@ -44,7 +44,6 @@ from evolution.memory import EvolutionMemory  # noqa: E402
 from evolution.optimizer import EvolutionOptimizer  # noqa: E402
 from agents.coordinator import CoordinatorAgent  # noqa: E402
 from notifications.dispatcher import create_notifiers  # noqa: E402
-from data.vector_store import VectorStore  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,20 +54,9 @@ logger = logging.getLogger("main")
 
 
 def _safe_vector_store(config: dict):
-    """Create VectorStore, swallowing errors so app starts without it."""
-    try:
-        import warnings
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            return VectorStore(
-                config.get("storage", {}).get("vector_dir", "data/vector_db")
-            )
-    except Exception:
-        logger.info(
-            "VectorStore init skipped (network unavailable), semantic search disabled"
-        )
-        return None
+    """Defer VectorStore creation to avoid huggingface_hub failures
+    polluting the asyncio event loop's httpx connection pool."""
+    return None
 
 
 _ENV_PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
