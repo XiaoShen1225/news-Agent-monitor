@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -631,6 +631,19 @@ async def api_trigger_run(
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.post("/api/refresh-all")
+async def api_refresh_all():
+    """Trigger pipeline runs for all configured targets concurrently.
+    Runs in background — WebSocket broadcasts results as each target completes."""
+    if _coordinator is None:
+        return JSONResponse({"error": "Coordinator not initialized"}, status_code=503)
+
+    import asyncio as _asyncio
+
+    _asyncio.create_task(_coordinator.run_all_targets_async())
+    return {"status": "started", "message": "Refreshing all targets"}
+
+
 @app.post("/api/reset")
 async def api_reset(site: str = Query(..., min_length=1)):
     """Reset all history for a site (checks both news and papers DBs)."""
@@ -668,6 +681,66 @@ async def api_reset(site: str = Query(..., min_length=1)):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+# ── Chat assistant ──────────────────────────────────────────────────
+
+_chat_agent = None
+
+
+def _get_chat_agent():
+    global _chat_agent
+    if _chat_agent is None:
+        from data.store import DataStore
+
+        from agents.chat_agent import ChatAgent
+
+        llm_cfg = _config.get("llm", {}) if _config else {}
+        chat_config = {"llm": llm_cfg}
+        _chat_agent = ChatAgent(
+            chat_config,
+            news_store=DataStore(source_type="news"),
+            paper_store=DataStore(source_type="paper"),
+            vector_store=None,  # lazy init to avoid huggingface download on first chat
+        )
+    return _chat_agent
+
+
+@app.post("/api/chat")
+async def api_chat(request: Request):
+    """Send a message to the chat assistant."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+    message = (body.get("message") or "").strip()
+    if not message:
+        return JSONResponse({"error": "Empty message"}, status_code=400)
+
+    agent = _get_chat_agent()
+    result = await agent.chat(message)
+    return result
+
+
+@app.get("/api/chat/history")
+async def api_chat_history():
+    """Get current conversation history."""
+    agent = _get_chat_agent()
+    return {"messages": agent._history}
+
+
+@app.delete("/api/chat")
+async def api_chat_clear():
+    """Clear conversation history."""
+    _get_chat_agent().clear_history()
+    return {"status": "cleared"}
+
+
+@app.get("/api/chat/context")
+async def api_chat_context():
+    """Get current context usage stats."""
+    return _get_chat_agent().context_stats()
+
+
 # ── WebSocket ──────────────────────────────────────────────────────
 
 
@@ -701,8 +774,6 @@ async def dashboard(request: Request):
 @app.get("/favicon.ico")
 async def favicon():
     icon = PROJECT_ROOT / "web" / "templates" / "favicon.ico"
-    return (
-        FileResponse(str(icon))
-        if icon.exists()
-        else JSONResponse(None, status_code=204)
-    )
+    if icon.exists():
+        return FileResponse(str(icon))
+    return Response(status_code=204)

@@ -15,7 +15,9 @@
 - **向量语义搜索**：ChromaDB + text2vec-base-chinese 本地嵌入，`/api/search` 端点
 - **Web 仪表盘**：FastAPI + ECharts 5.5 实时交互图表 + 暗色主题，WebSocket 实时推送
 - **分页加载**：News Items 支持分页浏览（30 条/页），避免一次性加载全部数据
-- **仪表盘操作**：Run Now（手动触发抓取）、Reset（重置站点历史）集成到前端
+- **仪表盘操作**：Refresh All（一键刷新全部）、Run Now（手动触发抓取）、Reset（重置站点历史）集成到前端
+- **AI 对话助手**：基于 Tool Calling 的智能助手，支持查询新闻、站点统计、语义搜索、文章摘要抓取
+- **上下文管理**：Token 预算滑动窗口 + Exchange 边界裁剪，参考 ChatGPT/Claude 的混合策略
 - **Webhook 通知**：钉钉 / 企业微信 / 邮件（SMTP），管道完成后自动推送
 - **自动可视化**：matplotlib 生成 10 种 PNG 图表，6 组时间轮替留存
 - **新闻/论文分离存储**：新闻与论文使用独立 SQLite 数据库 + JSON 快照目录 + CSV 文件，自动清理旧快照
@@ -102,6 +104,7 @@ Visualization/
 │   ├── analyzer.py                # 标题 Diff + 趋势计算 + 情感分析 + LLM 摘要
 │   ├── visualizer.py              # matplotlib 10 种图表 + 六组留存策略
 │   ├── coordinator.py             # 流水线编排，集成通知 + 向量存储
+│   ├── chat_agent.py              # AI 对话助手（Tool Calling + 上下文管理）
 │   └── site_profiles.py           # SiteProfile 数据类 + 内置站点配置
 ├── data/
 │   ├── store.py                   # JSON + SQLite + CSV 存储（新闻/论文分离路径）
@@ -181,6 +184,7 @@ Visualization/
           │    Web Dashboard     │
           │ FastAPI + WebSocket  │
           │ /api/search 语义搜索 │
+          │ /api/chat 对话助手   │
           └──────────────────────┘
 ```
 
@@ -195,6 +199,7 @@ Visualization/
 7. **Visualizer** 生成图表，today/total 每次更新
 8. **通知** → 钉钉/企微/邮件推送管道结果
 9. **Evolution** 指标记录 → 调度频率自适应
+10. **ChatAgent** 通过 Tool Calling 查询数据，上下文窗口自动管理（Token 预算 + Exchange 裁剪）
 
 ## API 文档
 
@@ -213,7 +218,12 @@ Visualization/
 | `GET /api/targets` | 已配置的监控目标列表 |
 | `GET /api/schedule` | 调度器状态和配置 |
 | `POST /api/trigger-run?site=&url=` | 手动触发单次抓取 |
+| `POST /api/refresh-all` | 一键刷新全部监控目标 |
 | `POST /api/reset?site=` | 重置站点历史数据 |
+| `POST /api/chat` | AI 对话助手（支持 Tool Calling） |
+| `GET /api/chat/history` | 查看对话历史 |
+| `GET /api/chat/context` | 上下文使用统计（Token 数、Exchange 数） |
+| `DELETE /api/chat` | 清空对话历史 |
 | `WS /ws` | WebSocket 实时推送 |
 
 ## 技术栈

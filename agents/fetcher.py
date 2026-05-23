@@ -99,27 +99,15 @@ class FetcherAgent(BaseAgent):
                 return response.text
             except httpx.ConnectError:
                 import sys
-                import traceback
 
-                exc_info = sys.exc_info()
-                last_error = exc_info[1]
-                # Log the full traceback on first attempt for diagnosis
-                if attempt == 0:
-                    logger.error(
-                        "[Fetcher] ConnectError for %s (attempt %d/%d):\n%s",
-                        url,
-                        attempt + 1,
-                        MAX_RETRIES,
-                        traceback.format_exc(),
-                    )
-                else:
-                    logger.warning(
-                        "[Fetcher] ConnectError for %s (attempt %d/%d): %s",
-                        url,
-                        attempt + 1,
-                        MAX_RETRIES,
-                        exc_info[1],
-                    )
+                last_error = sys.exc_info()[1]
+                logger.warning(
+                    "[Fetcher] ConnectError for %s (attempt %d/%d): %s",
+                    url,
+                    attempt + 1,
+                    MAX_RETRIES,
+                    last_error,
+                )
                 if attempt < MAX_RETRIES - 1:
                     delay = 2**attempt
                     logger.info("[Fetcher] Retrying %s in %ds...", url, delay)
