@@ -6,9 +6,19 @@ import logging
 import re
 from typing import Optional
 
+import httpx
 from openai import AsyncOpenAI, OpenAI
 
 logger = logging.getLogger(__name__)
+
+
+def _make_http_client() -> httpx.AsyncClient:
+    """Create an httpx client with safe defaults for LLM API calls."""
+    return httpx.AsyncClient(
+        timeout=30.0,
+        trust_env=False,
+        limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+    )
 
 
 class BaseAgent:
@@ -19,35 +29,55 @@ class BaseAgent:
         self.max_retries = self.llm_config.get("max_retries", 3)
         self._client: Optional[OpenAI] = None
         self._async_client: Optional[AsyncOpenAI] = None
+        self._http_client: Optional[httpx.AsyncClient] = None
 
     @property
     def client(self) -> OpenAI:
         if self._client is None:
             self._client = OpenAI(
                 api_key=self.llm_config.get("api_key", ""),
-                base_url=self.llm_config.get("base_url", "https://open.bigmodel.cn/api/paas/v4/"),
+                base_url=self.llm_config.get(
+                    "base_url", "https://open.bigmodel.cn/api/paas/v4/"
+                ),
             )
         return self._client
 
     @property
     def async_client(self) -> AsyncOpenAI:
         if self._async_client is None:
+            self._http_client = _make_http_client()
             self._async_client = AsyncOpenAI(
                 api_key=self.llm_config.get("api_key", ""),
-                base_url=self.llm_config.get("base_url", "https://open.bigmodel.cn/api/paas/v4/"),
+                base_url=self.llm_config.get(
+                    "base_url", "https://open.bigmodel.cn/api/paas/v4/"
+                ),
+                http_client=self._http_client,
             )
         return self._async_client
 
+    async def aclose(self):
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
+            self._async_client = None
+
     # ── sync LLM (wraps async) ──────────────────────────────────────
 
-    def call_llm(self, system_prompt: str, user_prompt: str,
-                 temperature: float = None, max_tokens: int = None,
-                 fallback: str = ...) -> str:
+    def call_llm(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = None,
+        max_tokens: int = None,
+        fallback: str = ...,
+    ) -> str:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
             return asyncio.run(
-                self.call_llm_async(system_prompt, user_prompt, temperature, max_tokens, fallback)
+                self.call_llm_async(
+                    system_prompt, user_prompt, temperature, max_tokens, fallback
+                )
             )
         raise RuntimeError(
             "call_llm (sync) called from async context — use call_llm_async instead"
@@ -55,16 +85,26 @@ class BaseAgent:
 
     # ── async LLM ───────────────────────────────────────────────────
 
-    async def call_llm_async(self, system_prompt: str, user_prompt: str,
-                             temperature: float = None, max_tokens: int = None,
-                             fallback: str = ...) -> str:
+    async def call_llm_async(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = None,
+        max_tokens: int = None,
+        fallback: str = ...,
+    ) -> str:
         temperature = temperature or self.llm_config.get("temperature", 0.1)
         max_tokens = max_tokens or self.llm_config.get("max_tokens", 2048)
         model = self.llm_config.get("model", "glm-4-flash")
 
         for attempt in range(self.max_retries):
             try:
-                logger.info("[%s] LLM call attempt %d/%d", self.name, attempt + 1, self.max_retries)
+                logger.info(
+                    "[%s] LLM call attempt %d/%d",
+                    self.name,
+                    attempt + 1,
+                    self.max_retries,
+                )
                 response = await self.async_client.chat.completions.create(
                     model=model,
                     messages=[
@@ -76,21 +116,35 @@ class BaseAgent:
                     timeout=30.0,
                 )
                 content = response.choices[0].message.content
-                logger.info("[%s] LLM call successful, tokens: %d", self.name,
-                            response.usage.total_tokens if response.usage else 0)
+                logger.info(
+                    "[%s] LLM call successful, tokens: %d",
+                    self.name,
+                    response.usage.total_tokens if response.usage else 0,
+                )
                 return content
 
             except Exception as e:
-                logger.warning("[%s] LLM call failed (attempt %d): %s", self.name, attempt + 1, e)
+                logger.warning(
+                    "[%s] LLM call failed (attempt %d): %s", self.name, attempt + 1, e
+                )
                 if attempt < self.max_retries - 1:
-                    wait = 2 ** attempt
+                    wait = 2**attempt
                     logger.info("[%s] Retrying in %ds...", self.name, wait)
                     await asyncio.sleep(wait)
+                    # Reset http client on connection errors to force fresh connections
+                    if "onnection" in type(e).__name__ or "onnection" in str(e):
+                        await self.aclose()
 
         if fallback is not ...:
-            logger.warning("[%s] LLM call failed after %d attempts, returning fallback.", self.name, self.max_retries)
+            logger.warning(
+                "[%s] LLM call failed after %d attempts, returning fallback.",
+                self.name,
+                self.max_retries,
+            )
             return fallback
-        raise RuntimeError(f"[{self.name}] LLM call failed after {self.max_retries} attempts")
+        raise RuntimeError(
+            f"[{self.name}] LLM call failed after {self.max_retries} attempts"
+        )
 
     # ── JSON parsing ────────────────────────────────────────────────
 
@@ -125,7 +179,7 @@ class BaseAgent:
         start = text.find("[")
         end = text.rfind("]")
         if start != -1 and end != -1 and end > start:
-            segment = text[start:end + 1]
+            segment = text[start : end + 1]
             segment = re.sub(r",\s*([}\]])", r"\1", segment)
             try:
                 result = json.loads(segment)
@@ -135,7 +189,9 @@ class BaseAgent:
 
         # Attempt 3b: truncated array — close at last complete }
         if start != -1 and end == -1:
-            logger.warning("[BaseAgent] JSON array appears truncated. Attempting recovery.")
+            logger.warning(
+                "[BaseAgent] JSON array appears truncated. Attempting recovery."
+            )
             depth = 0
             last_complete = -1
             for i in range(start, len(text)):
@@ -146,7 +202,7 @@ class BaseAgent:
                     if depth == 0:
                         last_complete = i
             if last_complete > start:
-                segment = text[start:last_complete + 1] + "]"
+                segment = text[start : last_complete + 1] + "]"
                 segment = re.sub(r",\s*([}\]])", r"\1", segment)
                 try:
                     result = json.loads(segment)
@@ -169,8 +225,12 @@ class BaseAgent:
             else:
                 end_obj = len(text) - 1
             try:
-                obj = json.loads(text[start_obj:end_obj + 1])
-                return [obj] if isinstance(obj, dict) else (obj if isinstance(obj, list) else [obj])
+                obj = json.loads(text[start_obj : end_obj + 1])
+                return (
+                    [obj]
+                    if isinstance(obj, dict)
+                    else (obj if isinstance(obj, list) else [obj])
+                )
             except json.JSONDecodeError:
                 pass
 
