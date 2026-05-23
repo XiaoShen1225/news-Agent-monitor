@@ -34,10 +34,12 @@ def create_notifiers(config: dict) -> List[BaseNotifier]:
 
     for entry in cfg.get("dingtalk", []) or []:
         if entry.get("webhook_url"):
-            notifiers.append(DingTalkNotifier(
-                webhook_url=entry["webhook_url"],
-                secret=entry.get("secret", ""),
-            ))
+            notifiers.append(
+                DingTalkNotifier(
+                    webhook_url=entry["webhook_url"],
+                    secret=entry.get("secret", ""),
+                )
+            )
             logger.info("DingTalk notifier configured")
 
     for entry in cfg.get("wecom", []) or []:
@@ -47,15 +49,17 @@ def create_notifiers(config: dict) -> List[BaseNotifier]:
 
     for entry in cfg.get("email", []) or []:
         if entry.get("smtp_host") and entry.get("to_addrs"):
-            notifiers.append(EmailNotifier(
-                smtp_host=entry["smtp_host"],
-                smtp_port=entry.get("smtp_port", 587),
-                smtp_user=entry.get("smtp_user", ""),
-                smtp_password=entry.get("smtp_password", ""),
-                from_addr=entry.get("from_addr", ""),
-                to_addrs=entry["to_addrs"],
-                use_tls=entry.get("use_tls", True),
-            ))
+            notifiers.append(
+                EmailNotifier(
+                    smtp_host=entry["smtp_host"],
+                    smtp_port=entry.get("smtp_port", 587),
+                    smtp_user=entry.get("smtp_user", ""),
+                    smtp_password=entry.get("smtp_password", ""),
+                    from_addr=entry.get("from_addr", ""),
+                    to_addrs=entry["to_addrs"],
+                    use_tls=entry.get("use_tls", True),
+                )
+            )
             logger.info("Email notifier configured: %s", entry["smtp_host"])
 
     return notifiers
@@ -73,7 +77,7 @@ def build_event(result: dict) -> PipelineEvent:
         removed_items=len(report.get("removed_items", [])),
         modified_items=len(report.get("modified_items", [])),
         trend_direction=report.get("trends", {}).get("direction", "N/A"),
-        summary=report.get("llm_summary"),
+        summary=report.get("update_summary"),
         error=result.get("error"),
         timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     )

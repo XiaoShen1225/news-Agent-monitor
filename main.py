@@ -110,7 +110,7 @@ def print_summary(result: dict, charts: dict = None):
         print(f"  Trend direction: {report.get('trends', {}).get('direction', 'N/A')}")
         print(f"  Tag distribution: {report.get('tag_distribution', {})}")
 
-        summary = report.get("llm_summary")
+        summary = report.get("update_summary")
         if summary:
             print(f"\n  [AI Summary] {summary}")
 

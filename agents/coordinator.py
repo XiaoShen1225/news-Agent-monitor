@@ -72,8 +72,6 @@ class CoordinatorAgent(BaseAgent):
         profile = profile or get_profile(site_name)
         is_article = profile.is_article_source if profile else False
         active_store = self.paper_store if is_article else self.store
-        if active_store:
-            self.analyzer.store = active_store
 
         start_time = time.time()
         result = {
@@ -121,7 +119,9 @@ class CoordinatorAgent(BaseAgent):
             confidence = parse_result["extraction_confidence"]
 
             # Step 4: Analyze
-            report = await self.analyzer.run_async(items, site_name, content_hash)
+            report = await self.analyzer.run_async(
+                items, site_name, content_hash, store=active_store
+            )
 
             # Step 5: Save snapshot
             if active_store:

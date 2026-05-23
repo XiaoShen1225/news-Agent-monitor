@@ -6,6 +6,7 @@ from notifications.dispatcher import build_event, create_notifiers
 
 class FakeNotifier(BaseNotifier):
     """Captures the last event sent."""
+
     def __init__(self):
         self.last_event = None
 
@@ -27,7 +28,7 @@ def make_result(status="success", **kwargs):
             "removed_items": [{}],
             "modified_items": [{}] * 3,
             "trends": {"direction": "up"},
-            "llm_summary": "Things are looking good.",
+            "update_summary": "Things are looking good.",
             "total_changes": 6,
         },
         **kwargs,
@@ -87,7 +88,11 @@ class TestCreateNotifiers:
     def test_dingtalk_created(self):
         config = {
             "notifications": {
-                "dingtalk": [{"webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=abc"}]
+                "dingtalk": [
+                    {
+                        "webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=abc"
+                    }
+                ]
             }
         }
         notifiers = create_notifiers(config)
@@ -97,7 +102,11 @@ class TestCreateNotifiers:
     def test_wecom_created(self):
         config = {
             "notifications": {
-                "wecom": [{"webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc"}]
+                "wecom": [
+                    {
+                        "webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc"
+                    }
+                ]
             }
         }
         notifiers = create_notifiers(config)
@@ -107,13 +116,15 @@ class TestCreateNotifiers:
     def test_email_created(self):
         config = {
             "notifications": {
-                "email": [{
-                    "smtp_host": "smtp.example.com",
-                    "smtp_port": 587,
-                    "smtp_user": "u",
-                    "smtp_password": "p",
-                    "to_addrs": ["a@b.com"],
-                }]
+                "email": [
+                    {
+                        "smtp_host": "smtp.example.com",
+                        "smtp_port": 587,
+                        "smtp_user": "u",
+                        "smtp_password": "p",
+                        "to_addrs": ["a@b.com"],
+                    }
+                ]
             }
         }
         notifiers = create_notifiers(config)
@@ -122,9 +133,7 @@ class TestCreateNotifiers:
 
     def test_email_skipped_without_host(self):
         config = {
-            "notifications": {
-                "email": [{"smtp_host": "", "to_addrs": ["a@b.com"]}]
-            }
+            "notifications": {"email": [{"smtp_host": "", "to_addrs": ["a@b.com"]}]}
         }
         notifiers = create_notifiers(config)
         assert notifiers == []
@@ -149,5 +158,7 @@ class TestCreateNotifiers:
         assert len(notifiers) == 2
 
     def test_dingtalk_skipped_without_url(self):
-        notifiers = create_notifiers({"notifications": {"dingtalk": [{"webhook_url": ""}]}})
+        notifiers = create_notifiers(
+            {"notifications": {"dingtalk": [{"webhook_url": ""}]}}
+        )
         assert notifiers == []

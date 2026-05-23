@@ -6,7 +6,6 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 from collections import Counter
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urljoin
@@ -34,9 +33,12 @@ SECTION_PATTERNS = [
 
 # Common junk patterns applied across all sites
 _UNIVERSAL_NOISE = [
-    re.compile(r"^加载中"), re.compile(r"^\d+$"),
-    re.compile(r"^登录"), re.compile(r"^注册"),
-    re.compile(r"^关于我们"), re.compile(r"^广告"),
+    re.compile(r"^加载中"),
+    re.compile(r"^\d+$"),
+    re.compile(r"^登录"),
+    re.compile(r"^注册"),
+    re.compile(r"^关于我们"),
+    re.compile(r"^广告"),
 ]
 
 _PROMPT_PATH = Path("prompts/extraction.yaml")
@@ -61,7 +63,10 @@ class ParserAgent(BaseAgent):
         self.max_title_len = 200
 
     def run(
-        self, html: str, site_name: str = "default", page_url: str = "",
+        self,
+        html: str,
+        site_name: str = "default",
+        page_url: str = "",
         profile: Optional[SiteProfile] = None,
     ) -> dict:
         """Sync entry point. Delegates to run_async for LLM strategy."""
@@ -71,13 +76,21 @@ class ParserAgent(BaseAgent):
             try:
                 asyncio.get_running_loop()
             except RuntimeError:
-                return asyncio.run(self.run_async(html, site_name, page_url, profile_obj))
-            raise RuntimeError("Parser.run() with LLM strategy in async context — use run_async()")
+                return asyncio.run(
+                    self.run_async(html, site_name, page_url, profile_obj)
+                )
+            raise RuntimeError(
+                "Parser.run() with LLM strategy in async context — use run_async()"
+            )
 
         return self._run_sync_impl(html, site_name, page_url, profile_obj)
 
     def _run_sync_impl(
-        self, html: str, site_name: str, page_url: str, profile_obj: SiteProfile,
+        self,
+        html: str,
+        site_name: str,
+        page_url: str,
+        profile_obj: SiteProfile,
     ) -> dict:
         """Synchronous HTML parsing for section_walk / css_selector strategies."""
         self.min_title_len = profile_obj.min_title_len
@@ -85,7 +98,9 @@ class ParserAgent(BaseAgent):
 
         logger.info(
             "[Parser] Extracting news from %s (%d bytes, strategy=%s)",
-            site_name, len(html), profile_obj.strategy,
+            site_name,
+            len(html),
+            profile_obj.strategy,
         )
 
         if profile_obj.strategy == "rss":
@@ -104,7 +119,10 @@ class ParserAgent(BaseAgent):
     # ── async LLM extraction ──────────────────────────────────────────
 
     async def run_async(
-        self, html: str, site_name: str = "default", page_url: str = "",
+        self,
+        html: str,
+        site_name: str = "default",
+        page_url: str = "",
         profile: Optional[SiteProfile] = None,
     ) -> dict:
         """Async entry point for parsing (required for LLM strategy)."""
@@ -118,15 +136,19 @@ class ParserAgent(BaseAgent):
 
         logger.info(
             "[Parser] LLM extraction for %s (%d bytes)",
-            site_name, len(html),
+            site_name,
+            len(html),
         )
 
         soup = BeautifulSoup(html, "lxml")
-        raw_links = await self._extract_llm_async(soup, page_url, profile_obj, site_name)
+        raw_links = await self._extract_llm_async(
+            soup, page_url, profile_obj, site_name
+        )
         return self._build_result(raw_links)
 
-    def _extract_candidates(self, soup: BeautifulSoup, page_url: str,
-                            profile_obj: SiteProfile) -> list[dict]:
+    def _extract_candidates(
+        self, soup: BeautifulSoup, page_url: str, profile_obj: SiteProfile
+    ) -> list[dict]:
         """Extract all <a> tag candidates from the page for LLM classification."""
         candidates = []
         seen = set()
@@ -136,7 +158,11 @@ class ParserAgent(BaseAgent):
             if not href or href.startswith("javascript:") or href == "#":
                 continue
             text = a_tag.get_text(strip=True)
-            if not text or len(text) < self.min_title_len or len(text) > self.max_title_len:
+            if (
+                not text
+                or len(text) < self.min_title_len
+                or len(text) > self.max_title_len
+            ):
                 continue
             # Pre-filter obvious noise
             if any(p.search(text) for p in _UNIVERSAL_NOISE):
@@ -151,8 +177,13 @@ class ParserAgent(BaseAgent):
 
         return candidates
 
-    async def _extract_llm_async(self, soup: BeautifulSoup, page_url: str,
-                                  profile_obj: SiteProfile, site_name: str) -> list:
+    async def _extract_llm_async(
+        self,
+        soup: BeautifulSoup,
+        page_url: str,
+        profile_obj: SiteProfile,
+        site_name: str,
+    ) -> list:
         """Extract news items via LLM: pre-filter candidates, send to LLM, parse result."""
         candidates = self._extract_candidates(soup, page_url, profile_obj)
 
@@ -168,15 +199,27 @@ class ParserAgent(BaseAgent):
         candidate_text = "\n".join(lines)
 
         tag_candidates = profile_obj.llm_tag_candidates or [
-            "国内", "国际", "财经", "科技", "体育", "娱乐", "社会", "军事", "教育", "健康", "其他"
+            "国内",
+            "国际",
+            "财经",
+            "科技",
+            "体育",
+            "娱乐",
+            "社会",
+            "军事",
+            "教育",
+            "健康",
+            "其他",
         ]
         tag_list = "、".join(tag_candidates)
 
         prompts = _get_llm_prompts()
         llm_cfg = prompts.get("llm_extraction", {})
         system_prompt = llm_cfg.get("system", "You are a news link classifier.")
-        user_template = llm_cfg.get("user_template",
-            "Site: {site_name}\nTags: {tag_candidates}\nLinks:\n{candidates}\nReturn JSON array.")
+        user_template = llm_cfg.get(
+            "user_template",
+            "Site: {site_name}\nTags: {tag_candidates}\nLinks:\n{candidates}\nReturn JSON array.",
+        )
 
         user_prompt = user_template.format(
             site_name=site_name,
@@ -184,7 +227,9 @@ class ParserAgent(BaseAgent):
             candidates=candidate_text,
         )
 
-        logger.info("[Parser] Sending %d candidates to LLM for classification.", len(candidates))
+        logger.info(
+            "[Parser] Sending %d candidates to LLM for classification.", len(candidates)
+        )
         response = await self.call_llm_async(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -200,7 +245,9 @@ class ParserAgent(BaseAgent):
             return []
 
         if not isinstance(selections, list):
-            logger.warning("[Parser] LLM returned non-list response: %s", type(selections))
+            logger.warning(
+                "[Parser] LLM returned non-list response: %s", type(selections)
+            )
             return []
 
         # Map indices back to candidates
@@ -210,13 +257,19 @@ class ParserAgent(BaseAgent):
                 continue
             idx = sel.get("index", -1) - 1  # 1-based to 0-based
             if 0 <= idx < len(candidates):
-                result.append({
-                    "title": candidates[idx]["title"],
-                    "url": candidates[idx]["url"],
-                    "tag": sel.get("tag", "其他"),
-                })
+                result.append(
+                    {
+                        "title": candidates[idx]["title"],
+                        "url": candidates[idx]["url"],
+                        "tag": sel.get("tag", "其他"),
+                    }
+                )
 
-        logger.info("[Parser] LLM classified %d/%d candidates as news.", len(result), len(candidates))
+        logger.info(
+            "[Parser] LLM classified %d/%d candidates as news.",
+            len(result),
+            len(candidates),
+        )
         return result
 
     # ── shared ────────────────────────────────────────────────────────
@@ -244,9 +297,14 @@ class ParserAgent(BaseAgent):
 
     # ── validation ──────────────────────────────────────────────────
 
-    def _is_valid_link(self, text: str, href: str,
-                       ui_labels: set, noise_patterns: list,
-                       search_pattern=None) -> bool:
+    def _is_valid_link(
+        self,
+        text: str,
+        href: str,
+        ui_labels: set,
+        noise_patterns: list,
+        search_pattern=None,
+    ) -> bool:
         if not text or len(text) < self.min_title_len or len(text) > self.max_title_len:
             return False
         if href.startswith("javascript:") or href == "#":
@@ -265,11 +323,16 @@ class ParserAgent(BaseAgent):
 
     # ── strategy: section_walk ──────────────────────────────────────
 
-    def _extract_section_walk(self, soup: BeautifulSoup, page_url: str,
-                               profile: SiteProfile) -> list:
+    def _extract_section_walk(
+        self, soup: BeautifulSoup, page_url: str, profile: SiteProfile
+    ) -> list:
         section_map = profile.section_map or _DEFAULT_SECTION_MAP
         ui_labels = profile.ui_labels or _DEFAULT_UI_LABELS
-        noise_patterns = [re.compile(p) for p in profile.noise_patterns] if profile.noise_patterns else _DEFAULT_NOISE
+        noise_patterns = (
+            [re.compile(p) for p in profile.noise_patterns]
+            if profile.noise_patterns
+            else _DEFAULT_NOISE
+        )
         max_section_len = profile.section_max_len
 
         links = []
@@ -283,7 +346,9 @@ class ParserAgent(BaseAgent):
                     if parent and parent.name == "a":
                         p_href = parent.get("href", "").strip()
                         p_text = parent.get_text(strip=True)
-                        if self._is_valid_link(p_text, p_href, ui_labels, noise_patterns):
+                        if self._is_valid_link(
+                            p_text, p_href, ui_labels, noise_patterns
+                        ):
                             continue
                     tag = self._match_section(text, section_map)
                     if tag:
@@ -294,7 +359,9 @@ class ParserAgent(BaseAgent):
                     continue
                 text = element.get_text(strip=True)
 
-                if not self._is_valid_link(text, href, ui_labels, noise_patterns, SEARCH_LINK_PATTERN):
+                if not self._is_valid_link(
+                    text, href, ui_labels, noise_patterns, SEARCH_LINK_PATTERN
+                ):
                     continue
 
                 full_url = urljoin(page_url, href) if page_url else href
@@ -316,11 +383,12 @@ class ParserAgent(BaseAgent):
 
     # ── strategy: css_selector ──────────────────────────────────────
 
-    def _extract_css(self, soup: BeautifulSoup, page_url: str,
-                      profile: SiteProfile) -> list:
+    def _extract_css(
+        self, soup: BeautifulSoup, page_url: str, profile: SiteProfile
+    ) -> list:
         noise_patterns = [re.compile(p) for p in profile.noise_patterns]
         links = []
-        tag = profile.fixed_tag
+        base_tag = profile.fixed_tag
 
         try:
             containers = soup.select(profile.article_selector)
@@ -344,6 +412,7 @@ class ParserAgent(BaseAgent):
 
                 full_url = urljoin(page_url, href) if page_url else href
 
+                tag = base_tag
                 if profile.tag_from == "selector" and profile.tag_selector:
                     tag_el = a_tag.select_one(profile.tag_selector)
                     if tag_el:
@@ -406,7 +475,7 @@ class ParserAgent(BaseAgent):
                 continue
             title = title.strip()
             if len(title) > profile.max_title_len:
-                title = title[:profile.max_title_len]
+                title = title[: profile.max_title_len]
 
             if not url:
                 continue
@@ -422,13 +491,15 @@ class ParserAgent(BaseAgent):
             if pub_date:
                 pub_date = pub_date.strip()
 
-            links.append({
-                "title": title,
-                "url": url,
-                "tag": tag,
-                "summary": summary or "",
-                "published": pub_date or "",
-            })
+            links.append(
+                {
+                    "title": title,
+                    "url": url,
+                    "tag": tag,
+                    "summary": summary or "",
+                    "published": pub_date or "",
+                }
+            )
 
         logger.info("[Parser] RSS extracted %d valid entries", len(links))
         return links

@@ -16,6 +16,7 @@ from datetime import date
 from calendar import monthrange
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
@@ -52,8 +53,15 @@ class VisualizationAgent(BaseAgent):
 
     def _setup_font(self, preferred: str):
         available = {f.name for f in fm.fontManager.ttflist}
-        candidates = [preferred, "SimHei", "Microsoft YaHei", "WenQuanYi Micro Hei",
-                       "Noto Sans CJK SC", "Source Han Sans SC", "Arial Unicode MS"]
+        candidates = [
+            preferred,
+            "SimHei",
+            "Microsoft YaHei",
+            "WenQuanYi Micro Hei",
+            "Noto Sans CJK SC",
+            "Source Han Sans SC",
+            "Arial Unicode MS",
+        ]
         chosen = None
         for font in candidates:
             if font in available:
@@ -87,7 +95,9 @@ class VisualizationAgent(BaseAgent):
             # Try yesterday
             yest_snapshots = self._snapshots_up_to(snapshots, today, 1)
             if yest_snapshots:
-                yest_report = self._build_report_from_snapshot(yest_snapshots, site_name)
+                yest_report = self._build_report_from_snapshot(
+                    yest_snapshots, site_name
+                )
                 self._generate_set("yesterday", yest_report, yest_snapshots)
                 charts["yesterday"] = str(self.sets["yesterday"])
                 logger.info("[Visualizer] Updated yesterday snapshot")
@@ -103,18 +113,26 @@ class VisualizationAgent(BaseAgent):
         # 4. Conditionally update week/month sets
         if today.weekday() == 6:  # Sunday
             # Find a snapshot from ~7 days ago
-            week_snapshots = self._snapshots_up_to(snapshots, today, 7) if snapshots else None
+            week_snapshots = (
+                self._snapshots_up_to(snapshots, today, 7) if snapshots else None
+            )
             if week_snapshots:
-                week_report = self._build_report_from_snapshot(week_snapshots, site_name)
+                week_report = self._build_report_from_snapshot(
+                    week_snapshots, site_name
+                )
                 self._generate_set("one_week_ago", week_report, week_snapshots)
                 charts["one_week_ago"] = str(self.sets["one_week_ago"])
                 logger.info("[Visualizer] Updated one_week_ago snapshot (Sunday)")
 
         last_day = monthrange(today.year, today.month)[1]
         if today.day == last_day:
-            month_snapshots = self._snapshots_up_to(snapshots, today, 30) if snapshots else None
+            month_snapshots = (
+                self._snapshots_up_to(snapshots, today, 30) if snapshots else None
+            )
             if month_snapshots:
-                month_report = self._build_report_from_snapshot(month_snapshots, site_name)
+                month_report = self._build_report_from_snapshot(
+                    month_snapshots, site_name
+                )
                 self._generate_set("one_month_ago", month_report, month_snapshots)
                 charts["one_month_ago"] = str(self.sets["one_month_ago"])
                 logger.info("[Visualizer] Updated one_month_ago snapshot (month end)")
@@ -124,6 +142,7 @@ class VisualizationAgent(BaseAgent):
     def _snapshots_up_to(self, snapshots: list, ref_date: date, days_back: int) -> list:
         """Return snapshots up to and including (ref_date - days_back)."""
         from datetime import timedelta
+
         target_date = (ref_date - timedelta(days=days_back)).isoformat()
 
         result = []
@@ -159,7 +178,9 @@ class VisualizationAgent(BaseAgent):
             "total_changes": 0,
             "has_changes": False,
             "is_first_run": False,
-            "tag_distribution": dict(sorted(tags.items(), key=lambda x: x[1], reverse=True)),
+            "tag_distribution": dict(
+                sorted(tags.items(), key=lambda x: x[1], reverse=True)
+            ),
             "trends": self._compute_trends_from_snapshots(snapshots),
         }
 
@@ -169,7 +190,7 @@ class VisualizationAgent(BaseAgent):
         if len(counts) < 2:
             return {}
         recent_avg = sum(counts[-3:]) / min(3, len(counts[-3:]))
-        older_avg = sum(counts[:max(1, len(counts) - 3)]) / max(1, len(counts) - 3)
+        older_avg = sum(counts[: max(1, len(counts) - 3)]) / max(1, len(counts) - 3)
         if recent_avg > older_avg * 1.1:
             direction = "up"
         elif recent_avg < older_avg * 0.9:
@@ -209,8 +230,12 @@ class VisualizationAgent(BaseAgent):
             for it in new_items:
                 t = it.get("tag", "其他") or "其他"
                 new_tag_dist[t] = new_tag_dist.get(t, 0) + 1
-            self._tag_pie(new_tag_dist, out_dir, "new_items_distribution",
-                          title="New Items Category Distribution")
+            self._tag_pie(
+                new_tag_dist,
+                out_dir,
+                "new_items_distribution",
+                title="New Items Category Distribution",
+            )
             self._new_items_table(new_items, out_dir, prefix)
 
         # Regular summary table (15 latest items, marking new ones)
@@ -221,8 +246,11 @@ class VisualizationAgent(BaseAgent):
                 self._summary_table(items[:15], out_dir, prefix, new_titles=new_titles)
 
         self._overview_dashboard(report, out_dir, prefix)
-        logger.info("[Visualizer] Generated '%s' chart set (%d files)", set_name,
-                     len(list(out_dir.glob("*.png"))))
+        logger.info(
+            "[Visualizer] Generated '%s' chart set (%d files)",
+            set_name,
+            len(list(out_dir.glob("*.png"))),
+        )
 
     def _generate_total_set(self, report: dict, snapshots: list):
         """Generate aggregate historical charts."""
@@ -248,15 +276,22 @@ class VisualizationAgent(BaseAgent):
         # 3. Cumulative overview
         self._cumulative_overview(snapshots, out_dir, prefix)
 
-        logger.info("[Visualizer] Generated 'total' chart set (%d files)",
-                     len(list(out_dir.glob("*.png"))))
+        logger.info(
+            "[Visualizer] Generated 'total' chart set (%d files)",
+            len(list(out_dir.glob("*.png"))),
+        )
 
     # ========== Single-snapshot charts ==========
 
     def _save(self, fig, name: str, out_dir: Path) -> str:
         filepath = out_dir / f"{name}.png"
-        fig.savefig(str(filepath), dpi=self.dpi, bbox_inches="tight",
-                    facecolor="white", edgecolor="none")
+        fig.savefig(
+            str(filepath),
+            dpi=self.dpi,
+            bbox_inches="tight",
+            facecolor="white",
+            edgecolor="none",
+        )
         plt.close(fig)
         return str(filepath)
 
@@ -265,11 +300,22 @@ class VisualizationAgent(BaseAgent):
         labels = list(dist.keys())
         sizes = list(dist.values())
         colors = plt.cm.Set3(np.linspace(0, 1, len(labels)))
-        wedges, _, autotexts = ax.pie(sizes, labels=labels, autopct="%1.1f%%",
-                                       colors=colors, startangle=90, pctdistance=0.85)
+        wedges, _, autotexts = ax.pie(
+            sizes,
+            labels=labels,
+            autopct="%1.1f%%",
+            colors=colors,
+            startangle=90,
+            pctdistance=0.85,
+        )
         for t in autotexts:
             t.set_fontsize(9)
-        ax.set_title(title or "News Category Distribution", fontsize=16, fontweight="bold", pad=20)
+        ax.set_title(
+            title or "News Category Distribution",
+            fontsize=16,
+            fontweight="bold",
+            pad=20,
+        )
         ax.axis("equal")
         self._save(fig, f"{prefix}_tag_pie", out_dir)
 
@@ -278,15 +324,28 @@ class VisualizationAgent(BaseAgent):
         counts = trends.get("snapshot_counts", [])
         times = trends.get("snapshot_times", [])
         x = list(range(1, len(counts) + 1))
-        ax.plot(x, counts, marker="o", linewidth=2, markersize=8,
-                color="#2196F3", markerfacecolor="#1565C0")
+        ax.plot(
+            x,
+            counts,
+            marker="o",
+            linewidth=2,
+            markersize=8,
+            color="#2196F3",
+            markerfacecolor="#1565C0",
+        )
         if len(counts) >= 2:
             z = np.polyfit(x, counts, 1)
             p = np.poly1d(z)
             ax.plot(x, p(x), "--", color="#FF5722", linewidth=1.5, alpha=0.7)
         for xi, yi in zip(x, counts):
-            ax.annotate(str(yi), (xi, yi), textcoords="offset points",
-                        xytext=(0, 10), ha="center", fontsize=9)
+            ax.annotate(
+                str(yi),
+                (xi, yi),
+                textcoords="offset points",
+                xytext=(0, 10),
+                ha="center",
+                fontsize=9,
+            )
         ax.set_xlabel("Snapshot #", fontsize=12)
         ax.set_ylabel("News Items Count", fontsize=12)
         ax.set_title("News Volume Trend", fontsize=16, fontweight="bold")
@@ -300,21 +359,40 @@ class VisualizationAgent(BaseAgent):
     def _change_bar(self, report: dict, out_dir: Path, prefix: str):
         fig, ax = plt.subplots(figsize=(8, 6))
         categories = ["New", "Removed", "Modified"]
-        values = [len(report.get("new_items", [])),
-                  len(report.get("removed_items", [])),
-                  len(report.get("modified_items", []))]
+        values = [
+            len(report.get("new_items", [])),
+            len(report.get("removed_items", [])),
+            len(report.get("modified_items", [])),
+        ]
         colors = ["#4CAF50", "#F44336", "#FF9800"]
-        bars = ax.bar(categories, values, color=colors, width=0.5, edgecolor="white", linewidth=1.2)
+        bars = ax.bar(
+            categories,
+            values,
+            color=colors,
+            width=0.5,
+            edgecolor="white",
+            linewidth=1.2,
+        )
         for bar, val in zip(bars, values):
-            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.3,
-                    str(val), ha="center", fontsize=14, fontweight="bold")
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + 0.3,
+                str(val),
+                ha="center",
+                fontsize=14,
+                fontweight="bold",
+            )
         ax.set_ylabel("Count", fontsize=12)
-        ax.set_title("Change Summary: Current vs Previous", fontsize=16, fontweight="bold")
+        ax.set_title(
+            "Change Summary: Current vs Previous", fontsize=16, fontweight="bold"
+        )
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         self._save(fig, f"{prefix}_change_bar", out_dir)
 
-    def _summary_table(self, items: list, out_dir: Path, prefix: str, new_titles: set = None):
+    def _summary_table(
+        self, items: list, out_dir: Path, prefix: str, new_titles: set = None
+    ):
         n = len(items)
         new_titles = new_titles or set()
         fig, ax = plt.subplots(figsize=(16, max(5, n * 0.45)))
@@ -332,8 +410,13 @@ class VisualizationAgent(BaseAgent):
             if len(url) > 55:
                 url = url[:52] + "..."
             table_data.append([str(i), display_title, tag, url])
-        table = ax.table(cellText=table_data, colLabels=col_labels,
-                         colWidths=col_widths, cellLoc="left", loc="center")
+        table = ax.table(
+            cellText=table_data,
+            colLabels=col_labels,
+            colWidths=col_widths,
+            cellLoc="left",
+            loc="center",
+        )
         table.auto_set_font_size(False)
         table.set_fontsize(9)
         table.scale(1.0, 1.4)
@@ -347,9 +430,16 @@ class VisualizationAgent(BaseAgent):
                 if is_new_row:
                     table[row, col].set_facecolor("#E8F5E9")  # green tint for new
                 else:
-                    table[row, col].set_facecolor("#F5F5F5" if row % 2 == 0 else "#FFFFFF")
+                    table[row, col].set_facecolor(
+                        "#F5F5F5" if row % 2 == 0 else "#FFFFFF"
+                    )
         new_count = sum(1 for td in table_data if td[1].startswith("NEW |"))
-        ax.set_title(f"Latest News Headlines ({new_count} new)", fontsize=16, fontweight="bold", pad=20)
+        ax.set_title(
+            f"Latest News Headlines ({new_count} new)",
+            fontsize=16,
+            fontweight="bold",
+            pad=20,
+        )
         self._save(fig, f"{prefix}_summary_table", out_dir)
 
     def _new_items_table(self, new_items: list, out_dir: Path, prefix: str):
@@ -368,8 +458,13 @@ class VisualizationAgent(BaseAgent):
             if len(url) > 60:
                 url = url[:57] + "..."
             table_data.append([str(i), title, tag, url])
-        table = ax.table(cellText=table_data, colLabels=col_labels,
-                         colWidths=col_widths, cellLoc="left", loc="center")
+        table = ax.table(
+            cellText=table_data,
+            colLabels=col_labels,
+            colWidths=col_widths,
+            cellLoc="left",
+            loc="center",
+        )
         table.auto_set_font_size(False)
         table.set_fontsize(9)
         table.scale(1.0, 1.35)
@@ -380,29 +475,53 @@ class VisualizationAgent(BaseAgent):
         for row in range(1, n + 1):
             for col in range(len(col_labels)):
                 table[row, col].set_facecolor("#F1F8E9" if row % 2 == 0 else "#FFFFFF")
-        ax.set_title(f"New Items Today ({len(new_items)} total, showing {n})",
-                     fontsize=16, fontweight="bold", pad=20)
+        ax.set_title(
+            f"New Items Today ({len(new_items)} total, showing {n})",
+            fontsize=16,
+            fontweight="bold",
+            pad=20,
+        )
         self._save(fig, f"{prefix}_new_items", out_dir)
 
     def _overview_dashboard(self, report: dict, out_dir: Path, prefix: str):
-        has_summary = bool(report.get("llm_summary"))
+        has_summary = bool(report.get("update_summary"))
         fig = plt.figure(figsize=(14, 10.5 if has_summary else 10))
-        fig.suptitle(f"Monitoring: {report.get('site_name', 'Unknown')}",
-                     fontsize=18, fontweight="bold", y=0.98)
-        gs = fig.add_gridspec(2 if not has_summary else 3, 2, hspace=0.35, wspace=0.3,
-                              height_ratios=([1, 1] if not has_summary else [0.4, 1, 1]))
+        fig.suptitle(
+            f"Monitoring: {report.get('site_name', 'Unknown')}",
+            fontsize=18,
+            fontweight="bold",
+            y=0.98,
+        )
+        gs = fig.add_gridspec(
+            2 if not has_summary else 3,
+            2,
+            hspace=0.35,
+            wspace=0.3,
+            height_ratios=([1, 1] if not has_summary else [0.4, 1, 1]),
+        )
 
         # LLM summary row (full width) — shown when available
         if has_summary:
             ax_summary = fig.add_subplot(gs[0, :])
             ax_summary.axis("off")
-            summary_text = report.get("llm_summary", "")
-            ax_summary.text(0.02, 0.5, f"AI Summary:\n{summary_text}",
-                           transform=ax_summary.transAxes, fontsize=11,
-                           verticalalignment="center",
-                           bbox=dict(boxstyle="round", facecolor="#FFF8E1",
-                                    edgecolor="#FFC107", alpha=0.9))
-            ax_summary.set_title("LLM Analysis", fontsize=14, fontweight="bold", color="#F57F17")
+            summary_text = report.get("update_summary", "")
+            ax_summary.text(
+                0.02,
+                0.5,
+                f"AI Summary:\n{summary_text}",
+                transform=ax_summary.transAxes,
+                fontsize=11,
+                verticalalignment="center",
+                bbox=dict(
+                    boxstyle="round",
+                    facecolor="#FFF8E1",
+                    edgecolor="#FFC107",
+                    alpha=0.9,
+                ),
+            )
+            ax_summary.set_title(
+                "LLM Analysis", fontsize=14, fontweight="bold", color="#F57F17"
+            )
 
         row_offset = 0 if not has_summary else 1
 
@@ -416,9 +535,16 @@ class VisualizationAgent(BaseAgent):
             f"Trend: {report.get('trends', {}).get('direction', 'N/A')}\n"
             f"First Run: {report.get('is_first_run', True)}"
         )
-        ax_stats.text(0.1, 0.5, stats_text, transform=ax_stats.transAxes,
-                      fontsize=14, verticalalignment="center", fontfamily="monospace",
-                      bbox=dict(boxstyle="round", facecolor="#E3F2FD", alpha=0.8))
+        ax_stats.text(
+            0.1,
+            0.5,
+            stats_text,
+            transform=ax_stats.transAxes,
+            fontsize=14,
+            verticalalignment="center",
+            fontfamily="monospace",
+            bbox=dict(boxstyle="round", facecolor="#E3F2FD", alpha=0.8),
+        )
         ax_stats.set_title("Run Statistics", fontsize=14, fontweight="bold")
 
         ax_tag = fig.add_subplot(gs[row_offset, 1])
@@ -427,25 +553,47 @@ class VisualizationAgent(BaseAgent):
             labels = list(dist.keys())
             sizes = list(dist.values())
             colors = plt.cm.Pastel1(np.linspace(0, 1, len(labels)))
-            ax_tag.pie(sizes, labels=labels, autopct="%1.1f%%", colors=colors, startangle=90)
+            ax_tag.pie(
+                sizes, labels=labels, autopct="%1.1f%%", colors=colors, startangle=90
+            )
             ax_tag.set_title("Category Distribution", fontsize=14, fontweight="bold")
 
         ax_new = fig.add_subplot(gs[row_offset + 1, 0])
         ax_new.axis("off")
         new_items = report.get("new_items", [])[:8]
-        text = "\n".join(f"- {item.get('title', '')[:50]}" for item in new_items) if new_items else "No new items."
-        ax_new.text(0.05, 0.95, f"New ({len(report.get('new_items', []))}):\n{text}",
-                    transform=ax_new.transAxes, fontsize=10, verticalalignment="top",
-                    bbox=dict(boxstyle="round", facecolor="#E8F5E9", alpha=0.8))
+        text = (
+            "\n".join(f"- {item.get('title', '')[:50]}" for item in new_items)
+            if new_items
+            else "No new items."
+        )
+        ax_new.text(
+            0.05,
+            0.95,
+            f"New ({len(report.get('new_items', []))}):\n{text}",
+            transform=ax_new.transAxes,
+            fontsize=10,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round", facecolor="#E8F5E9", alpha=0.8),
+        )
         ax_new.set_title("New Content", fontsize=14, fontweight="bold")
 
         ax_rem = fig.add_subplot(gs[row_offset + 1, 1])
         ax_rem.axis("off")
         removed = report.get("removed_items", [])[:8]
-        text = "\n".join(f"- {item.get('title', '')[:50]}" for item in removed) if removed else "No removed items."
-        ax_rem.text(0.05, 0.95, f"Removed ({len(report.get('removed_items', []))}):\n{text}",
-                    transform=ax_rem.transAxes, fontsize=10, verticalalignment="top",
-                    bbox=dict(boxstyle="round", facecolor="#FFEBEE", alpha=0.8))
+        text = (
+            "\n".join(f"- {item.get('title', '')[:50]}" for item in removed)
+            if removed
+            else "No removed items."
+        )
+        ax_rem.text(
+            0.05,
+            0.95,
+            f"Removed ({len(report.get('removed_items', []))}):\n{text}",
+            transform=ax_rem.transAxes,
+            fontsize=10,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round", facecolor="#FFEBEE", alpha=0.8),
+        )
         ax_rem.set_title("Removed Content", fontsize=14, fontweight="bold")
         self._save(fig, f"{prefix}_overview", out_dir)
 
@@ -459,27 +607,57 @@ class VisualizationAgent(BaseAgent):
         x = list(range(1, len(counts) + 1))
 
         ax.fill_between(x, counts, alpha=0.15, color="#2196F3")
-        ax.plot(x, counts, marker="o", linewidth=2, markersize=6,
-                color="#2196F3", markerfacecolor="#1565C0", label="News Count")
+        ax.plot(
+            x,
+            counts,
+            marker="o",
+            linewidth=2,
+            markersize=6,
+            color="#2196F3",
+            markerfacecolor="#1565C0",
+            label="News Count",
+        )
 
         if len(counts) >= 3:
             window = min(5, len(counts))
-            ma = np.convolve(counts, np.ones(window)/window, mode="valid")
+            ma = np.convolve(counts, np.ones(window) / window, mode="valid")
             ma_x = list(range(window, len(counts) + 1))
-            ax.plot(ma_x, ma, "--", linewidth=2, color="#FF5722",
-                    label=f"{window}-point Moving Avg")
+            ax.plot(
+                ma_x,
+                ma,
+                "--",
+                linewidth=2,
+                color="#FF5722",
+                label=f"{window}-point Moving Avg",
+            )
 
         # Annotate first and last
-        ax.annotate(str(counts[0]), (x[0], counts[0]),
-                    textcoords="offset points", xytext=(0, 12), ha="center", fontsize=10)
-        ax.annotate(str(counts[-1]), (x[-1], counts[-1]),
-                    textcoords="offset points", xytext=(0, 12), ha="center", fontsize=10,
-                    fontweight="bold", color="#1565C0")
+        ax.annotate(
+            str(counts[0]),
+            (x[0], counts[0]),
+            textcoords="offset points",
+            xytext=(0, 12),
+            ha="center",
+            fontsize=10,
+        )
+        ax.annotate(
+            str(counts[-1]),
+            (x[-1], counts[-1]),
+            textcoords="offset points",
+            xytext=(0, 12),
+            ha="center",
+            fontsize=10,
+            fontweight="bold",
+            color="#1565C0",
+        )
 
         ax.set_xlabel("Snapshot", fontsize=12)
         ax.set_ylabel("Items Count", fontsize=12)
-        ax.set_title(f"Historical Trend ({len(snapshots)} snapshots, {times[0]} ~ {times[-1]})",
-                     fontsize=15, fontweight="bold")
+        ax.set_title(
+            f"Historical Trend ({len(snapshots)} snapshots, {times[0]} ~ {times[-1]})",
+            fontsize=15,
+            fontweight="bold",
+        )
         ax.legend(fontsize=10)
         ax.grid(True, alpha=0.3)
         if len(times) <= 20:
@@ -549,14 +727,23 @@ class VisualizationAgent(BaseAgent):
         # Stats panel
         ax_stats = fig.add_subplot(gs[0, 0])
         ax_stats.axis("off")
-        text = (f"Monitoring Period:\n  {first_ts}\n  ~ {last_ts}\n\n"
-                f"Total Snapshots: {len(snapshots)}\n"
-                f"Total Items Collected: {total_items}\n"
-                f"Avg Items per Snapshot: {avg_items:.1f}\n"
-                f"Unique Tags: {len(all_tags)}")
-        ax_stats.text(0.1, 0.5, text, transform=ax_stats.transAxes,
-                      fontsize=13, verticalalignment="center", fontfamily="monospace",
-                      bbox=dict(boxstyle="round", facecolor="#E3F2FD", alpha=0.8))
+        text = (
+            f"Monitoring Period:\n  {first_ts}\n  ~ {last_ts}\n\n"
+            f"Total Snapshots: {len(snapshots)}\n"
+            f"Total Items Collected: {total_items}\n"
+            f"Avg Items per Snapshot: {avg_items:.1f}\n"
+            f"Unique Tags: {len(all_tags)}"
+        )
+        ax_stats.text(
+            0.1,
+            0.5,
+            text,
+            transform=ax_stats.transAxes,
+            fontsize=13,
+            verticalalignment="center",
+            fontfamily="monospace",
+            bbox=dict(boxstyle="round", facecolor="#E3F2FD", alpha=0.8),
+        )
         ax_stats.set_title("Cumulative Statistics", fontsize=14, fontweight="bold")
 
         # Tag totals pie
@@ -565,9 +752,14 @@ class VisualizationAgent(BaseAgent):
             labels = list(all_tags.keys())
             sizes = list(all_tags.values())
             colors = plt.cm.Set3(np.linspace(0, 1, len(labels)))
-            ax_pie.pie(sizes, labels=labels, autopct="%1.1f%%", colors=colors, startangle=90)
-            ax_pie.set_title(f"All-Time Tag Distribution ({total_items} items)",
-                            fontsize=14, fontweight="bold")
+            ax_pie.pie(
+                sizes, labels=labels, autopct="%1.1f%%", colors=colors, startangle=90
+            )
+            ax_pie.set_title(
+                f"All-Time Tag Distribution ({total_items} items)",
+                fontsize=14,
+                fontweight="bold",
+            )
 
         # Items per snapshot bar chart
         ax_bar = fig.add_subplot(gs[1, :])
@@ -575,8 +767,13 @@ class VisualizationAgent(BaseAgent):
         times = [s["timestamp"][:10] for s in snapshots]
         x = list(range(len(snapshots)))
         ax_bar.bar(x, counts, color="#42A5F5", edgecolor="white")
-        ax_bar.axhline(y=avg_items, color="#FF5722", linestyle="--", linewidth=1.5,
-                       label=f"Average: {avg_items:.1f}")
+        ax_bar.axhline(
+            y=avg_items,
+            color="#FF5722",
+            linestyle="--",
+            linewidth=1.5,
+            label=f"Average: {avg_items:.1f}",
+        )
         ax_bar.set_xlabel("Snapshot", fontsize=12)
         ax_bar.set_ylabel("Items", fontsize=12)
         ax_bar.set_title("Items per Snapshot", fontsize=14, fontweight="bold")

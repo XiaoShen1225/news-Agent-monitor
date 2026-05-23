@@ -23,10 +23,14 @@ class EvolutionMemory:
         return []
 
     def _save(self):
-        with open(self.filepath, "w", encoding="utf-8") as f:
+        tmp_path = self.filepath.with_suffix(".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(self.records, f, ensure_ascii=False, indent=2)
+        tmp_path.replace(self.filepath)
 
-    def add_record(self, site_name: str, report: dict, confidence: float, elapsed_ms: float):
+    def add_record(
+        self, site_name: str, report: dict, confidence: float, elapsed_ms: float
+    ):
         record = {
             "timestamp": datetime.now().isoformat(),
             "site_name": site_name,

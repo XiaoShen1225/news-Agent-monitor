@@ -94,7 +94,7 @@ class VectorStore:
 
         try:
             col = self.collection
-            col.add(ids=ids, documents=documents, metadatas=metadatas)
+            col.upsert(ids=ids, documents=documents, metadatas=metadatas)
             self._collection_count = col.count()
         except Exception as e:
             logger.warning("VectorStore add_items failed: %s", e)

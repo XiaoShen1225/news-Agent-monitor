@@ -516,7 +516,6 @@ async def api_summarize(
 
     from agents.base_agent import BaseAgent
 
-    # Reuse the same LLM config from environment
     api_key = os.environ.get("ZHIPU_API_KEY")
     if not api_key:
         return JSONResponse({"error": "LLM not configured"}, status_code=503)
@@ -531,31 +530,28 @@ async def api_summarize(
         }
     }
 
+    agent = None
+    http_client = None
     try:
-        # Step 1: fetch article HTML with browser-like headers
+        # Step 1: fetch article HTML
         import httpx
 
-        async with httpx.AsyncClient(
+        http_client = httpx.AsyncClient(
             timeout=15.0,
             follow_redirects=True,
+            trust_env=False,
             headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
                 "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-                "Accept-Encoding": "gzip, deflate, br",
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "none",
-                "Cache-Control": "no-cache",
             },
-        ) as client:
-            resp = await client.get(url)
-            if resp.status_code == 403:
-                # Try fetching via textise dot iitty
-                html = "<html><body><p>该网站拒绝自动访问（403 Forbidden），请手动打开链接查看。</p></body></html>"
-            else:
-                resp.raise_for_status()
-                html = resp.text
+        )
+        resp = await http_client.get(url)
+        if resp.status_code == 403:
+            html = "<html><body><p>该网站拒绝自动访问（403 Forbidden），请手动打开链接查看。</p></body></html>"
+        else:
+            resp.raise_for_status()
+            html = resp.text
 
         if not html:
             return {"url": url, "title": title, "summary": "无法获取文章内容。"}
@@ -564,11 +560,9 @@ async def api_summarize(
         from bs4 import BeautifulSoup
 
         soup = BeautifulSoup(html, "lxml")
-        # Remove script/style/nav/footer
         for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
             tag.decompose()
         text = soup.get_text(separator="\n", strip=True)
-        # Trim to reasonable length
         text = text[:3000]
 
         # Step 3: LLM summarize
@@ -590,6 +584,11 @@ async def api_summarize(
     except Exception as e:
         logger.warning("[API] Summarize failed for %s: %s", url, e)
         return {"url": url, "title": title, "summary": f"摘要生成失败: {str(e)[:100]}"}
+    finally:
+        if agent is not None:
+            await agent.aclose()
+        if http_client is not None:
+            await http_client.aclose()
 
 
 # ── Action endpoints (CLI features in dashboard) ────────────────────

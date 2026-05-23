@@ -93,8 +93,10 @@ class BaseAgent:
         max_tokens: int = None,
         fallback: str = ...,
     ) -> str:
-        temperature = temperature or self.llm_config.get("temperature", 0.1)
-        max_tokens = max_tokens or self.llm_config.get("max_tokens", 2048)
+        if temperature is None:
+            temperature = self.llm_config.get("temperature", 0.1)
+        if max_tokens is None:
+            max_tokens = self.llm_config.get("max_tokens", 2048)
         model = self.llm_config.get("model", "glm-4-flash")
 
         for attempt in range(self.max_retries):
