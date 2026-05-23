@@ -24,15 +24,17 @@ llm_extraction:
 
     2. CLASSIFY: Assign each remaining news item a category tag from the common tags list provided. Pick the most appropriate tag based on the title content. If none fits, use "其他".
 
-    3. RETURN: A JSON array of objects with "index" (number matching the candidate list) and "tag" (string). Keep only news items — do not include the filtered-out links.
+    3. EXTRACT TIME: If the candidate's context text contains a publication time (absolute like "2024-05-23 14:30" or relative like "3小时前", "昨天"), extract it as "time". Use null if not found.
 
-    Example output: [{"index": 3, "tag": "科技"}, {"index": 7, "tag": "国际"}]
+    4. RETURN: A JSON array of objects with "index" (number), "tag" (string), and "time" (string or null). Keep only news items — do not include the filtered-out links.
+
+    Example output: [{"index": 3, "tag": "科技", "time": "2小时前"}, {"index": 7, "tag": "国际", "time": "2024-05-23"}]
 
   user_template: |
     Website: {site_name}
     Common tags on this site: {tag_candidates}
 
-    Candidate links (index, title, URL):
+    Candidate links (index, title, context):
     {candidates}
 
-    Return ONLY a JSON array of the selected news items with index and tag.
+    Return ONLY a JSON array of the selected news items with index, tag, and time.

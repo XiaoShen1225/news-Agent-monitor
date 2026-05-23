@@ -173,7 +173,16 @@ class ParserAgent(BaseAgent):
                 continue
             seen.add(text)
             full_url = urljoin(page_url, href) if page_url else href
-            candidates.append({"title": text, "url": full_url})
+
+            # Extract time hint from parent container (usually contains both title + timestamp)
+            time_hint = ""
+            parent = a_tag.parent
+            if parent:
+                parent_text = parent.get_text(strip=True)
+                if parent_text and parent_text != text:
+                    time_hint = parent_text[:120]
+
+            candidates.append({"title": text, "url": full_url, "time_hint": time_hint})
 
         return candidates
 
@@ -194,8 +203,10 @@ class ParserAgent(BaseAgent):
         # Build numbered candidate list for LLM prompt
         lines = []
         for i, c in enumerate(candidates, 1):
-            url_short = c["url"][:80]
-            lines.append(f"{i}. {c['title']} | {url_short}")
+            parts = [c["title"]]
+            if c.get("time_hint"):
+                parts.append(f"上下文: {c['time_hint']}")
+            lines.append(f"{i}. {' | '.join(parts)}")
         candidate_text = "\n".join(lines)
 
         tag_candidates = profile_obj.llm_tag_candidates or [
@@ -262,6 +273,7 @@ class ParserAgent(BaseAgent):
                         "title": candidates[idx]["title"],
                         "url": candidates[idx]["url"],
                         "tag": sel.get("tag", "其他"),
+                        "published": sel.get("time") or "",
                     }
                 )
 
@@ -285,7 +297,12 @@ class ParserAgent(BaseAgent):
                 unique_links.append(link)
 
         items = [
-            {"title": lnk["title"], "url": lnk["url"], "tag": lnk["tag"]}
+            {
+                "title": lnk["title"],
+                "url": lnk["url"],
+                "tag": lnk["tag"],
+                "published": lnk.get("published", ""),
+            }
             for lnk in unique_links
         ]
 
