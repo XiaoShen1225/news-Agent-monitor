@@ -8,6 +8,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 MEMORY_FILE = "data/evolution_memory.json"
+INTERVALS_FILE = "data/evolution_intervals.json"
 
 
 class EvolutionMemory:
@@ -15,6 +16,8 @@ class EvolutionMemory:
         self.filepath = Path(filepath)
         self.filepath.parent.mkdir(parents=True, exist_ok=True)
         self.records = self._load()
+        self._intervals_path = self.filepath.parent / Path(INTERVALS_FILE).name
+        self._intervals: dict[str, int] = self._load_intervals()
 
     def _load(self) -> list:
         if self.filepath.exists():
@@ -27,6 +30,30 @@ class EvolutionMemory:
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(self.records, f, ensure_ascii=False, indent=2)
         tmp_path.replace(self.filepath)
+
+    def _load_intervals(self) -> dict[str, int]:
+        if self._intervals_path.exists():
+            with open(self._intervals_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return {}
+
+    def _save_intervals(self):
+        tmp_path = self._intervals_path.with_suffix(".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(self._intervals, f, ensure_ascii=False, indent=2)
+        tmp_path.replace(self._intervals_path)
+
+    def set_optimized_interval(self, site_name: str, interval: int):
+        self._intervals[site_name] = interval
+        self._save_intervals()
+        logger.info(
+            "[Evolution] Persisted optimized interval for %s: %d min",
+            site_name,
+            interval,
+        )
+
+    def get_optimized_interval(self, site_name: str) -> int | None:
+        return self._intervals.get(site_name)
 
     def add_record(
         self, site_name: str, report: dict, confidence: float, elapsed_ms: float

@@ -46,10 +46,14 @@ class EvolutionOptimizer:
             if schedule_result:
                 optimizations["schedule"] = schedule_result
 
-        logger.info("[Evolution] Optimization pass for %s: %s", site_name, optimizations)
+        logger.info(
+            "[Evolution] Optimization pass for %s: %s", site_name, optimizations
+        )
         return {"status": "completed", "optimizations": optimizations, "stats": stats}
 
-    def record_run(self, site_name: str, report: dict, confidence: float, elapsed_ms: float):
+    def record_run(
+        self, site_name: str, report: dict, confidence: float, elapsed_ms: float
+    ):
         """Record a single run and trigger optimization if ready."""
         self.memory.add_record(site_name, report, confidence, elapsed_ms)
         return self.run(site_name)
@@ -72,7 +76,9 @@ class EvolutionOptimizer:
         # Add more specific instructions to improve extraction quality
         improvements = []
         if avg_confidence < 0.5:
-            improvements.append("CRITICAL: Return ONLY valid JSON array. No markdown, no extra text.")
+            improvements.append(
+                "CRITICAL: Return ONLY valid JSON array. No markdown, no extra text."
+            )
 
         if stats.get("runs", 0) > 3 and avg_confidence < 0.7:
             improvements.append("If unsure about a field, use null.")
@@ -99,7 +105,10 @@ class EvolutionOptimizer:
         return None
 
     def _optimize_schedule(self, site_name: str, stats: dict) -> dict:
-        """Adjust poll interval based on change frequency."""
+        """Adjust poll interval based on change frequency.
+
+        Persists optimized intervals to EvolutionMemory so they survive restarts.
+        """
         change_freq = stats.get("change_frequency", 0.5)
 
         targets = self.config.get("targets", [])
@@ -110,18 +119,34 @@ class EvolutionOptimizer:
                 if change_freq > 0.7 and current_interval > 30:
                     new_interval = max(15, current_interval // 2)
                     target["interval_minutes"] = new_interval
-                    logger.info("[Evolution] Increased poll frequency for %s: %d→%d min",
-                                site_name, current_interval, new_interval)
-                    return {"action": "increased_frequency",
-                            "old_interval": current_interval, "new_interval": new_interval}
+                    self.memory.set_optimized_interval(site_name, new_interval)
+                    logger.info(
+                        "[Evolution] Increased poll frequency for %s: %d→%d min",
+                        site_name,
+                        current_interval,
+                        new_interval,
+                    )
+                    return {
+                        "action": "increased_frequency",
+                        "old_interval": current_interval,
+                        "new_interval": new_interval,
+                    }
 
                 if change_freq < 0.2 and current_interval < 120:
                     new_interval = min(240, current_interval * 2)
                     target["interval_minutes"] = new_interval
-                    logger.info("[Evolution] Decreased poll frequency for %s: %d→%d min",
-                                site_name, current_interval, new_interval)
-                    return {"action": "decreased_frequency",
-                            "old_interval": current_interval, "new_interval": new_interval}
+                    self.memory.set_optimized_interval(site_name, new_interval)
+                    logger.info(
+                        "[Evolution] Decreased poll frequency for %s: %d→%d min",
+                        site_name,
+                        current_interval,
+                        new_interval,
+                    )
+                    return {
+                        "action": "decreased_frequency",
+                        "old_interval": current_interval,
+                        "new_interval": new_interval,
+                    }
 
                 break
 

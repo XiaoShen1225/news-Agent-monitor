@@ -1,5 +1,6 @@
 """FastAPI web dashboard for the news monitoring system."""
 
+import difflib
 import logging
 import sqlite3
 from datetime import datetime
@@ -120,18 +121,61 @@ def _get_data_store():
     )
 
 
+def _is_similar_title(a: str, b: str, threshold: float = 0.85) -> bool:
+    """Check if two title strings refer to the same underlying item."""
+    if not a or not b:
+        return False
+    a_norm = a.strip()
+    b_norm = b.strip()
+    if a_norm == b_norm:
+        return True
+    return difflib.SequenceMatcher(None, a_norm, b_norm).ratio() >= threshold
+
+
 def _diff_items(prev_items: list, curr_items: list) -> dict:
-    """Compare two item lists by title; return new/removed/modified counts."""
+    """Compare two item lists by title; return new/removed/modified counts.
+
+    Uses fuzzy matching (difflib) as fallback to catch title variations
+    like truncation or minor edits that would otherwise register as
+    spurious new+removed pairs.
+    """
     prev_titles = {it.get("title", ""): it for it in prev_items}
     curr_titles = {it.get("title", ""): it for it in curr_items}
-    new = sum(1 for t in curr_titles if t and t not in prev_titles)
-    removed = sum(1 for t in prev_titles if t and t not in curr_titles)
-    modified = 0
-    for t in curr_titles:
-        if t and t in prev_titles:
+    prev_keys = set(prev_titles)
+    curr_keys = set(curr_titles)
+
+    matched_prev: set[str] = set()
+    matched_curr: set[str] = set()
+    new = removed = modified = 0
+
+    # Fuzzy-match unmatched titles
+    unmatched_new = [t for t in curr_keys if t and t not in prev_keys]
+    unmatched_rem = [t for t in prev_keys if t and t not in curr_keys]
+    for ct in unmatched_new:
+        for pt in unmatched_rem:
+            if pt in matched_prev:
+                continue
+            if _is_similar_title(ct, pt):
+                matched_prev.add(pt)
+                matched_curr.add(ct)
+                break
+
+    new = sum(
+        1 for t in curr_keys if t and t not in prev_keys and t not in matched_curr
+    )
+    removed = sum(
+        1 for t in prev_keys if t and t not in curr_keys and t not in matched_prev
+    )
+
+    for t in curr_keys & prev_keys:
+        if t:
             p, c = prev_titles[t], curr_titles[t]
             if p.get("tag") != c.get("tag") or p.get("summary") != c.get("summary"):
                 modified += 1
+
+    # Fuzzy-matched items count as modified
+    modified += len(matched_curr)
+
     return {"new": new, "removed": removed, "modified": modified}
 
 

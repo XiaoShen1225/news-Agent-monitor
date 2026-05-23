@@ -53,10 +53,22 @@ logging.basicConfig(
 logger = logging.getLogger("main")
 
 
+_shared_vector_store = None
+
+
 def _safe_vector_store(config: dict):
-    """Defer VectorStore creation to avoid huggingface_hub failures
-    polluting the asyncio event loop's httpx connection pool."""
-    return None
+    """Lazily create and cache a VectorStore instance.
+
+    Deferred import avoids loading huggingface_hub / sentence_transformers
+    at module import time (expensive and may fail without network).
+    """
+    global _shared_vector_store
+    if _shared_vector_store is None:
+        from data.vector_store import VectorStore
+
+        persist_dir = config.get("storage", {}).get("history_dir", "data/history")
+        _shared_vector_store = VectorStore(str(Path(persist_dir).parent / "vector_db"))
+    return _shared_vector_store
 
 
 _ENV_PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
@@ -219,22 +231,23 @@ async def _cmd_schedule_async(config: dict):
         logger.error("Initial batch fetch failed: %s", e)
 
     for target in targets:
-        interval = target.get("interval_minutes", default_interval)
+        name = target["name"]
+        interval = memory.get_optimized_interval(name) or target.get(
+            "interval_minutes", default_interval
+        )
         scheduler.add_job(
             coordinator.run_async,
             "interval",
             minutes=interval,
             kwargs={
                 "url": target["url"],
-                "site_name": target["name"],
+                "site_name": name,
                 "use_browser": target.get("use_browser", False),
             },
-            id=f"monitor_{target['name']}",
-            name=f"Monitor {target['name']}",
+            id=f"monitor_{name}",
+            name=f"Monitor {name}",
         )
-        logger.info(
-            "Scheduled '%s': every %d min → %s", target["name"], interval, target["url"]
-        )
+        logger.info("Scheduled '%s': every %d min → %s", name, interval, target["url"])
 
     logger.info("Scheduler started. Press Ctrl+C to stop.")
     print("\n" + "=" * 60)
@@ -382,18 +395,21 @@ async def _cmd_serve_async(config: dict, port: int):
         logger.error("Initial batch fetch failed: %s", e)
 
     for target in targets:
-        interval = target.get("interval_minutes", default_interval)
+        name = target["name"]
+        interval = memory.get_optimized_interval(name) or target.get(
+            "interval_minutes", default_interval
+        )
         scheduler.add_job(
             run_with_broadcast,
             "interval",
             minutes=interval,
             kwargs={
                 "url": target["url"],
-                "site_name": target["name"],
+                "site_name": name,
                 "use_browser": target.get("use_browser", False),
             },
-            id=f"monitor_{target['name']}",
-            name=f"Monitor {target['name']}",
+            id=f"monitor_{name}",
+            name=f"Monitor {name}",
         )
 
     scheduler.start()

@@ -23,8 +23,9 @@
 - **新闻/论文分离存储**：新闻与论文使用独立 SQLite 数据库 + JSON 快照目录 + CSV 文件，自动清理旧快照
 - **元数据预聚合**：site_metadata 表存储预计算的标签分布、历史计数、变更摘要，仪表盘查询 O(1) 无需扫描全量快照
 - **Docker 部署**：一键 `docker compose up -d`，含中文字体 + Chromium
-- **自进化**：运行指标追踪 + 调度频率自适应 + 提示词调优
-- **94 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
+- **自进化**：运行指标追踪 + 调度频率自适应（持久化，重启不丢失）+ 提示词调优
+- **变更检测优化**：SHA256 内容哈希跳过无变化页面；difflib 模糊标题匹配识别截断/标点差异，减少虚假增删
+- **98 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
 
 ## 快速开始
 

@@ -6,6 +6,7 @@ from agents.analyzer import AnalyzerAgent
 
 class FakeDataStore:
     """Minimal DataStore stub for AnalyzerAgent tests."""
+
     def __init__(self, snapshots=None):
         self._snapshots = snapshots or []
 
@@ -27,15 +28,19 @@ def agent():
 @pytest.fixture
 def agent_with_store():
     config = {"llm": {"api_key": "test", "model": "glm-4-flash"}}
-    store = FakeDataStore([{
-        "items": [
-            {"title": "Old News A", "url": "/a", "tag": "科技"},
-            {"title": "Old News B", "url": "/b", "tag": "国内"},
-            {"title": "Common News", "url": "/c", "tag": "娱乐"},
-        ],
-        "items_count": 3,
-        "timestamp": "2026-05-20T10:00:00",
-    }])
+    store = FakeDataStore(
+        [
+            {
+                "items": [
+                    {"title": "Old News A", "url": "/a", "tag": "科技"},
+                    {"title": "Old News B", "url": "/b", "tag": "国内"},
+                    {"title": "Common News", "url": "/c", "tag": "娱乐"},
+                ],
+                "items_count": 3,
+                "timestamp": "2026-05-20T10:00:00",
+            }
+        ]
+    )
     return AnalyzerAgent(config, data_store=store)
 
 
@@ -76,12 +81,53 @@ class TestDiff:
         assert len(new) == 1
         assert len(removed) == 0
 
+    def test_fuzzy_match_truncation(self, agent):
+        """Titles that differ only by trailing ellipsis should fuzzy-match as modified."""
+        prev = [
+            {"title": "Breaking News: Something Important Happens Today", "tag": "国际"}
+        ]
+        curr = [
+            {"title": "Breaking News: Something Important Happens...", "tag": "国际"}
+        ]
+        new, removed, modified = agent._diff_items(prev, curr)
+        assert len(new) == 0, (
+            f"Expected 0 new, got {len(new)}: {[i['title'] for i in new]}"
+        )
+        assert len(removed) == 0, f"Expected 0 removed, got {len(removed)}"
+        assert len(modified) == 1
+        assert modified[0].get("fuzzy_matched") is True
+
+    def test_fuzzy_match_tag_change(self, agent):
+        """Fuzzy-matched items with different tags should be modified."""
+        prev = [{"title": "科技新闻：AI突破", "tag": "科技"}]
+        curr = [{"title": "科技新闻：AI突破！", "tag": "财经"}]
+        new, removed, modified = agent._diff_items(prev, curr)
+        assert len(new) == 0
+        assert len(removed) == 0
+        assert len(modified) == 1
+
+    def test_fuzzy_no_match_different_titles(self, agent):
+        """Completely different titles should NOT fuzzy-match."""
+        prev = [{"title": "Apple Announces New iPhone"}]
+        curr = [{"title": "Google Releases New Pixel"}]
+        new, removed, modified = agent._diff_items(prev, curr)
+        assert len(new) == 1
+        assert len(removed) == 1
+        assert len(modified) == 0
+
+    def test_fuzzy_match_below_threshold(self, agent):
+        """Titles with <85% similarity should remain new+removed."""
+        prev = [{"title": "Weather Report: Sunny"}]
+        curr = [{"title": "Financial Report: Stocks Rise"}]
+        new, removed, modified = agent._diff_items(prev, curr)
+        assert len(new) == 1
+        assert len(removed) == 1
+        assert len(modified) == 0
+
 
 class TestTagDistribution:
     def test_basic(self, agent):
-        items = [
-            {"tag": "科技"}, {"tag": "科技"}, {"tag": "娱乐"}
-        ]
+        items = [{"tag": "科技"}, {"tag": "科技"}, {"tag": "娱乐"}]
         dist = agent._tag_distribution(items)
         assert dist["科技"] == 2
         assert dist["娱乐"] == 1

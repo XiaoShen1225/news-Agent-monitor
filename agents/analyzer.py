@@ -1,6 +1,7 @@
 """AnalyzerAgent: compare snapshots, detect changes, compute trends, generate update summary."""
 
 import asyncio
+import difflib
 import logging
 from datetime import datetime
 from typing import Optional
@@ -8,6 +9,21 @@ from typing import Optional
 from .base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
+
+
+def _is_similar(a: str, b: str, threshold: float = 0.85) -> bool:
+    """Check if two title strings refer to the same underlying item.
+
+    Uses difflib.SequenceMatcher (stdlib, no extra deps) to catch minor
+    variations like truncation, punctuation, or whitespace differences.
+    """
+    if not a or not b:
+        return False
+    a_norm = a.strip()
+    b_norm = b.strip()
+    if a_norm == b_norm:
+        return True
+    return difflib.SequenceMatcher(None, a_norm, b_norm).ratio() >= threshold
 
 
 class AnalyzerAgent(BaseAgent):
@@ -134,21 +150,52 @@ class AnalyzerAgent(BaseAgent):
     def _diff_items(self, prev: list, curr: list) -> tuple:
         prev_titles = {item.get("title", ""): item for item in prev}
         curr_titles = {item.get("title", ""): item for item in curr}
+        prev_keys = set(prev_titles)
+        curr_keys = set(curr_titles)
 
-        new_items = [
-            {"title": t, **curr_titles[t]}
-            for t in curr_titles
-            if t and t not in prev_titles
-        ]
-        removed_items = [
-            {"title": t, **prev_titles[t]}
-            for t in prev_titles
-            if t and t not in curr_titles
-        ]
+        new_items: list[dict] = []
+        removed_items: list[dict] = []
+        modified_items: list[dict] = []
 
-        modified_items = []
-        for t in curr_titles:
-            if t and t in prev_titles:
+        # -- exact matches --
+        matched_prev: set[str] = set()
+        matched_curr: set[str] = set()
+
+        # -- fuzzy-match unmatched titles to catch truncation / minor edits --
+        unmatched_new = [t for t in curr_keys if t and t not in prev_keys]
+        unmatched_rem = [t for t in prev_keys if t and t not in curr_keys]
+        for ct in unmatched_new:
+            for pt in unmatched_rem:
+                if pt in matched_prev:
+                    continue
+                if _is_similar(ct, pt):
+                    matched_prev.add(pt)
+                    matched_curr.add(ct)
+                    prev_item = prev_titles[pt]
+                    curr_item = curr_titles[ct]
+                    modified_items.append(
+                        {
+                            "title": ct,
+                            "previous": prev_item,
+                            "current": curr_item,
+                            "fuzzy_matched": True,
+                        }
+                    )
+                    break
+
+        # -- true new items --
+        for t in curr_keys:
+            if t and t not in prev_keys and t not in matched_curr:
+                new_items.append({"title": t, **curr_titles[t]})
+
+        # -- true removed items --
+        for t in prev_keys:
+            if t and t not in curr_keys and t not in matched_prev:
+                removed_items.append({"title": t, **prev_titles[t]})
+
+        # -- modifications among exact-matched items --
+        for t in curr_keys & prev_keys:
+            if t:
                 prev_item = prev_titles[t]
                 curr_item = curr_titles[t]
                 if prev_item.get("summary") != curr_item.get(
