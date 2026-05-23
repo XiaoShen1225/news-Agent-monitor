@@ -104,6 +104,7 @@ class BaseAgent:
             max_tokens = self.llm_config.get("max_tokens", 2048)
         model = self.llm_config.get("model", "glm-4-flash")
 
+        last_error = None
         for attempt in range(self.max_retries):
             try:
                 logger.info(
@@ -133,8 +134,13 @@ class BaseAgent:
                 return content
 
             except Exception as e:
+                last_error = e
                 logger.warning(
-                    "[%s] LLM call failed (attempt %d): %s", self.name, attempt + 1, e
+                    "[%s] LLM call failed (attempt %d): %s: %s",
+                    self.name,
+                    attempt + 1,
+                    type(e).__name__,
+                    e,
                 )
                 if attempt < self.max_retries - 1:
                     wait = 2**attempt
@@ -152,7 +158,8 @@ class BaseAgent:
             )
             return fallback
         raise RuntimeError(
-            f"[{self.name}] LLM call failed after {self.max_retries} attempts"
+            f"[{self.name}] LLM call failed after {self.max_retries} attempts: "
+            f"{type(last_error).__name__}: {last_error}"
         )
 
     # ── JSON parsing ────────────────────────────────────────────────
