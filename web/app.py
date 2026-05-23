@@ -701,8 +701,9 @@ async def dashboard(request: Request):
 
 @app.get("/favicon.ico")
 async def favicon():
+    icon = PROJECT_ROOT / "web" / "templates" / "favicon.ico"
     return (
-        FileResponse(str(PROJECT_ROOT / "web" / "templates" / "favicon.ico"))
-        if (PROJECT_ROOT / "web" / "templates" / "favicon.ico").exists()
-        else JSONResponse({}, status_code=404)
+        FileResponse(str(icon))
+        if icon.exists()
+        else JSONResponse(None, status_code=204)
     )
