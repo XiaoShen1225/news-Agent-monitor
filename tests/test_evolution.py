@@ -27,6 +27,7 @@ class TestScheduleTuning:
             "runs": 10,
             "change_frequency": 0.9,
         }
+        memory.get_last_adjustment.return_value = None
         optimizer = EvolutionOptimizer(config, memory)
         result = optimizer._optimize_schedule("test_site", memory.get_stats())
         assert result is not None
@@ -39,6 +40,7 @@ class TestScheduleTuning:
             "runs": 10,
             "change_frequency": 0.05,
         }
+        memory.get_last_adjustment.return_value = None
         optimizer = EvolutionOptimizer(config, memory)
         result = optimizer._optimize_schedule("test_site", memory.get_stats())
         assert result is not None
@@ -51,6 +53,7 @@ class TestScheduleTuning:
             "runs": 10,
             "change_frequency": 0.5,
         }
+        memory.get_last_adjustment.return_value = None
         optimizer = EvolutionOptimizer(config, memory)
         result = optimizer._optimize_schedule("test_site", memory.get_stats())
         assert result is None
@@ -81,6 +84,8 @@ class TestRecordRun:
         memory.get_stats.return_value = {"runs": 2}
         optimizer = EvolutionOptimizer(config, memory)
         report = {"current_count": 10, "total_changes": 3, "has_changes": True}
-        result = optimizer.record_run("test_site", report, confidence=0.9, elapsed_ms=100)
+        result = optimizer.record_run(
+            "test_site", report, confidence=0.9, elapsed_ms=100
+        )
         memory.add_record.assert_called_once()
         assert result["status"] == "insufficient_data"

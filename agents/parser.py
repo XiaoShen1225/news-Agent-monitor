@@ -141,10 +141,10 @@ class ParserAgent(BaseAgent):
         )
 
         soup = BeautifulSoup(html, "lxml")
-        raw_links = await self._extract_llm_async(
+        raw_links, confidence = await self._extract_llm_async(
             soup, page_url, profile_obj, site_name
         )
-        return self._build_result(raw_links)
+        return self._build_result(raw_links, confidence)
 
     def _extract_candidates(
         self, soup: BeautifulSoup, page_url: str, profile_obj: SiteProfile
@@ -253,13 +253,13 @@ class ParserAgent(BaseAgent):
             selections = self.parse_json_response(response)
         except ValueError as e:
             logger.warning("[Parser] LLM extraction parse failed: %s", e)
-            return []
+            return [], 0.0
 
         if not isinstance(selections, list):
             logger.warning(
                 "[Parser] LLM returned non-list response: %s", type(selections)
             )
-            return []
+            return [], 0.1
 
         # Map indices back to candidates
         result = []
@@ -282,11 +282,21 @@ class ParserAgent(BaseAgent):
             len(result),
             len(candidates),
         )
-        return result
+
+        # Compute real extraction confidence based on classification ratio
+        ratio = len(result) / len(candidates) if candidates else 0
+        if ratio < 0.05:
+            confidence = 0.3  # near-total rejection — prompt may be too strict
+        elif ratio < 0.3:
+            confidence = 0.6  # low-normal range
+        else:
+            confidence = 0.85  # healthy classification rate
+
+        return result, confidence
 
     # ── shared ────────────────────────────────────────────────────────
 
-    def _build_result(self, raw_links: list) -> dict:
+    def _build_result(self, raw_links: list, confidence: float = 1.0) -> dict:
         """Deduplicate by title and build standard result dict."""
         seen_titles = set()
         unique_links = []
@@ -310,7 +320,7 @@ class ParserAgent(BaseAgent):
         top_tags = ", ".join(f"{t}:{c}" for t, c in tag_counts.most_common(8))
 
         logger.info("[Parser] %d items extracted. Tags: %s", len(items), top_tags)
-        return {"items": items, "extraction_confidence": 1.0, "raw_response": ""}
+        return {"items": items, "extraction_confidence": confidence, "raw_response": ""}
 
     # ── validation ──────────────────────────────────────────────────
 

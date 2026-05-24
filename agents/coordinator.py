@@ -204,8 +204,15 @@ class CoordinatorAgent(BaseAgent):
 
             # Step 8: Record evolution
             if self.evolution:
+                total_tokens_evo = (
+                    self.parser.get_last_tokens() + self.analyzer.get_last_tokens()
+                )
                 self.evolution.record_run(
-                    site_name, report, confidence, (time.time() - start_time) * 1000
+                    site_name,
+                    report,
+                    confidence,
+                    (time.time() - start_time) * 1000,
+                    total_tokens=total_tokens_evo,
                 )
 
             result["status"] = "success"

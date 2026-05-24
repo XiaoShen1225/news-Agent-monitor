@@ -105,21 +105,124 @@ class EvolutionOptimizer:
         return None
 
     def _optimize_schedule(self, site_name: str, stats: dict) -> dict:
-        """Adjust poll interval based on change frequency.
+        """Adjust poll interval based on change frequency and token cost.
 
         Persists optimized intervals to EvolutionMemory so they survive restarts.
+        Verifies previous adjustments and rolls back ineffective changes.
         """
         change_freq = stats.get("change_frequency", 0.5)
+        runs = stats.get("runs", 0)
+        avg_tokens = stats.get("avg_tokens", 0)
+        avg_changes = max(stats.get("avg_changes_per_run", 0), 1)
+        tokens_per_change = avg_tokens / avg_changes
 
         targets = self.config.get("targets", [])
         for target in targets:
             if target.get("name") == site_name:
                 current_interval = target.get("interval_minutes", 60)
 
+                # ── Rollback verification ──────────────────────────
+                last_adj = self.memory.get_last_adjustment(site_name)
+                if last_adj:
+                    runs_since = runs - last_adj.get("runs_at_time", 0)
+                    if runs_since >= 3:
+                        should_rollback = False
+                        reason = ""
+
+                        if last_adj["action"] in (
+                            "increased_frequency",
+                            "decreased_frequency",
+                            "cost_throttled",
+                        ):
+                            if last_adj["action"] == "increased_frequency":
+                                # Expect change_frequency to have improved by ≥0.1
+                                improvement = (
+                                    change_freq - last_adj["change_freq_before"]
+                                )
+                                if improvement < 0.1:
+                                    should_rollback = True
+                                    reason = (
+                                        f"increased freq didn't improve change rate "
+                                        f"(was {last_adj['change_freq_before']:.2f}, "
+                                        f"now {change_freq:.2f})"
+                                    )
+                            else:
+                                # decreased/cost_throttled: rollback if
+                                # change_frequency dropped >0.2 (missed content)
+                                drop = last_adj["change_freq_before"] - change_freq
+                                if drop > 0.2:
+                                    should_rollback = True
+                                    reason = (
+                                        f"reduced freq missed content "
+                                        f"(was {last_adj['change_freq_before']:.2f}, "
+                                        f"now {change_freq:.2f})"
+                                    )
+
+                        if should_rollback:
+                            target["interval_minutes"] = last_adj["old_interval"]
+                            self.memory.set_optimized_interval(
+                                site_name, last_adj["old_interval"]
+                            )
+                            self.memory.clear_adjustment(site_name)
+                            logger.warning(
+                                "[Evolution] Rollback interval for %s: %d→%d min — %s",
+                                site_name,
+                                current_interval,
+                                last_adj["old_interval"],
+                                reason,
+                            )
+                            return {
+                                "action": "rollback",
+                                "old_interval": last_adj["new_interval"],
+                                "new_interval": last_adj["old_interval"],
+                                "reason": reason,
+                            }
+
+                # Cost-aware throttling: expensive but low-yield → slow down
+                if (
+                    tokens_per_change > 2000
+                    and change_freq < 0.3
+                    and current_interval < 120
+                ):
+                    new_interval = min(240, current_interval * 2)
+                    target["interval_minutes"] = new_interval
+                    self.memory.set_optimized_interval(site_name, new_interval)
+                    self.memory.record_adjustment(
+                        site_name,
+                        current_interval,
+                        new_interval,
+                        "cost_throttled",
+                        change_freq,
+                        runs,
+                    )
+                    logger.info(
+                        "[Evolution] Cost-throttled %s: %d→%d min "
+                        "(%.0f tokens/change, change_freq=%.2f)",
+                        site_name,
+                        current_interval,
+                        new_interval,
+                        tokens_per_change,
+                        change_freq,
+                    )
+                    return {
+                        "action": "cost_throttled",
+                        "old_interval": current_interval,
+                        "new_interval": new_interval,
+                        "tokens_per_change": tokens_per_change,
+                    }
+
                 if change_freq > 0.7 and current_interval > 30:
                     new_interval = max(15, current_interval // 2)
                     target["interval_minutes"] = new_interval
                     self.memory.set_optimized_interval(site_name, new_interval)
+                    self.memory.record_adjustment(
+                        site_name,
+                        current_interval,
+                        new_interval,
+                        "increased_frequency",
+                        change_freq,
+                        runs,
+                    )
                     logger.info(
                         "[Evolution] Increased poll frequency for %s: %d→%d min",
                         site_name,
@@ -136,6 +239,14 @@ class EvolutionOptimizer:
                     new_interval = min(240, current_interval * 2)
                     target["interval_minutes"] = new_interval
                     self.memory.set_optimized_interval(site_name, new_interval)
+                    self.memory.record_adjustment(
+                        site_name,
+                        current_interval,
+                        new_interval,
+                        "decreased_frequency",
+                        change_freq,
+                        runs,
+                    )
                     logger.info(
                         "[Evolution] Decreased poll frequency for %s: %d→%d min",
                         site_name,
