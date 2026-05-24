@@ -161,6 +161,14 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "my_preferences",
+            "description": "查看系统根据你的历史对话行为推测的兴趣偏好和关注领域",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
 ]
 
 SYSTEM_PROMPT = """你是 News Agent Monitor 的智能对话助手，帮助用户查询和分析新闻/论文监控数据。
@@ -198,6 +206,8 @@ Fetch（httpx/Playwright 抓取网页）→ Parse（LLM 提取新闻+分类打�
 - 关于项目本身的问题（站点列表、架构等）直接根据上述知识回答，无需调用工具"""
 
 CHAT_HISTORY_FILE = Path("data/chat_history.json")
+PREFERENCES_FILE = Path("data/user_preferences.json")
+PREFERENCE_INFER_INTERVAL = 5  # run LLM inference every N exchanges
 
 MAX_TOOL_ROUNDS = 3
 MAX_HISTORY_TOKENS = (
@@ -235,7 +245,9 @@ class ChatAgent(BaseAgent):
         self._total_trimmed = 0  # lifetime counter for observability
         self._total_compressed = 0
         self._total_cleaned = 0
+        self._preferences: dict = {}
         self._load_history()
+        self._load_preferences()
 
     def _get_fetch_client(self) -> httpx.AsyncClient:
         if self._fetch_client is None:
@@ -521,6 +533,9 @@ class ChatAgent(BaseAgent):
                     return "未提供文章链接。"
                 return await self._fetch_and_summarize(url, title)
 
+            if name == "my_preferences":
+                return self._format_preferences()
+
             return f"未知工具: {name}"
         except httpx.HTTPStatusError as e:
             logger.warning(
@@ -550,7 +565,15 @@ class ChatAgent(BaseAgent):
         self._history.append({"role": "user", "content": user_message})
 
         # Build message list: system prompt + managed history
-        system_msg = {"role": "system", "content": SYSTEM_PROMPT}
+        system_content = SYSTEM_PROMPT
+        inferences = self._preferences.get("inferences", {})
+        if inferences.get("summary"):
+            system_content += (
+                f"\n\n用户偏好参考（根据历史行为推断，仅供参考，不要刻意迎合）: "
+                f"核心兴趣: {json.dumps(inferences.get('top_interests', []), ensure_ascii=False)}; "
+                f"偏好概要: {inferences['summary']}"
+            )
+        system_msg = {"role": "system", "content": system_content}
         messages = [system_msg] + self._history
 
         tool_calls_log: list[dict] = []
@@ -614,6 +637,10 @@ class ChatAgent(BaseAgent):
             trimmed = self._trim_context()
             self._save_history()
 
+            # Collect behavior signals; trigger LLM inference if due
+            if self._collect_behavior_signals():
+                await self._infer_preferences()
+
             return {
                 "reply": reply,
                 "tool_calls": tool_calls_log,
@@ -625,6 +652,7 @@ class ChatAgent(BaseAgent):
         reply = "抱歉，处理您的请求需要更多轮次，请简化提问。"
         self._history.append({"role": "assistant", "content": reply})
         self._save_history()
+        self._collect_behavior_signals()  # collect signals even on partial success
         return {
             "reply": reply,
             "tool_calls": tool_calls_log,
@@ -659,6 +687,172 @@ class ChatAgent(BaseAgent):
             )
         except OSError as e:
             logger.warning("[ChatAgent] Failed to save chat history: %s", e)
+
+    # ── user preference analysis ────────────────────────────────────────
+
+    def _load_preferences(self):
+        """Load user preference profile from JSON file."""
+        try:
+            if PREFERENCES_FILE.exists():
+                self._preferences = json.loads(
+                    PREFERENCES_FILE.read_text(encoding="utf-8")
+                )
+                logger.info(
+                    "[ChatAgent] Loaded user preferences (%d exchanges tracked)",
+                    self._preferences.get("signals", {}).get("total_exchanges", 0),
+                )
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("[ChatAgent] Failed to load preferences: %s", e)
+            self._preferences = {}
+
+    def _save_preferences(self):
+        """Persist user preference profile to JSON file."""
+        try:
+            PREFERENCES_FILE.parent.mkdir(parents=True, exist_ok=True)
+            PREFERENCES_FILE.write_text(
+                json.dumps(self._preferences, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError as e:
+            logger.warning("[ChatAgent] Failed to save preferences: %s", e)
+
+    def _collect_behavior_signals(self):
+        """Extract heuristic signals from the latest exchange's tool calls."""
+        signals = self._preferences.setdefault("signals", {})
+        signals.setdefault("queried_sites", {})
+        signals.setdefault("queried_tags", {})
+        signals.setdefault("used_tools", {})
+        signals.setdefault("searched_topics", [])
+        signals.setdefault("fetched_urls", [])
+        signals.setdefault("total_exchanges", 0)
+
+        # Scan the last exchange for tool_call messages
+        tool_calls_seen = 0
+        for msg in reversed(self._history):
+            if msg["role"] == "user":
+                break  # reached the start of the current exchange
+            if msg.get("role") == "assistant" and "tool_calls" in msg:
+                for tc in msg["tool_calls"]:
+                    fn = tc["function"]
+                    tool_name = fn["name"]
+                    try:
+                        tool_args = json.loads(fn["arguments"])
+                    except (json.JSONDecodeError, TypeError):
+                        tool_args = {}
+
+                    signals["used_tools"][tool_name] = (
+                        signals["used_tools"].get(tool_name, 0) + 1
+                    )
+
+                    site = tool_args.get("site_name")
+                    if site and tool_name in ("query_news", "get_stats"):
+                        signals["queried_sites"][site] = (
+                            signals["queried_sites"].get(site, 0) + 1
+                        )
+
+                    tag = tool_args.get("tag")
+                    if tag and tool_name == "query_news":
+                        signals["queried_tags"][tag] = (
+                            signals["queried_tags"].get(tag, 0) + 1
+                        )
+
+                    if tool_name == "search_semantic":
+                        query = tool_args.get("query", "")
+                        if query:
+                            topics = signals["searched_topics"]
+                            topics.append(query)
+                            # Keep only last 20
+                            signals["searched_topics"] = topics[-20:]
+
+                    if tool_name == "fetch_article":
+                        url = tool_args.get("url", "")
+                        if url and url not in signals["fetched_urls"]:
+                            signals["fetched_urls"].append(url)
+                            signals["fetched_urls"] = signals["fetched_urls"][-20:]
+
+                    tool_calls_seen += 1
+
+        signals["total_exchanges"] += 1
+        self._save_preferences()
+
+        # Trigger LLM inference periodically
+        if signals["total_exchanges"] % PREFERENCE_INFER_INTERVAL == 0:
+            logger.info(
+                "[ChatAgent] Triggering preference inference at %d exchanges",
+                signals["total_exchanges"],
+            )
+            return True  # signal that inference is due
+        return False
+
+    async def _infer_preferences(self):
+        """Use LLM to analyze behavior signals and infer user preferences."""
+        signals = self._preferences.get("signals", {})
+        existing = self._preferences.get("inferences", {})
+
+        prompt = f"""你是用户偏好分析专家。根据以下用户行为信号，推断用户的核心兴趣和偏好。
+
+行为信号：
+- 查询站点频率: {json.dumps(signals.get("queried_sites", {}), ensure_ascii=False)}
+- 查询标签频率: {json.dumps(signals.get("queried_tags", {}), ensure_ascii=False)}
+- 使用工具频率: {json.dumps(signals.get("used_tools", {}), ensure_ascii=False)}
+- 语义搜索主题: {json.dumps(signals.get("searched_topics", []), ensure_ascii=False)}
+- 抓取文章数: {len(signals.get("fetched_urls", []))}
+- 总对话轮次: {signals.get("total_exchanges", 0)}
+
+已有偏好推断: {json.dumps(existing, ensure_ascii=False) if existing else "无"}
+
+请综合以上信号分析用户的核心兴趣偏好，输出 JSON：
+{{"summary": "用一两句话总结用户整体偏好", "top_interests": ["兴趣1", "兴趣2", ...], "preferred_sources": ["来源1", ...], "behavior_pattern": "用户行为模式简述"}}"""
+
+        try:
+            response = await self.call_llm_async(
+                system_prompt="你是用户行为分析专家。输出严格的 JSON，不要额外文字。",
+                user_prompt=prompt,
+                temperature=0.1,
+                max_tokens=256,
+            )
+            inferences = self.parse_json_response(response)
+            if isinstance(inferences, list):
+                inferences = inferences[0] if inferences else {}
+            if isinstance(inferences, dict):
+                inferences["inferred_at"] = (
+                    __import__("datetime").datetime.now().isoformat()
+                )
+                inferences["based_on_exchanges"] = signals.get("total_exchanges", 0)
+                self._preferences["inferences"] = inferences
+                self._save_preferences()
+                logger.info(
+                    "[ChatAgent] Updated user preference inferences: %s",
+                    inferences.get("summary", ""),
+                )
+        except Exception as e:
+            logger.warning("[ChatAgent] Preference inference failed: %s", e)
+
+    def _format_preferences(self) -> str:
+        """Format preferences for my_preferences tool output."""
+        inferences = self._preferences.get("inferences", {})
+        signals = self._preferences.get("signals", {})
+
+        if not inferences and not signals.get("total_exchanges"):
+            return "暂无偏好数据。多和我对话后，我会自动分析你的兴趣偏好。"
+
+        parts = []
+        if inferences.get("summary"):
+            parts.append(f"偏好概要: {inferences['summary']}")
+        if inferences.get("top_interests"):
+            parts.append(f"核心兴趣: {', '.join(inferences['top_interests'])}")
+        if inferences.get("preferred_sources"):
+            parts.append(f"偏好来源: {', '.join(inferences['preferred_sources'])}")
+        if signals.get("queried_tags"):
+            top_tags = sorted(
+                signals["queried_tags"].items(), key=lambda x: x[1], reverse=True
+            )[:5]
+            parts.append(f"常查标签: {', '.join(f'{t}({c}次)' for t, c in top_tags)}")
+        parts.append(
+            f"统计: 共 {signals.get('total_exchanges', 0)} 轮对话, "
+            f"使用 {len(signals.get('queried_sites', {}))} 个站点"
+        )
+        return "\n".join(parts)
 
     def clear_history(self):
         self._history.clear()
