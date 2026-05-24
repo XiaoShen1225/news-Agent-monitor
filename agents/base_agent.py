@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 import re
-from typing import Optional
 
 import httpx
 from openai import AsyncOpenAI, OpenAI
@@ -27,9 +26,9 @@ class BaseAgent:
         self.config = config
         self.llm_config = config.get("llm", {})
         self.max_retries = self.llm_config.get("max_retries", 3)
-        self._client: Optional[OpenAI] = None
-        self._async_client: Optional[AsyncOpenAI] = None
-        self._http_client: Optional[httpx.AsyncClient] = None
+        self._client: OpenAI | None = None
+        self._async_client: AsyncOpenAI | None = None
+        self._http_client: httpx.AsyncClient | None = None
         self._last_tokens = 0
 
     def get_last_tokens(self) -> int:

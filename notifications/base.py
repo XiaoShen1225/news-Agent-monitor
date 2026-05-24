@@ -2,7 +2,6 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -15,8 +14,8 @@ class PipelineEvent:
     removed_items: int
     modified_items: int
     trend_direction: str
-    summary: Optional[str]
-    error: Optional[str]
+    summary: str | None
+    error: str | None
     timestamp: str
 
 
@@ -44,8 +43,10 @@ class BaseNotifier(ABC):
         if event.status == "error":
             lines.append(f"- **Error**: {event.error}")
         elif event.status == "success":
-            lines.append(f"- **Items**: {event.items_count} (new: {event.new_items}, "
-                        f"removed: {event.removed_items}, modified: {event.modified_items})")
+            lines.append(
+                f"- **Items**: {event.items_count} (new: {event.new_items}, "
+                f"removed: {event.removed_items}, modified: {event.modified_items})"
+            )
             lines.append(f"- **Trend**: {event.trend_direction}")
             if event.summary:
                 lines.append("")

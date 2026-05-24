@@ -1,7 +1,6 @@
 """Site profiles: per-site extraction rules for multi-source news parsing."""
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 # ── built-in profiles ──────────────────────────────────────────────
 
@@ -45,7 +44,9 @@ class SiteProfile:
     max_title_len: int = 200
 
     # ── article mode (papers) ──
-    is_article_source: bool = False  # True = treat as paper/article, skip news analytics
+    is_article_source: bool = (
+        False  # True = treat as paper/article, skip news analytics
+    )
 
     @classmethod
     def from_dict(cls, data: dict) -> "SiteProfile":
@@ -86,34 +87,82 @@ BAIDU_NEWS = SiteProfile(
     use_browser=True,
     strategy="section_walk",
     section_map={
-        "热点": "要闻", "要闻": "要闻", "热榜": "热榜",
-        "北京": "本地", "上海": "本地", "广东": "本地", "深圳": "本地", "本地": "本地",
-        "国内": "国内", "国际": "国际", "军事": "军事",
-        "财经": "财经", "娱乐": "娱乐", "体育": "体育",
-        "科技": "科技", "互联网": "科技", "游戏": "游戏",
-        "女人": "女性", "汽车": "汽车", "房产": "房产",
-        "教育": "教育", "健康": "健康",
-        "视频": "视频", "图片": "图片",
-        "推荐": "推荐", "精选": "精选",
-        "专题": "专题", "探索": "探索",
-        "明星": "娱乐", "NBA": "体育", "中国军情": "军事",
+        "热点": "要闻",
+        "要闻": "要闻",
+        "热榜": "热榜",
+        "北京": "本地",
+        "上海": "本地",
+        "广东": "本地",
+        "深圳": "本地",
+        "本地": "本地",
+        "国内": "国内",
+        "国际": "国际",
+        "军事": "军事",
+        "财经": "财经",
+        "娱乐": "娱乐",
+        "体育": "体育",
+        "科技": "科技",
+        "互联网": "科技",
+        "游戏": "游戏",
+        "女人": "女性",
+        "汽车": "汽车",
+        "房产": "房产",
+        "教育": "教育",
+        "健康": "健康",
+        "视频": "视频",
+        "图片": "图片",
+        "推荐": "推荐",
+        "精选": "精选",
+        "专题": "专题",
+        "探索": "探索",
+        "明星": "娱乐",
+        "NBA": "体育",
+        "中国军情": "军事",
     },
     noise_patterns=[
-        r"^加载中", r"^正在加载", r"^点击刷新",
-        r"^\d+$", r"^HOT WORDS$",
-        r"^百度", r"^更多", r"^图文资讯",
-        r"^新闻图片", r"^热门点击",
-        r"^用户协议", r"^隐私策略", r"^营业执照",
-        r"^京ICP", r"^京公网",
-        r"辟谣平台$", r"举报中心",
-        r"^切换城市", r"^热搜新闻词",
-        r"^互联网新闻信息服务许可", r"^互联网宗教信息服务许可证",
-        r"^随时随地收看更多新闻", r"版下载$",
+        r"^加载中",
+        r"^正在加载",
+        r"^点击刷新",
+        r"^\d+$",
+        r"^HOT WORDS$",
+        r"^百度",
+        r"^更多",
+        r"^图文资讯",
+        r"^新闻图片",
+        r"^热门点击",
+        r"^用户协议",
+        r"^隐私策略",
+        r"^营业执照",
+        r"^京ICP",
+        r"^京公网",
+        r"辟谣平台$",
+        r"举报中心",
+        r"^切换城市",
+        r"^热搜新闻词",
+        r"^互联网新闻信息服务许可",
+        r"^互联网宗教信息服务许可证",
+        r"^随时随地收看更多新闻",
+        r"版下载$",
     ],
     ui_labels={
-        "首页", "登录", "注册", "帮助", "新闻全文", "新闻标题", "更多", "收起",
-        "返回", "用户协议", "隐私策略", "营业执照", "收藏本站", "用户反馈",
-        "辅助模式", "扫描二维码", "使用百度前必读", "百度新闻客户端",
+        "首页",
+        "登录",
+        "注册",
+        "帮助",
+        "新闻全文",
+        "新闻标题",
+        "更多",
+        "收起",
+        "返回",
+        "用户协议",
+        "隐私策略",
+        "营业执照",
+        "收藏本站",
+        "用户反馈",
+        "辅助模式",
+        "扫描二维码",
+        "使用百度前必读",
+        "百度新闻客户端",
     },
     section_max_len=6,
 )
@@ -126,12 +175,28 @@ SINA_NEWS = SiteProfile(
     strategy="llm",
     min_title_len=4,
     llm_tag_candidates=[
-        "国内", "国际", "军事", "财经", "科技", "体育", "娱乐",
-        "社会", "教育", "健康", "汽车", "房产", "游戏", "女性",
+        "国内",
+        "国际",
+        "军事",
+        "财经",
+        "科技",
+        "体育",
+        "娱乐",
+        "社会",
+        "教育",
+        "健康",
+        "汽车",
+        "房产",
+        "游戏",
+        "女性",
     ],
     noise_patterns=[
-        r"^加载中", r"^广告", r"^\d+$",
-        r"^新浪", r"^微博", r"^登录",
+        r"^加载中",
+        r"^广告",
+        r"^\d+$",
+        r"^新浪",
+        r"^微博",
+        r"^登录",
     ],
 )
 
@@ -178,7 +243,7 @@ BUILTIN_PROFILES: dict[str, SiteProfile] = {
 }
 
 
-def get_profile(name: str, custom: Optional[dict] = None) -> SiteProfile:
+def get_profile(name: str, custom: dict | None = None) -> SiteProfile:
     """Get a site profile by name, falling back to custom config."""
     if custom:
         return SiteProfile.from_dict(custom)

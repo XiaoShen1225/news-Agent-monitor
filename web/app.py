@@ -6,7 +6,6 @@ import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response
@@ -322,7 +321,7 @@ async def api_targets():
 
 @app.get("/api/papers")
 async def api_papers(
-    site: Optional[str] = Query(None),
+    site: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
@@ -394,7 +393,7 @@ async def api_schedule_status():
 
 @app.get("/api/stats")
 async def api_stats(
-    site: Optional[str] = Query(None),
+    site: str | None = Query(None),
 ):
     conn = _get_db()
     try:
@@ -434,10 +433,10 @@ async def api_stats(
 
 @app.get("/api/query")
 async def api_query(
-    site: Optional[str] = Query(None),
-    tag: Optional[str] = Query(None),
-    date_from: Optional[str] = Query(None),
-    date_to: Optional[str] = Query(None),
+    site: str | None = Query(None),
+    tag: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
@@ -500,7 +499,7 @@ async def api_query(
 @app.get("/api/search")
 async def api_search(
     q: str = Query(..., min_length=1, description="Search query"),
-    site: Optional[str] = Query(None),
+    site: str | None = Query(None),
     limit: int = Query(10, ge=1, le=50),
 ):
     """Semantic search over news items using vector embeddings."""
@@ -533,7 +532,7 @@ async def api_charts():
 
 @app.get("/api/chart-data")
 async def api_chart_data(
-    site: Optional[str] = Query(None),
+    site: str | None = Query(None),
 ):
     """Return structured chart data for ECharts rendering."""
     store = _get_data_store()
@@ -790,8 +789,10 @@ async def api_reset(site: str = Query(..., min_length=1)):
                     conn.execute("DELETE FROM snapshots WHERE site_name = ?", (site,))
                     conn.execute("DELETE FROM run_logs WHERE site_name = ?", (site,))
                     conn.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    "[API] Reset partially failed for %s (db %s): %s", site, db_path, e
+                )
         return {
             "status": "ok",
             "site_name": site,
@@ -954,8 +955,8 @@ async def api_cost(days: int = Query(7, ge=1, le=90)):
             if store is not None:
                 try:
                     results.extend(store.get_cost_summary(days=days))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("[API] Cost summary failed for store: %s", e)
     # Merge duplicate site entries (same site may appear in both stores)
     merged = {}
     for r in results:

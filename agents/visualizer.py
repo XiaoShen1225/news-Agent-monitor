@@ -30,12 +30,12 @@ logger = logging.getLogger(__name__)
 class VisualizationAgent(BaseAgent):
     def __init__(self, config: dict):
         super().__init__("Visualizer", config)
-        viz_config = config.get("visualization", {})
-        self.dpi = viz_config.get("dpi", 150)
-        self.fig_w = viz_config.get("figure_width", 12)
-        self.fig_h = viz_config.get("figure_height", 8)
-        self.base_dir = Path(viz_config.get("output_dir", "outputs/charts"))
-        self.sets = {
+        viz_config: dict = config.get("visualization", {})
+        self.dpi: int = viz_config.get("dpi", 150)
+        self.fig_w: int = viz_config.get("figure_width", 12)
+        self.fig_h: int = viz_config.get("figure_height", 8)
+        self.base_dir: Path = Path(viz_config.get("output_dir", "outputs/charts"))
+        self.sets: dict[str, Path] = {
             "today": self.base_dir / "today",
             "yesterday": self.base_dir / "yesterday",
             "two_days_ago": self.base_dir / "two_days_ago",
@@ -51,7 +51,7 @@ class VisualizationAgent(BaseAgent):
             d.mkdir(parents=True, exist_ok=True)
         self._setup_font(viz_config.get("font_family", "SimHei"))
 
-    def _setup_font(self, preferred: str):
+    def _setup_font(self, preferred: str) -> None:
         available = {f.name for f in fm.fontManager.ttflist}
         candidates = [
             preferred,
@@ -74,7 +74,7 @@ class VisualizationAgent(BaseAgent):
         else:
             logger.warning("[Visualizer] No Chinese font found.")
 
-    def run(self, report: dict, snapshots: list = None) -> dict:
+    def run(self, report: dict, snapshots: list[dict] | None = None) -> dict[str, str]:
         """Generate charts for today + historical sets."""
         site_name = report.get("site_name", "unknown")
         logger.info("[Visualizer] Generating charts for %s", site_name)
@@ -139,7 +139,9 @@ class VisualizationAgent(BaseAgent):
 
         return {"charts": charts, "output_dir": str(self.base_dir)}
 
-    def _snapshots_up_to(self, snapshots: list, ref_date: date, days_back: int) -> list:
+    def _snapshots_up_to(
+        self, snapshots: list[dict], ref_date: date, days_back: int
+    ) -> list[dict]:
         """Return snapshots up to and including (ref_date - days_back)."""
         from datetime import timedelta
 
@@ -153,7 +155,9 @@ class VisualizationAgent(BaseAgent):
 
         return result if result else []
 
-    def _build_report_from_snapshot(self, snapshots: list, site_name: str) -> dict:
+    def _build_report_from_snapshot(
+        self, snapshots: list[dict], site_name: str
+    ) -> dict:
         """Build a minimal report from the last snapshot in the list."""
         if not snapshots:
             return {"site_name": site_name, "has_changes": False, "is_first_run": True}
@@ -184,7 +188,7 @@ class VisualizationAgent(BaseAgent):
             "trends": self._compute_trends_from_snapshots(snapshots),
         }
 
-    def _compute_trends_from_snapshots(self, snapshots: list) -> dict:
+    def _compute_trends_from_snapshots(self, snapshots: list[dict]) -> dict:
         counts = [s.get("items_count", 0) for s in snapshots]
         times = [s.get("timestamp", "") for s in snapshots]
         if len(counts) < 2:
@@ -205,7 +209,9 @@ class VisualizationAgent(BaseAgent):
             "older_average": round(older_avg, 1),
         }
 
-    def _generate_set(self, set_name: str, report: dict, snapshots: list):
+    def _generate_set(
+        self, set_name: str, report: dict, snapshots: list[dict] | None
+    ) -> None:
         """Generate a full set of charts into the given set directory."""
         out_dir = self.sets[set_name]
         # Clean and regenerate
@@ -252,7 +258,7 @@ class VisualizationAgent(BaseAgent):
             len(list(out_dir.glob("*.png"))),
         )
 
-    def _generate_total_set(self, report: dict, snapshots: list):
+    def _generate_total_set(self, report: dict, snapshots: list[dict] | None) -> None:
         """Generate aggregate historical charts."""
         out_dir = self.sets["total"]
         for f in out_dir.glob("*.png"):
@@ -283,7 +289,7 @@ class VisualizationAgent(BaseAgent):
 
     # ========== Single-snapshot charts ==========
 
-    def _save(self, fig, name: str, out_dir: Path) -> str:
+    def _save(self, fig: plt.Figure, name: str, out_dir: Path) -> str:
         filepath = out_dir / f"{name}.png"
         fig.savefig(
             str(filepath),
@@ -295,7 +301,9 @@ class VisualizationAgent(BaseAgent):
         plt.close(fig)
         return str(filepath)
 
-    def _tag_pie(self, dist: dict, out_dir: Path, prefix: str, title: str = None):
+    def _tag_pie(
+        self, dist: dict[str, int], out_dir: Path, prefix: str, title: str | None = None
+    ) -> None:
         fig, ax = plt.subplots(figsize=(self.fig_w, self.fig_h))
         labels = list(dist.keys())
         sizes = list(dist.values())
@@ -319,7 +327,7 @@ class VisualizationAgent(BaseAgent):
         ax.axis("equal")
         self._save(fig, f"{prefix}_tag_pie", out_dir)
 
-    def _trend_line(self, trends: dict, out_dir: Path, prefix: str):
+    def _trend_line(self, trends: dict, out_dir: Path, prefix: str) -> None:
         fig, ax = plt.subplots(figsize=(self.fig_w, self.fig_h))
         counts = trends.get("snapshot_counts", [])
         times = trends.get("snapshot_times", [])
@@ -356,7 +364,7 @@ class VisualizationAgent(BaseAgent):
             ax.set_xticklabels(short, rotation=45, ha="right", fontsize=8)
         self._save(fig, f"{prefix}_trend_line", out_dir)
 
-    def _change_bar(self, report: dict, out_dir: Path, prefix: str):
+    def _change_bar(self, report: dict, out_dir: Path, prefix: str) -> None:
         fig, ax = plt.subplots(figsize=(8, 6))
         categories = ["New", "Removed", "Modified"]
         values = [
@@ -391,8 +399,12 @@ class VisualizationAgent(BaseAgent):
         self._save(fig, f"{prefix}_change_bar", out_dir)
 
     def _summary_table(
-        self, items: list, out_dir: Path, prefix: str, new_titles: set = None
-    ):
+        self,
+        items: list[dict],
+        out_dir: Path,
+        prefix: str,
+        new_titles: set[str] | None = None,
+    ) -> None:
         n = len(items)
         new_titles = new_titles or set()
         fig, ax = plt.subplots(figsize=(16, max(5, n * 0.45)))
@@ -442,7 +454,9 @@ class VisualizationAgent(BaseAgent):
         )
         self._save(fig, f"{prefix}_summary_table", out_dir)
 
-    def _new_items_table(self, new_items: list, out_dir: Path, prefix: str):
+    def _new_items_table(
+        self, new_items: list[dict], out_dir: Path, prefix: str
+    ) -> None:
         """Dedicated table showing only new items with title, tag, and URL."""
         n = min(len(new_items), 30)
         items = new_items[:n]
@@ -483,7 +497,7 @@ class VisualizationAgent(BaseAgent):
         )
         self._save(fig, f"{prefix}_new_items", out_dir)
 
-    def _overview_dashboard(self, report: dict, out_dir: Path, prefix: str):
+    def _overview_dashboard(self, report: dict, out_dir: Path, prefix: str) -> None:
         has_summary = bool(report.get("update_summary"))
         fig = plt.figure(figsize=(14, 10.5 if has_summary else 10))
         fig.suptitle(
@@ -599,7 +613,9 @@ class VisualizationAgent(BaseAgent):
 
     # ========== Historical / Total charts ==========
 
-    def _historical_trend(self, snapshots: list, out_dir: Path, prefix: str):
+    def _historical_trend(
+        self, snapshots: list[dict], out_dir: Path, prefix: str
+    ) -> None:
         """Line chart: news count across all snapshots, with moving average."""
         fig, ax = plt.subplots(figsize=(14, 7))
         counts = [s["items_count"] for s in snapshots]
@@ -665,7 +681,7 @@ class VisualizationAgent(BaseAgent):
             ax.set_xticklabels(times, rotation=45, ha="right", fontsize=8)
         self._save(fig, f"{prefix}_historical_trend", out_dir)
 
-    def _tag_evolution(self, snapshots: list, out_dir: Path, prefix: str):
+    def _tag_evolution(self, snapshots: list[dict], out_dir: Path, prefix: str) -> None:
         """Stacked area chart: tag distribution evolution over time."""
         # Collect all tags across all snapshots
         all_tags = set()
@@ -705,7 +721,9 @@ class VisualizationAgent(BaseAgent):
             ax.set_xticklabels(times, rotation=45, ha="right", fontsize=8)
         self._save(fig, f"{prefix}_tag_evolution", out_dir)
 
-    def _cumulative_overview(self, snapshots: list, out_dir: Path, prefix: str):
+    def _cumulative_overview(
+        self, snapshots: list[dict], out_dir: Path, prefix: str
+    ) -> None:
         """Summary stats across all history."""
         fig = plt.figure(figsize=(14, 8))
         fig.suptitle("Cumulative Monitoring Summary", fontsize=18, fontweight="bold")

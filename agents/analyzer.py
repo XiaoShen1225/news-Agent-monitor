@@ -4,7 +4,6 @@ import asyncio
 import difflib
 import logging
 from datetime import datetime
-from typing import Optional
 
 from .base_agent import BaseAgent
 
@@ -90,7 +89,7 @@ class AnalyzerAgent(BaseAgent):
 
         return report
 
-    async def _generate_update_summary_async(self, report: dict) -> Optional[str]:
+    async def _generate_update_summary_async(self, report: dict) -> str | None:
         """Generate a concise update summary describing what changed."""
         site_label = report.get("site_name", "未知站点")
         is_first = report.get("is_first_run", False)

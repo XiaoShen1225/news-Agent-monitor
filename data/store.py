@@ -8,7 +8,6 @@ import logging
 import sqlite3
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -396,7 +395,7 @@ class DataStore:
     def compute_hash(self, text: str) -> str:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-    def get_last_snapshot(self, site_name: str) -> Optional[dict]:
+    def get_last_snapshot(self, site_name: str) -> dict | None:
         with sqlite3.connect(self.db_path) as conn:
             row = conn.execute(
                 "SELECT snapshot_path, content_hash FROM snapshots WHERE site_name = ? ORDER BY id DESC LIMIT 1",
@@ -409,7 +408,7 @@ class DataStore:
                     return json.load(f)
         return None
 
-    def get_last_hash(self, site_name: str) -> Optional[str]:
+    def get_last_hash(self, site_name: str) -> str | None:
         with sqlite3.connect(self.db_path) as conn:
             row = conn.execute(
                 "SELECT content_hash FROM snapshots WHERE site_name = ? ORDER BY id DESC LIMIT 1",

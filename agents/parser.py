@@ -7,7 +7,6 @@ import re
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
-from typing import Optional
 from urllib.parse import urljoin
 
 import yaml
@@ -42,7 +41,7 @@ _UNIVERSAL_NOISE = [
 ]
 
 _PROMPT_PATH = Path("prompts/extraction.yaml")
-_LLM_PROMPT_CACHE: Optional[dict] = None
+_LLM_PROMPT_CACHE: dict | None = None
 
 
 def _get_llm_prompts() -> dict:
@@ -67,7 +66,7 @@ class ParserAgent(BaseAgent):
         html: str,
         site_name: str = "default",
         page_url: str = "",
-        profile: Optional[SiteProfile] = None,
+        profile: SiteProfile | None = None,
     ) -> dict:
         """Sync entry point. Delegates to run_async for LLM strategy."""
         profile_obj = profile or get_profile(site_name)
@@ -123,7 +122,7 @@ class ParserAgent(BaseAgent):
         html: str,
         site_name: str = "default",
         page_url: str = "",
-        profile: Optional[SiteProfile] = None,
+        profile: SiteProfile | None = None,
     ) -> dict:
         """Async entry point for parsing (required for LLM strategy)."""
         profile_obj = profile or get_profile(site_name)
