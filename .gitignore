@@ -16,6 +16,8 @@ data/papers.db
 data/history/*.json
 data/papers_history/*.json
 data/evolution_memory.json
+data/chat_history.json
+data/user_preferences.json
 data/vector_db/
 
 # Outputs
