@@ -52,10 +52,15 @@ class EvolutionOptimizer:
         return {"status": "completed", "optimizations": optimizations, "stats": stats}
 
     def record_run(
-        self, site_name: str, report: dict, confidence: float, elapsed_ms: float
+        self,
+        site_name: str,
+        report: dict,
+        confidence: float,
+        elapsed_ms: float,
+        total_tokens: int = 0,
     ):
         """Record a single run and trigger optimization if ready."""
-        self.memory.add_record(site_name, report, confidence, elapsed_ms)
+        self.memory.add_record(site_name, report, confidence, elapsed_ms, total_tokens)
         return self.run(site_name)
 
     def _optimize_prompt(self, site_name: str, stats: dict) -> dict:
