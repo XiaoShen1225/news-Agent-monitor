@@ -76,3 +76,7 @@ evolution:
   min_runs_before_optimize: 5
   prompt_tuning: true
   schedule_tuning: true
+
+# Dashboard auth (optional — skip if token is empty or unset)
+dashboard:
+  token: "${DASHBOARD_TOKEN}"

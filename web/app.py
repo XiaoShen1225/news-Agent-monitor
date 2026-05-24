@@ -2,6 +2,7 @@
 
 import difflib
 import logging
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -635,6 +636,72 @@ async def api_summarize(
             await http_client.aclose()
 
 
+# ── Dashboard auth ──────────────────────────────────────────────────
+
+
+def _resolve_dashboard_token() -> str | None:
+    """Resolve dashboard token from config, supporting ${ENV_VAR} syntax."""
+    raw = ""
+    if _config:
+        raw = _config.get("dashboard", {}).get("token", "")
+    if not raw:
+        return None
+    if raw.startswith("${") and raw.endswith("}"):
+        raw = os.environ.get(raw[2:-1], "")
+    return raw.strip() or None
+
+
+_dashboard_token: str | None = None
+
+
+def _get_effective_token() -> str | None:
+    global _dashboard_token
+    if _dashboard_token is None:
+        _dashboard_token = _resolve_dashboard_token()
+    return _dashboard_token
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Simple cookie-based auth. Skips if DASHBOARD_TOKEN is not configured."""
+    if request.url.path in ("/api/health", "/api/auth"):
+        return await call_next(request)
+
+    token = _get_effective_token()
+    if token is None:
+        return await call_next(request)
+
+    cookie_val = request.cookies.get("dashboard_token", "")
+    if cookie_val == token:
+        return await call_next(request)
+
+    return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+
+@app.post("/api/auth")
+async def api_auth(request: Request):
+    """Validate token and set cookie."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+    token_input = (body.get("token") or "").strip()
+    expected = _get_effective_token()
+    if not expected or token_input != expected:
+        return JSONResponse({"status": "denied"}, status_code=401)
+
+    resp = JSONResponse({"status": "ok"})
+    resp.set_cookie(
+        key="dashboard_token",
+        value=token_input,
+        httponly=True,
+        samesite="lax",
+        max_age=30 * 24 * 3600,
+    )
+    return resp
+
+
 # ── Action endpoints (CLI features in dashboard) ────────────────────
 
 # Coordinator reference — set by _cmd_serve_async on startup
@@ -772,6 +839,36 @@ async def api_chat(request: Request):
     agent = _get_chat_agent()
     result = await agent.chat(message)
     return result
+
+
+@app.post("/api/chat/stream")
+async def api_chat_stream(request: Request):
+    """Send a message to the chat assistant with SSE streaming response."""
+    from fastapi.responses import StreamingResponse
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+    message = (body.get("message") or "").strip()
+    if not message:
+        return JSONResponse({"error": "Empty message"}, status_code=400)
+
+    agent = _get_chat_agent()
+
+    async def event_stream():
+        async for chunk in agent.chat_stream(message):
+            yield chunk
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/chat/history")

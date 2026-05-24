@@ -438,7 +438,19 @@ class ChatAgent(BaseAgent):
     # ── article fetching ─────────────────────────────────────────────
 
     async def _fetch_and_summarize(self, url: str, title: str = "") -> str:
-        """Fetch an article URL, extract text, and summarize via LLM."""
+        """Fetch an article URL, extract text, and summarize via LLM.
+
+        Caches the summary to news_items.summary so repeated requests for the
+        same URL skip re-fetching.
+        """
+        # Check cache first
+        for store in (self.news_store, self.paper_store):
+            if store:
+                cached = store.get_item_summary(url)
+                if cached:
+                    logger.info("[ChatAgent] Article summary cache hit: %s", url[:60])
+                    return cached
+
         client = self._get_fetch_client()
         response = await client.get(url)
         response.raise_for_status()
@@ -469,7 +481,17 @@ class ChatAgent(BaseAgent):
             max_tokens=512,
             timeout=30.0,
         )
-        return response.choices[0].message.content or "(摘要生成失败)"
+        summary = response.choices[0].message.content or "(摘要生成失败)"
+
+        # Cache the summary
+        for store in (self.news_store, self.paper_store):
+            if store:
+                try:
+                    store.update_item_summary(url, summary)
+                except Exception:
+                    pass
+
+        return summary
 
     # ── tool execution ───────────────────────────────────────────────
 
@@ -659,6 +681,142 @@ class ChatAgent(BaseAgent):
             "context": self.context_stats(),
             "context_trimmed": 0,
         }
+
+    # ── streaming chat (SSE) ──────────────────────────────────────────
+
+    async def chat_stream(self, user_message: str):
+        """Async generator yielding SSE events for streaming chat.
+
+        Tool-calling rounds use non-streaming (need full JSON to parse tool_calls).
+        Final reply tokens are streamed one at a time.
+        """
+        self._history.append({"role": "user", "content": user_message})
+
+        system_content = SYSTEM_PROMPT
+        inferences = self._preferences.get("inferences", {})
+        if inferences.get("summary"):
+            system_content += (
+                f"\n\n用户偏好参考（根据历史行为推断，仅供参考，不要刻意迎合）: "
+                f"核心兴趣: {json.dumps(inferences.get('top_interests', []), ensure_ascii=False)}; "
+                f"偏好概要: {inferences['summary']}"
+            )
+        system_msg = {"role": "system", "content": system_content}
+        messages = [system_msg] + self._history
+
+        tool_calls_log: list[dict] = []
+
+        yield self._sse("status", "正在分析...")
+
+        for _round in range(MAX_TOOL_ROUNDS + 1):
+            # Tool-calling rounds: non-streaming (need full JSON)
+            response = await self.async_client.chat.completions.create(
+                model=self.llm_config.get("model", "glm-4-flash"),
+                messages=messages,
+                temperature=0.3,
+                max_tokens=1024,
+                tools=TOOLS,
+                timeout=30.0,
+            )
+            choice = response.choices[0]
+            msg = choice.message
+
+            if msg.tool_calls:
+                for tc in msg.tool_calls:
+                    fn = tc.function
+                    args = json.loads(fn.arguments) if fn.arguments else {}
+                    yield self._sse("tool_call", {"tool": fn.name, "args": args})
+                    result_text = await self._execute_tool(fn.name, args)
+                    tool_calls_log.append(
+                        {"tool": fn.name, "args": args, "result": result_text[:200]}
+                    )
+                    yield self._sse("tool_result", {"result": result_text[:200]})
+
+                    assistant_msg = {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": fn.name,
+                                    "arguments": fn.arguments,
+                                },
+                            }
+                        ],
+                    }
+                    tool_msg = {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result_text,
+                    }
+                    messages.append(assistant_msg)
+                    messages.append(tool_msg)
+                    self._history.append(assistant_msg)
+                    self._history.append(tool_msg)
+                continue  # next tool round
+
+            # Final reply: streaming
+            yield self._sse("status", "正在生成回复...")
+            model = self.llm_config.get("model", "glm-4-flash")
+
+            # Build messages with just the system prompt + history for streaming
+            reply_parts = []
+            stream = await self.async_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.3,
+                max_tokens=1024,
+                timeout=30.0,
+                stream=True,
+            )
+            total_tokens = 0
+            async for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    reply_parts.append(delta.content)
+                    yield self._sse("token", delta.content)
+                if chunk.usage and chunk.usage.total_tokens:
+                    total_tokens = chunk.usage.total_tokens
+            self._last_tokens = total_tokens
+
+            reply = "".join(reply_parts)
+            self._history.append({"role": "assistant", "content": reply})
+
+            # Compress / clean / trim
+            await self._maybe_compress()
+            self._cleanup_old_tool_results()
+            trimmed = self._trim_context()
+            self._save_history()
+
+            if self._collect_behavior_signals():
+                await self._infer_preferences()
+
+            ctx = self.context_stats()
+            yield self._sse("tool_calls", tool_calls_log)
+            yield self._sse(
+                "context",
+                {
+                    "history_tokens": ctx["history_tokens"],
+                    "exchanges": ctx["exchanges"],
+                },
+            )
+            yield self._sse("done", {"trimmed": trimmed})
+            return
+
+        # Max rounds exceeded
+        reply = "抱歉，处理您的请求需要更多轮次，请简化提问。"
+        self._history.append({"role": "assistant", "content": reply})
+        self._save_history()
+        self._collect_behavior_signals()
+        yield self._sse("token", reply)
+        yield self._sse("done", {})
+        return
+
+    @staticmethod
+    def _sse(event: str, data) -> str:
+        """Format an SSE event string."""
+        payload = json.dumps(data, ensure_ascii=False)
+        return f"event: {event}\ndata: {payload}\n\n"
 
     # ── persistence ─────────────────────────────────────────────────────
 

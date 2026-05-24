@@ -16,6 +16,7 @@ import re
 import signal
 import sys
 import threading
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import yaml
@@ -47,10 +48,17 @@ from evolution.optimizer import EvolutionOptimizer  # noqa: E402
 from agents.coordinator import CoordinatorAgent  # noqa: E402
 from notifications.dispatcher import create_notifiers  # noqa: E402
 
+_log_dir = PROJECT_ROOT / "logs"
+_log_dir.mkdir(exist_ok=True)
+_file_handler = RotatingFileHandler(
+    _log_dir / "app.log", maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+)
+_console_handler = logging.StreamHandler()
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%H:%M:%S",
+    handlers=[_console_handler, _file_handler],
 )
 logger = logging.getLogger("main")
 

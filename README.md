@@ -33,6 +33,11 @@
 - **131 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
 - **成本追踪**：Token 用量按站点聚合入库，`/api/cost` 端点查询，支持按天数筛选
 - **LLM 输出评估**：离线评估工具 `eval/judge.py`，faithfulness/relevance 双维度评分
+- **流式输出**：Chat 助手 SSE 流式输出，逐字显示回复，工具调用过程实时可见
+- **仪表盘鉴权**：可选的 Token 鉴权（环境变量 `DASHBOARD_TOKEN`），未配置则跳过
+- **正文缓存**：文章 LLM 摘要自动缓存到 `news_items.summary`，重复请求即时返回
+- **跨站点去重**：两轮去重（同站 0.7 + 跨站 0.85），过滤多源重复新闻
+- **日志轮转**：`logs/app.log` 文件日志 + 轮转（5MB × 3），排查问题更方便
 
 ## 快速开始
 
@@ -229,6 +234,8 @@ Visualization/
 | `POST /api/refresh-all` | 一键刷新全部监控目标 |
 | `POST /api/reset?site=` | 重置站点历史数据 |
 | `POST /api/chat` | AI 对话助手（支持 Tool Calling） |
+| `POST /api/chat/stream` | AI 对话助手 SSE 流式输出 |
+| `POST /api/auth` | 仪表盘 Token 鉴权 |
 | `GET /api/chat/history` | 查看对话历史 |
 | `GET /api/chat/context` | 上下文使用统计（Token 数、Exchange 数） |
 | `GET /api/health` | 健康检查（状态、运行时长、scheduler 状态、最后执行时间） |

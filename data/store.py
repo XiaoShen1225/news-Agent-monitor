@@ -305,7 +305,38 @@ class DataStore:
         return difflib.SequenceMatcher(None, a_norm, b_norm).ratio() >= threshold
 
     def _deduplicate_items(self, items: list, site_name: str) -> list:
-        """Filter out items whose titles are near-duplicates of recent snapshots."""
+        """Two-pass dedup: same-site (0.7) then cross-site (0.85)."""
+        # Pass 1: same-site dedup
+        items = self._dedup_against_existing(items, site_name, threshold=0.7)
+
+        # Pass 2: cross-site dedup against recent items from all sites
+        cross_titles = self._get_recent_cross_site_items(limit=200)
+        if cross_titles:
+            kept = []
+            removed = 0
+            for item in items:
+                title = item.get("title", "")
+                if any(
+                    self._is_similar(title, ct, threshold=0.85) for ct in cross_titles
+                ):
+                    removed += 1
+                else:
+                    kept.append(item)
+            if removed > 0:
+                logger.info(
+                    "Cross-site dedup: removed %d/%d items for %s",
+                    removed,
+                    len(items),
+                    site_name,
+                )
+            items = kept
+
+        return items
+
+    def _dedup_against_existing(
+        self, items: list, site_name: str, threshold: float = 0.7
+    ) -> list:
+        """Filter out items whose titles are near-duplicates of recent snapshots for the same site."""
         recent_items = self._get_recent_items(site_name, snapshots=3)
         if not recent_items:
             return items
@@ -315,7 +346,7 @@ class DataStore:
         for item in items:
             title = item.get("title", "")
             if any(
-                self._is_similar(title, existing_title)
+                self._is_similar(title, existing_title, threshold=threshold)
                 for existing_title in recent_items
             ):
                 removed += 1
@@ -330,6 +361,15 @@ class DataStore:
                 site_name,
             )
         return kept
+
+    def _get_recent_cross_site_items(self, limit: int = 200) -> list:
+        """Get distinct titles from the most recent items across all sites."""
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT title FROM news_items ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [r[0] for r in rows if r[0]]
 
     def _get_recent_items(self, site_name: str, snapshots: int = 3) -> list:
         """Get all item titles from the most recent N snapshots for a site."""
@@ -494,6 +534,24 @@ class DataStore:
             }
             for r in rows
         ]
+
+    def update_item_summary(self, url: str, summary: str):
+        """Cache an LLM-generated summary for a news item URL."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE news_items SET summary = ? WHERE url = ?",
+                (summary, url),
+            )
+            conn.commit()
+
+    def get_item_summary(self, url: str) -> str | None:
+        """Retrieve a cached summary for a URL, or None if not cached."""
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT summary FROM news_items WHERE url = ? AND summary != '' ORDER BY id DESC LIMIT 1",
+                (url,),
+            ).fetchone()
+        return row[0] if row else None
 
     def get_tag_stats(self, site_name: str = None, date_from: str = None) -> dict:
         """Get tag distribution stats for a site and time range."""

@@ -245,7 +245,53 @@
   <img id="modal-img" src="">
 </div>
 
+<!-- Login overlay -->
+<div id="login-overlay" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:300;justify-content:center;align-items:center">
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:32px;max-width:380px;width:90%;text-align:center">
+    <h2 style="color:var(--accent);margin-bottom:8px">News Agent Monitor</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:20px">请输入访问密钥</p>
+    <input id="login-token" type="password" placeholder="Access Token" onkeydown="if(event.key==='Enter')doLogin()"
+      style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;font-size:14px;margin-bottom:12px;box-sizing:border-box">
+    <button onclick="doLogin()" style="width:100%;background:var(--accent);border:none;color:var(--bg);padding:10px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600">确认</button>
+    <div id="login-error" style="color:var(--red);font-size:12px;margin-top:10px;display:none">密钥错误，请重试</div>
+  </div>
+</div>
+
 <script>
+// ── Auth ────────────────────────────────────────────────────────────
+async function checkAuth() {
+  try {
+    const res = await fetch('/api/health');
+    if (res.status === 401) {
+      document.getElementById('login-overlay').style.display = 'flex';
+      return false;
+    }
+    return true;
+  } catch(e) {
+    return true;  // network error, don't block
+  }
+}
+
+async function doLogin() {
+  const token = document.getElementById('login-token').value.trim();
+  if (!token) return;
+  try {
+    const res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token})
+    });
+    if (res.ok) {
+      document.getElementById('login-overlay').style.display = 'none';
+      document.getElementById('login-error').style.display = 'none';
+    } else {
+      document.getElementById('login-error').style.display = 'block';
+    }
+  } catch(e) {
+    document.getElementById('login-error').style.display = 'block';
+  }
+}
+
 // ── WebSocket ──────────────────────────────────────────────────────
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 const ws = new WebSocket(`${wsProtocol}//${location.host}/ws`);
@@ -774,6 +820,8 @@ function renderPaperActions() {
 }
 
 // ── Chat ─────────────────────────────────────────────────────────────
+let chatAbortController = null;
+
 async function sendChat() {
   const input = document.getElementById('chat-input');
   const msg = input.value.trim();
@@ -784,27 +832,75 @@ async function sendChat() {
 
   const sendBtn = document.getElementById('chat-send-btn');
   sendBtn.disabled = true;
-  const loadingEl = appendChatMessage('assistant', '<span style="color:var(--muted)">思考中...</span>');
+
+  // Create AI message bubble (will accumulate tokens)
+  const aiBubble = appendChatMessage('assistant', '');
+  const aiContent = aiBubble.querySelector('div:last-child');
+  const traceEl = document.getElementById('chat-tool-trace');
+  traceEl.textContent = '';
+
+  // Cancel previous request if any
+  if (chatAbortController) chatAbortController.abort();
+  chatAbortController = new AbortController();
 
   try {
-    const res = await fetch('/api/chat', {
+    const res = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({message: msg})
+      body: JSON.stringify({message: msg}),
+      signal: chatAbortController.signal,
     });
-    const data = await res.json();
-    loadingEl.remove();
 
-    appendChatMessage('assistant', data.reply || '(空回复)');
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let toolNames = [];
 
-    if (data.tool_calls && data.tool_calls.length > 0) {
-      document.getElementById('chat-tool-trace').textContent =
-        '工具调用: ' + data.tool_calls.map(tc => tc.tool).join(' → ');
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';  // keep incomplete line in buffer
+
+      let event = '', data = '';
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          event = line.slice(7);
+        } else if (line.startsWith('data: ')) {
+          data = line.slice(6);
+          if (event && data) {
+            try {
+              const parsed = JSON.parse(data);
+              if (event === 'token') {
+                aiContent.textContent += parsed;
+                aiBubble.scrollIntoView({ behavior: 'smooth', block: 'end' });
+              } else if (event === 'tool_call') {
+                toolNames.push(parsed.tool);
+                traceEl.textContent = '工具调用: ' + toolNames.join(' → ');
+              } else if (event === 'tool_result') {
+                traceEl.textContent = '工具调用: ' + toolNames.join(' → ') + ' ✓';
+              } else if (event === 'status') {
+                traceEl.textContent = parsed;
+              }
+            } catch(e) {}
+            event = ''; data = '';
+          }
+        }
+      }
     }
   } catch(e) {
-    loadingEl.remove();
-    appendChatMessage('assistant', '请求失败，请稍后重试。');
+    if (e.name !== 'AbortError') {
+      aiContent.textContent = aiContent.textContent || '请求失败，请稍后重试。';
+    }
   }
+
+  if (!aiContent.textContent.trim()) {
+    aiContent.textContent = '(\u7a7a\u56de\u590d)';
+  }
+
+  chatAbortController = null;
   sendBtn.disabled = false;
   input.focus();
 }
@@ -846,6 +942,7 @@ async function clearChat() {
 }
 
 // ── Init ───────────────────────────────────────────────────────────
+checkAuth();
 initECharts();
 loadChartData();
 loadStats();

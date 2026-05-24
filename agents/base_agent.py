@@ -162,6 +162,46 @@ class BaseAgent:
             f"{type(last_error).__name__}: {last_error}"
         )
 
+    # ── async streaming LLM ──────────────────────────────────────────
+
+    async def call_llm_stream(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = None,
+        max_tokens: int = None,
+    ):
+        """Stream LLM response tokens via async generator.
+
+        Yields each delta content string. Does NOT retry (streaming
+        is inherently non-retryable — callers should handle failures).
+        """
+        if temperature is None:
+            temperature = self.llm_config.get("temperature", 0.3)
+        if max_tokens is None:
+            max_tokens = self.llm_config.get("max_tokens", 1024)
+        model = self.llm_config.get("model", "glm-4-flash")
+
+        stream = await self.async_client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=60.0,
+            stream=True,
+        )
+        total_tokens = 0
+        async for chunk in stream:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                yield delta.content
+            if chunk.usage and chunk.usage.total_tokens:
+                total_tokens = chunk.usage.total_tokens
+        self._last_tokens = total_tokens
+
     # ── JSON parsing ────────────────────────────────────────────────
 
     def parse_json_response(self, response: str) -> list:
