@@ -229,7 +229,13 @@
         我是监控数据助手，可以帮你查询新闻、统计、搜索文章。<br>试试问："有哪些监控站点？" 或 "最近有哪些科技新闻？"
       </div>
     </div>
-    <div id="chat-tool-trace" style="font-size:11px;color:var(--muted);padding:4px 0;min-height:20px"></div>
+    <div id="chat-tool-trace" style="font-size:11px;color:var(--muted);padding:4px 0;min-height:20px;display:flex;flex-wrap:wrap;gap:4px;align-items:center"></div>
+    <div id="chat-context-bar" style="display:none;align-items:center;gap:6px;padding:2px 0">
+      <div style="flex:1;height:3px;background:var(--border);border-radius:2px;overflow:hidden">
+        <div id="chat-context-fill" style="height:100%;background:var(--accent);border-radius:2px;width:0%;transition:width 0.4s"></div>
+      </div>
+      <span id="chat-context-text" style="font-size:10px;color:var(--muted);white-space:nowrap"></span>
+    </div>
     <div style="display:flex;gap:8px;padding-top:8px;border-top:1px solid var(--border)">
       <input id="chat-input" type="text" placeholder="输入消息..." onkeydown="if(event.key==='Enter')sendChat()"
         style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;font-size:14px">
@@ -854,7 +860,11 @@ async function sendChat() {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    let toolNames = [];
+    let thinkingCard = null;
+    const container = document.getElementById('chat-messages');
+    const contextBar = document.getElementById('chat-context-bar');
+    const contextFill = document.getElementById('chat-context-fill');
+    const contextText = document.getElementById('chat-context-text');
 
     while (true) {
       const { done, value } = await reader.read();
@@ -862,7 +872,7 @@ async function sendChat() {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop() || '';  // keep incomplete line in buffer
+      buffer = lines.pop() || '';
 
       let event = '', data = '';
       for (const line of lines) {
@@ -876,13 +886,48 @@ async function sendChat() {
               if (event === 'token') {
                 aiContent.textContent += parsed;
                 aiBubble.scrollIntoView({ behavior: 'smooth', block: 'end' });
+              } else if (event === 'thinking') {
+                if (!thinkingCard) {
+                  thinkingCard = document.createElement('div');
+                  thinkingCard.style.cssText =
+                    'padding:8px 14px;margin:4px 0;border-radius:10px;' +
+                    'background:rgba(56,189,248,0.06);border-left:3px solid var(--accent);' +
+                    'font-size:12px;color:var(--muted);align-self:flex-start;max-width:85%;' +
+                    'transition:opacity 0.5s';
+                  container.appendChild(thinkingCard);
+                }
+                thinkingCard.textContent = parsed.text;
+                container.scrollTop = container.scrollHeight;
               } else if (event === 'tool_call') {
-                toolNames.push(parsed.tool);
-                traceEl.textContent = '工具调用: ' + toolNames.join(' → ');
+                const chip = document.createElement('span');
+                chip.style.cssText =
+                  'display:inline-block;padding:2px 8px;margin:0 2px;' +
+                  'background:rgba(56,189,248,0.12);border-radius:4px;font-size:11px;color:var(--accent)';
+                chip.textContent = parsed.tool;
+                chip.dataset.tool = parsed.tool;
+                traceEl.appendChild(chip);
               } else if (event === 'tool_result') {
-                traceEl.textContent = '工具调用: ' + toolNames.join(' → ') + ' ✓';
+                const chips = traceEl.querySelectorAll('span');
+                if (chips.length > 0) {
+                  const last = chips[chips.length - 1];
+                  last.textContent += ' ✓';
+                  last.style.color = 'var(--green)';
+                }
               } else if (event === 'status') {
                 traceEl.textContent = parsed;
+              } else if (event === 'context') {
+                contextBar.style.display = 'flex';
+                const max = parsed.max_history_tokens || 4000;
+                const pct = Math.min(100, (parsed.history_tokens / max) * 100);
+                contextFill.style.width = pct + '%';
+                contextText.textContent = parsed.history_tokens + '/' + max + ' tokens (' + (parsed.exchanges || 0) + '轮)';
+                if (pct > 80) contextFill.style.background = '#f59e0b';
+              } else if (event === 'done') {
+                traceEl.innerHTML = '';
+                if (thinkingCard) {
+                  thinkingCard.style.opacity = '0.3';
+                  thinkingCard.style.fontSize = '11px';
+                }
               }
             } catch(e) {}
             event = ''; data = '';
@@ -938,7 +983,9 @@ async function clearChat() {
     `<div style="color:var(--muted);text-align:center;padding:40px 0">
       我是监控数据助手，可以帮你查询新闻、统计、搜索文章。<br>试试问："有哪些监控站点？" 或 "最近有哪些科技新闻？"
     </div>`;
-  document.getElementById('chat-tool-trace').textContent = '';
+  document.getElementById('chat-tool-trace').innerHTML = '';
+  const bar = document.getElementById('chat-context-bar');
+  if (bar) bar.style.display = 'none';
 }
 
 // ── Init ───────────────────────────────────────────────────────────

@@ -496,6 +496,7 @@ class DataStore:
         self,
         site_name: str = None,
         tag: str = None,
+        keyword: str = None,
         date_from: str = None,
         date_to: str = None,
         limit: int = 500,
@@ -509,6 +510,9 @@ class DataStore:
         if tag:
             conditions.append("tag = ?")
             params.append(tag)
+        if keyword:
+            conditions.append("title LIKE ?")
+            params.append(f"%{keyword}%")
         if date_from:
             conditions.append("snapshot_time >= ?")
             params.append(date_from)
