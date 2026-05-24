@@ -41,6 +41,7 @@
 - **Agent 思考可见**：Chat 助手 ReAct 式思考过程展示——工具调用前显示思考卡片，步骤标签 + 完成标记 + Token 用量进度条
 - **安全护栏**：输入校验（越权拦截 + Prompt 注入防护）+ 工具参数校验（URL 格式/站点名合法性），结构化错误分类
 - **结构化工具输出**：查询结果带前缀标记（[查询结果]/[站点统计]等），空结果附操作建议
+- **用户偏好学习**：时间衰减信号 + 双反馈（隐式行为采集 + 显式喜欢/不喜欢纠正）+ 置信度评分 + 偏好排序增强
 
 ## 快速开始
 
@@ -120,7 +121,7 @@ Visualization/
 │   ├── analyzer.py                # 标题 Diff + 趋势计算 + 情感分析 + LLM 摘要
 │   ├── visualizer.py              # matplotlib 10 种图表 + 六组留存策略
 │   ├── coordinator.py             # 流水线编排，集成通知 + 向量存储
-│   ├── chat_agent.py              # AI 对话助手（结构化 Prompt + Tool Calling + ReAct 思考 + Guardrails）
+│   ├── chat_agent.py              # AI 对话助手（结构化 Prompt + Tool Calling + ReAct 思考 + 偏好学习 + Guardrails）
 │   └── site_profiles.py           # SiteProfile 数据类 + 内置站点配置
 ├── data/
 │   ├── store.py                   # JSON + SQLite + CSV 存储（新闻/论文分离路径）
