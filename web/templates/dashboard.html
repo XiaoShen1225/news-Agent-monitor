@@ -120,6 +120,20 @@
   .tab.active { background: var(--accent); color: var(--bg); border-color: var(--accent);
     box-shadow: 0 2px 8px var(--accent-glow); }
 
+  .chat-chip { padding: 6px 14px; border-radius: 16px; border: 1px solid var(--border);
+    cursor: pointer; font-size: 12px; font-weight: 500; background: var(--bg);
+    color: var(--text-secondary); transition: all var(--transition); }
+  .chat-chip:hover { border-color: var(--accent); color: var(--accent);
+    background: var(--accent-soft); box-shadow: 0 0 12px var(--accent-glow); }
+
+  .tag-chips { display: flex; gap: 5px; flex-wrap: wrap; align-items: center;
+    margin-bottom: 10px; }
+  .tag-chip { padding: 4px 12px; border-radius: 14px; border: 1px solid var(--accent-soft);
+    cursor: pointer; font-size: 11px; font-weight: 500; background: var(--bg);
+    color: var(--accent); transition: all var(--transition); }
+  .tag-chip:hover { background: var(--accent-soft); border-color: var(--accent); }
+  .tag-chip.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border-light); }
   th { color: var(--muted); font-weight: 600; font-size: 11px;
@@ -231,14 +245,25 @@
     </div>
   </section>
 
-  <!-- News items -->
+  <!-- News Items -->
   <section class="card full">
     <h2>News Items</h2>
     <div class="filters">
       <select id="filter-site" onchange="onSiteFilterChange()"><option value="">All Sites</option></select>
       <select id="filter-tag"><option value="">All Tags</option></select>
-      <input type="text" id="filter-search" placeholder="Search title...">
-      <button class="tab active" onclick="loadItems(0)" style="cursor:pointer">Search</button>
+      <input type="text" id="filter-search" placeholder="搜索标题关键词..." onkeydown="if(event.key==='Enter')loadItems(0)" style="min-width:180px">
+      <button class="tab active" onclick="loadItems(0)" style="cursor:pointer">搜索</button>
+    </div>
+    <div class="tag-chips">
+      <span style="font-size:11px;color:var(--muted);margin-right:4px">快速筛选:</span>
+      <button onclick="quickFilter('科技')" class="tag-chip">科技</button>
+      <button onclick="quickFilter('国内')" class="tag-chip">国内</button>
+      <button onclick="quickFilter('财经')" class="tag-chip">财经</button>
+      <button onclick="quickFilter('国际')" class="tag-chip">国际</button>
+      <button onclick="quickFilter('军事')" class="tag-chip">军事</button>
+      <button onclick="quickFilter('娱乐')" class="tag-chip">娱乐</button>
+      <button onclick="quickFilter('体育')" class="tag-chip">体育</button>
+      <button onclick="quickFilter('', true)" class="tag-chip" style="border-color:var(--border);color:var(--muted)">清除</button>
     </div>
     <div style="overflow-x:auto">
       <table><thead><tr>
@@ -307,6 +332,12 @@
         <div style="font-size:40px;margin-bottom:12px;opacity:0.6">&#59140;</div>
         <div style="font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:6px">AI 监控数据助手</div>
         <div style="font-size:13px;line-height:1.7">可以查询新闻、统计、搜索文章<br>试试问："有哪些监控站点？" 或 "最近有哪些科技新闻？"</div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;padding:0 4px">
+        <button onclick="askExample('今天有什么科技新闻？')" class="chat-chip">今天有什么科技新闻？</button>
+        <button onclick="askExample('最近一周有什么热点趋势？')" class="chat-chip">最近一周有什么热点趋势？</button>
+        <button onclick="askExample('百度新闻运行正常吗？')" class="chat-chip">百度新闻运行正常吗？</button>
+        <button onclick="askExample('帮我设置一个AI相关的告警')" class="chat-chip">帮我设置一个AI相关告警</button>
       </div>
     </div>
     <div id="chat-tool-trace" style="font-size:11px;color:var(--muted);padding:4px 0;min-height:20px;display:flex;flex-wrap:wrap;gap:4px;align-items:center"></div>
@@ -637,6 +668,21 @@ async function loadTags() {
   } catch(e) {}
 }
 
+function quickFilter(tag, clear) {
+  if (clear) {
+    document.getElementById('filter-tag').value = '';
+    document.getElementById('filter-search').value = '';
+  } else {
+    document.getElementById('filter-tag').value = tag;
+  }
+  const chips = document.querySelectorAll('.tag-chip');
+  chips.forEach(c => c.classList.remove('active'));
+  if (!clear && tag) {
+    chips.forEach(c => { if (c.textContent === tag) c.classList.add('active'); });
+  }
+  loadItems(0);
+}
+
 async function loadItems(page) {
   if (page !== undefined) itemsPage = page;
   const site = document.getElementById('filter-site').value;
@@ -921,6 +967,11 @@ function getSessionId() {
 
 function setSessionId(sid) {
   if (sid) sessionStorage.setItem('chat_session_id', sid);
+}
+
+function askExample(question) {
+  document.getElementById('chat-input').value = question;
+  sendChat();
 }
 
 async function sendChat() {
