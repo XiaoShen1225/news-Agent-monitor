@@ -814,10 +814,8 @@ def _get_chat_agent():
 
         from agents.chat_agent import ChatAgent
 
-        llm_cfg = _config.get("llm", {}) if _config else {}
-        chat_config = {"llm": llm_cfg}
         _chat_agent = ChatAgent(
-            chat_config,
+            _config or {},
             news_store=DataStore(source_type="news"),
             paper_store=DataStore(source_type="paper"),
             vector_store=None,  # lazy init to avoid huggingface download on first chat

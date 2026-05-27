@@ -16,7 +16,7 @@
 - **Web 仪表盘**：FastAPI + ECharts 5.5 实时交互图表 + 暗色主题 + 毛玻璃效果，WebSocket 实时推送
 - **分页加载**：News Items 支持分页浏览（30 条/页），避免一次性加载全部数据
 - **仪表盘操作**：Refresh All（一键刷新全部）、Run Now（手动触发抓取）、Reset（重置站点历史）集成到前端
-- **AI 对话助手**：基于 Tool Calling 的智能助手，多 Session 隔离（独立上下文/偏好），结构化 System Prompt（身份/工具策略/拒绝规则/输出格式），思考过程实时可见（ReAct 风格）
+- **AI 对话助手**：基于 Tool Calling 的智能助手，多 Session 隔离（独立上下文/偏好），配置外置（config.yaml 可控），结构化 System Prompt（身份/工具策略/拒绝规则/输出格式），思考过程实时可见（ReAct 风格）
 - **上下文管理**：Token 预算滑动窗口 + Exchange 边界裁剪，参考 ChatGPT/Claude 的混合策略；主动压缩旧对话摘要，工具结果自动清理
 - **Webhook 通知**：钉钉 / 企业微信 / 邮件（SMTP），管道完成后自动推送
 - **自动可视化**：matplotlib 生成 10 种 PNG 图表，6 组时间轮替留存
@@ -122,7 +122,7 @@ Visualization/
 │   ├── analyzer.py                # 标题 Diff + 趋势计算 + 情感分析 + LLM 摘要
 │   ├── visualizer.py              # matplotlib 10 种图表 + 六组留存策略
 │   ├── coordinator.py             # 流水线编排，集成通知 + 向量存储
-│   ├── chat_agent.py              # AI 对话助手（结构化 Prompt + Tool Calling + ReAct 思考 + 偏好学习 + Guardrails）
+│   ├── chat_agent.py              # AI 对话助手（多 Session 隔离 + 结构化 Prompt + Tool Calling + ReAct 思考 + 偏好学习 + Guardrails）
 │   └── site_profiles.py           # SiteProfile 数据类 + 内置站点配置
 ├── data/
 │   ├── store.py                   # JSON + SQLite + CSV 存储（新闻/论文分离路径）

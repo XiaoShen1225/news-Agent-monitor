@@ -80,3 +80,15 @@ evolution:
 # Dashboard auth (optional — skip if token is empty or unset)
 dashboard:
   token: "${DASHBOARD_TOKEN}"
+
+# Chat agent settings
+chat:
+  max_tool_rounds: 3        # max tool-calling rounds per user message
+  max_history_tokens: 4000   # token budget for conversation history
+  min_exchanges: 1           # always keep at least this many exchanges
+  compression_threshold: 0.6  # compress when history exceeds 60% of budget
+  compression_target: 0.4     # compress the oldest ~40% of exchanges
+  max_tool_results: 5         # keep N recent tool results; older ones truncated
+  preference_lite_interval: 2   # run lightweight inference every N exchanges
+  preference_full_interval: 5   # run full inference every N exchanges
+  signal_halflife_days: 14      # preference signal weight halves after N days

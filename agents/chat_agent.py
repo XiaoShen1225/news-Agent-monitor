@@ -382,13 +382,33 @@ class ChatAgent(BaseAgent):
         news_store=None,
         paper_store=None,
         vector_store=None,
-        max_history_tokens: int = MAX_HISTORY_TOKENS,
+        max_history_tokens: int | None = None,
     ):
         super().__init__("Chat", config)
         self.news_store = news_store
         self.paper_store = paper_store
         self.vector_store = vector_store
-        self.max_history_tokens = max_history_tokens
+        # Read chat settings from config, with module-level constants as fallback
+        chat_cfg = config.get("chat", {})
+        self.max_history_tokens = max_history_tokens or chat_cfg.get(
+            "max_history_tokens", MAX_HISTORY_TOKENS
+        )
+        self.max_tool_rounds = chat_cfg.get("max_tool_rounds", MAX_TOOL_ROUNDS)
+        self.min_exchanges = chat_cfg.get("min_exchanges", MIN_EXCHANGES)
+        self.compression_threshold = chat_cfg.get(
+            "compression_threshold", COMPRESSION_THRESHOLD
+        )
+        self.compression_target = chat_cfg.get("compression_target", COMPRESSION_TARGET)
+        self.max_tool_results = chat_cfg.get("max_tool_results", MAX_TOOL_RESULTS)
+        self.pref_lite_interval = chat_cfg.get(
+            "preference_lite_interval", PREFERENCE_LITE_INTERVAL
+        )
+        self.pref_full_interval = chat_cfg.get(
+            "preference_full_interval", PREFERENCE_FULL_INTERVAL
+        )
+        self.signal_halflife_days = chat_cfg.get(
+            "signal_halflife_days", SIGNAL_HALFLIFE_DAYS
+        )
         self._fetch_client: httpx.AsyncClient | None = None
         self._preferences: dict = {}
         # Session support — each session isolates conversation history + stats
@@ -541,16 +561,16 @@ class ChatAgent(BaseAgent):
     async def _maybe_compress(self):
         """Proactively compress oldest exchanges when token usage exceeds threshold."""
         tokens = _messages_tokens(self._history)
-        if tokens <= self.max_history_tokens * COMPRESSION_THRESHOLD:
+        if tokens <= self.max_history_tokens * self.compression_threshold:
             return
 
         exchanges = self._get_exchanges()
-        if len(exchanges) <= MIN_EXCHANGES + 1:
+        if len(exchanges) <= self.min_exchanges + 1:
             return  # need at least 2 exchanges for meaningful compression
 
-        # Compress oldest ~40% of exchanges, keeping at least MIN_EXCHANGES
-        compress_count = max(1, int(len(exchanges) * COMPRESSION_TARGET))
-        compress_count = min(compress_count, len(exchanges) - MIN_EXCHANGES)
+        # Compress oldest ~40% of exchanges, keeping at least self.min_exchanges
+        compress_count = max(1, int(len(exchanges) * self.compression_target))
+        compress_count = min(compress_count, len(exchanges) - self.min_exchanges)
         if compress_count <= 0:
             return
 
@@ -580,11 +600,11 @@ class ChatAgent(BaseAgent):
         tool_indices = [
             i for i, m in enumerate(self._history) if m.get("role") == "tool"
         ]
-        if len(tool_indices) <= MAX_TOOL_RESULTS:
+        if len(tool_indices) <= self.max_tool_results:
             return
 
         cleaned = 0
-        for idx in tool_indices[:-MAX_TOOL_RESULTS]:
+        for idx in tool_indices[: -self.max_tool_results]:
             msg = self._history[idx]
             if len(msg.get("content", "")) > 30:
                 tc_id = msg.get("tool_call_id", "unknown")
@@ -613,11 +633,11 @@ class ChatAgent(BaseAgent):
             return 0
 
         exchanges = self._get_exchanges()
-        if len(exchanges) <= MIN_EXCHANGES:
+        if len(exchanges) <= self.min_exchanges:
             return 0
 
         trimmed = 0
-        while len(exchanges) > MIN_EXCHANGES:
+        while len(exchanges) > self.min_exchanges:
             total = sum(_messages_tokens(ex) for ex in exchanges)
             if total <= self.max_history_tokens:
                 break
@@ -1023,7 +1043,7 @@ class ChatAgent(BaseAgent):
         tool_calls_log: list[dict] = []
         tool_msg_indices: list[int] = []  # track newly appended messages in _history
 
-        for _round in range(MAX_TOOL_ROUNDS + 1):
+        for _round in range(self.max_tool_rounds + 1):
             response = await self.async_client.chat.completions.create(
                 model=self.llm_config.get("model", "glm-4-flash"),
                 messages=messages,
@@ -1159,7 +1179,7 @@ class ChatAgent(BaseAgent):
 
         yield self._sse("status", "正在分析...")
 
-        for _round in range(MAX_TOOL_ROUNDS + 1):
+        for _round in range(self.max_tool_rounds + 1):
             # Tool-calling rounds: non-streaming (need full JSON)
             response = await self.async_client.chat.completions.create(
                 model=self.llm_config.get("model", "glm-4-flash"),
@@ -1329,8 +1349,9 @@ class ChatAgent(BaseAgent):
     def _now_iso() -> str:
         return __import__("datetime").datetime.now().isoformat()
 
-    @staticmethod
-    def _decay_weight(entry: dict, halflife_days: int = SIGNAL_HALFLIFE_DAYS) -> float:
+    def _decay_weight(self, entry: dict, halflife_days: int | None = None) -> float:
+        if halflife_days is None:
+            halflife_days = self.signal_halflife_days
         """Apply exponential time decay. Returns effective weight after decay."""
         count = entry.get("count", 0) if isinstance(entry, dict) else entry
         if isinstance(entry, dict) and "last_ts" in entry:
@@ -1442,13 +1463,13 @@ class ChatAgent(BaseAgent):
         self._save_preferences()
 
         total = signals["total_exchanges"]
-        if total % PREFERENCE_FULL_INTERVAL == 0:
+        if total % self.pref_full_interval == 0:
             logger.info(
                 "[ChatAgent] Triggering FULL preference inference at %d exchanges",
                 total,
             )
             return "full"
-        if total % PREFERENCE_LITE_INTERVAL == 0:
+        if total % self.pref_lite_interval == 0:
             logger.info(
                 "[ChatAgent] Triggering LITE preference inference at %d exchanges",
                 total,
