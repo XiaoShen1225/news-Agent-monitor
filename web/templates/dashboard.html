@@ -7,70 +7,148 @@
 <script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.0/echarts.min.js"
         onerror="this.onerror=null;this.src='https://unpkg.zhimg.com/echarts@5.5.0/dist/echarts.min.js'"></script>
 <style>
-  :root { --bg: #0f172a; --card: #1e293b; --border: #334155; --text: #e2e8f0;
-          --muted: #94a3b8; --accent: #38bdf8; --green: #4ade80; --red: #f87171;
-          --orange: #fb923c; }
+  :root {
+    --bg: #0f172a; --bg-soft: #131c34; --card: #1e293b; --card-hover: #243447;
+    --border: #334155; --border-light: rgba(148,163,184,0.15);
+    --text: #e2e8f0; --text-secondary: #cbd5e1; --muted: #94a3b8;
+    --accent: #38bdf8; --accent-soft: rgba(56,189,248,0.12);
+    --accent-glow: rgba(56,189,248,0.25); --green: #4ade80;
+    --green-soft: rgba(74,222,128,0.12); --red: #f87171;
+    --red-soft: rgba(248,113,113,0.12); --orange: #fb923c;
+    --orange-soft: rgba(251,146,60,0.12);
+    --radius-sm: 6px; --radius: 10px; --radius-lg: 14px;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3); --shadow: 0 4px 12px rgba(0,0,0,0.25);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.35);
+    --transition: 0.2s ease; --transition-slow: 0.35s ease;
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system,
-    BlinkMacSystemFont, "Segoe UI", sans-serif; min-height: 100vh; }
-  header { background: var(--card); border-bottom: 1px solid var(--border);
-    padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
-  header h1 { font-size: 20px; color: var(--accent); }
-  header .status { display: flex; gap: 8px; align-items: center; font-size: 13px; }
-  header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
-  header .dot.offline { background: var(--red); }
-  /* Nav tabs */
-  .nav-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 20px; }
-  .nav-tab { padding: 10px 24px; cursor: pointer; font-size: 14px; color: var(--muted);
-    border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; }
-  .nav-tab:hover { color: var(--text); }
-  .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  body { background: var(--bg); color: var(--text);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+  header { background: linear-gradient(135deg, rgba(30,41,59,0.95), rgba(15,23,42,0.98));
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-light); padding: 14px 28px; display: flex;
+    justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 50; }
+  header h1 { font-size: 20px; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), #818cf8);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text; letter-spacing: -0.3px; }
+  header .status { display: flex; gap: 10px; align-items: center; font-size: 13px; }
+  header .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 6px var(--green); transition: all var(--transition); }
+  header .dot.offline { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+  .nav-tabs { display: flex; gap: 4px; background: var(--card); border-radius: var(--radius);
+    padding: 4px; border: 1px solid var(--border); margin-bottom: 24px; }
+  .nav-tab { flex: 1; padding: 10px 20px; cursor: pointer; font-size: 14px; font-weight: 500;
+    color: var(--muted); text-align: center; border-radius: 7px;
+    transition: all var(--transition); }
+  .nav-tab:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+  .nav-tab.active { color: var(--text); background: var(--bg); box-shadow: var(--shadow-sm); }
+
   .page { display: none; }
-  .page.active { display: block; }
-  main { max-width: 1400px; margin: 0 auto; padding: 20px; }
+  .page.active { display: block; animation: fadeSlideIn 0.3s ease; }
+  #page-news.active { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  #page-papers.active, #page-chat.active { display: block; }
+  @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); } }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 24px 28px; }
   .full { grid-column: 1 / -1; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-    padding: 16px; }
-  .card h2 { font-size: 15px; color: var(--accent); margin-bottom: 12px; }
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
-  .stat { background: var(--bg); border-radius: 8px; padding: 12px; text-align: center; }
-  .stat .val { font-size: 24px; font-weight: 700; color: var(--accent); }
-  .stat .lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
-  .filters { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+
+  .card { background: var(--card); border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow-sm);
+    transition: box-shadow var(--transition), border-color var(--transition); }
+  .card:hover { box-shadow: var(--shadow); border-color: rgba(148,163,184,0.2); }
+  .card h2 { font-size: 16px; font-weight: 600; color: var(--text);
+    margin-bottom: 14px; letter-spacing: -0.2px; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px; }
+  .stat { background: var(--bg); border: 1px solid var(--border-light);
+    border-radius: var(--radius); padding: 16px 12px; text-align: center;
+    transition: all var(--transition); }
+  .stat:hover { border-color: var(--accent); box-shadow: 0 0 20px rgba(56,189,248,0.08); }
+  .stat .val { font-size: 26px; font-weight: 700; color: var(--accent);
+    letter-spacing: -0.5px; line-height: 1.2; }
+  .stat .lbl { font-size: 11px; color: var(--muted); margin-top: 6px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.5px; }
+
+  .filters { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap;
+    align-items: center; }
   .filters select, .filters input { background: var(--bg); border: 1px solid var(--border);
-    color: var(--text); padding: 6px 10px; border-radius: 6px; font-size: 13px; }
-  /* ECharts grid */
-  .echarts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .echart-card { background: var(--bg); border-radius: 8px; padding: 12px;
-    border: 1px solid var(--border); }
-  .echart-card h3 { font-size: 13px; color: var(--muted); margin-bottom: 8px; font-weight: 600; }
+    color: var(--text); padding: 8px 12px; border-radius: var(--radius-sm);
+    font-size: 13px; transition: all var(--transition); outline: none; }
+  .filters select:focus, .filters input:focus { border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft); }
+  .filters input::placeholder { color: var(--muted); opacity: 0.7; }
+
+  button { font-family: inherit; transition: all var(--transition); outline: none;
+    cursor: pointer; }
+  button:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); }
+  button:active:not(:disabled) { transform: scale(0.97); }
+
+  .echarts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .echart-card { background: var(--bg); border-radius: var(--radius); padding: 14px;
+    border: 1px solid var(--border-light); transition: border-color var(--transition); }
+  .echart-card:hover { border-color: var(--border); }
+  .echart-card h3 { font-size: 13px; color: var(--muted); margin-bottom: 10px;
+    font-weight: 600; }
   .echart-card.wide { grid-column: 1 / -1; }
-  /* PNG chart grid (kept for historical) */
+
   .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 8px; }
-  .chart-grid img { width: 100%; border-radius: 6px; cursor: pointer;
-    transition: transform .15s; }
-  .chart-grid img:hover { transform: scale(1.03); }
-  .tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
-  .tab { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border);
-    cursor: pointer; font-size: 12px; background: var(--bg); color: var(--muted); }
-  .tab.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+    gap: 10px; }
+  .chart-grid img { width: 100%; border-radius: var(--radius-sm); cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    border: 1px solid var(--border-light); }
+  .chart-grid img:hover { transform: scale(1.02); box-shadow: var(--shadow-lg); }
+
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .tab { padding: 7px 16px; border-radius: 20px; border: 1px solid var(--border);
+    cursor: pointer; font-size: 12px; font-weight: 500; background: var(--bg);
+    color: var(--muted); }
+  .tab:hover { border-color: var(--accent); color: var(--text); }
+  .tab.active { background: var(--accent); color: var(--bg); border-color: var(--accent);
+    box-shadow: 0 2px 8px var(--accent-glow); }
+
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
-  th { color: var(--muted); font-weight: 600; background: var(--bg); }
-  tr:hover td { background: rgba(56,189,248,.05); }
-  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
-    background: rgba(56,189,248,.15); color: var(--accent); }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border-light); }
+  th { color: var(--muted); font-weight: 600; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.5px; background: rgba(15,23,42,0.5); }
+  tr:hover td { background: rgba(56,189,248,0.04); }
+
+  .tag { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px;
+    font-weight: 500; background: var(--accent-soft); color: var(--accent);
+    letter-spacing: 0.2px; }
+
   .run-row { font-size: 12px; }
-  .status-ok { color: var(--green); } .status-skip { color: var(--orange); }
-  .status-err { color: var(--red); }
-  #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.85);
-    z-index: 100; justify-content: center; align-items: center; }
+  .status-ok { color: var(--green); font-weight: 500; }
+  .status-skip { color: var(--orange); } .status-err { color: var(--red); }
+
+  #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.88);
+    backdrop-filter: blur(4px); z-index: 100; justify-content: center; align-items: center;
+    animation: fadeIn 0.2s ease; }
   #modal.show { display: flex; }
-  #modal img { max-width: 90vw; max-height: 90vh; border-radius: 8px; }
+  #modal img { max-width: 90vw; max-height: 90vh; border-radius: var(--radius);
+    box-shadow: var(--shadow-lg); }
+
+  ::selection { background: rgba(56,189,248,0.3); color: #fff; }
+
   @media (max-width: 768px) {
-    main { grid-template-columns: 1fr; }
+    main { padding: 16px; }
     .echarts-grid { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    header { padding: 12px 16px; }
+    header h1 { font-size: 17px; }
   }
 </style>
 </head>
@@ -92,7 +170,7 @@
   </div>
 
   <!-- ═══ NEWS PAGE ═══ -->
-  <div id="page-news" class="page active" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div id="page-news" class="page active">
 
   <!-- Stats -->
   <section class="card full">
@@ -222,11 +300,13 @@
   <section class="card" style="display:flex;flex-direction:column;height:calc(100vh - 200px);min-height:500px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <h2 style="margin:0">AI 助手</h2>
-      <button onclick="clearChat()" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px">清空对话</button>
+      <button onclick="clearChat()" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;font-weight:500">清空对话</button>
     </div>
-    <div id="chat-messages" style="flex:1;overflow-y:auto;padding:8px 0;display:flex;flex-direction:column;gap:12px">
-      <div style="color:var(--muted);text-align:center;padding:40px 0">
-        我是监控数据助手，可以帮你查询新闻、统计、搜索文章。<br>试试问："有哪些监控站点？" 或 "最近有哪些科技新闻？"
+    <div id="chat-messages" style="flex:1;overflow-y:auto;padding:8px 4px;display:flex;flex-direction:column;gap:14px">
+      <div style="color:var(--muted);text-align:center;padding:48px 20px;animation:pulse 2s ease-in-out infinite">
+        <div style="font-size:40px;margin-bottom:12px;opacity:0.6">&#59140;</div>
+        <div style="font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:6px">AI 监控数据助手</div>
+        <div style="font-size:13px;line-height:1.7">可以查询新闻、统计、搜索文章<br>试试问："有哪些监控站点？" 或 "最近有哪些科技新闻？"</div>
       </div>
     </div>
     <div id="chat-tool-trace" style="font-size:11px;color:var(--muted);padding:4px 0;min-height:20px;display:flex;flex-wrap:wrap;gap:4px;align-items:center"></div>
@@ -238,9 +318,9 @@
     </div>
     <div style="display:flex;gap:8px;padding-top:8px;border-top:1px solid var(--border)">
       <input id="chat-input" type="text" placeholder="输入消息..." onkeydown="if(event.key==='Enter')sendChat()"
-        style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;font-size:14px">
+        style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:11px 16px;border-radius:var(--radius);font-size:14px;outline:none;transition:all var(--transition)">
       <button onclick="sendChat()" id="chat-send-btn"
-        style="background:var(--accent);border:none;color:var(--bg);padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600">发送</button>
+        style="background:linear-gradient(135deg, var(--accent), #2dd4bf);border:none;color:var(--bg);padding:11px 24px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:600">发送</button>
     </div>
   </section>
   </div><!-- /page-chat -->
@@ -252,13 +332,14 @@
 </div>
 
 <!-- Login overlay -->
-<div id="login-overlay" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:300;justify-content:center;align-items:center">
-  <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:32px;max-width:380px;width:90%;text-align:center">
-    <h2 style="color:var(--accent);margin-bottom:8px">News Agent Monitor</h2>
+<div id="login-overlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.95);backdrop-filter:blur(8px);z-index:300;justify-content:center;align-items:center">
+  <div style="background:var(--card);border:1px solid var(--border-light);border-radius:var(--radius-lg);padding:36px;max-width:380px;width:90%;text-align:center;box-shadow:var(--shadow-lg);animation:fadeSlideIn 0.3s ease">
+    <div style="font-size:32px;margin-bottom:8px">&#59140;</div>
+    <h2 style="background:linear-gradient(135deg, var(--accent), #818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:8px;font-size:19px;font-weight:700">News Agent Monitor</h2>
     <p style="color:var(--muted);font-size:13px;margin-bottom:20px">请输入访问密钥</p>
     <input id="login-token" type="password" placeholder="Access Token" onkeydown="if(event.key==='Enter')doLogin()"
-      style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;font-size:14px;margin-bottom:12px;box-sizing:border-box">
-    <button onclick="doLogin()" style="width:100%;background:var(--accent);border:none;color:var(--bg);padding:10px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600">确认</button>
+      style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:var(--radius-sm);font-size:14px;margin-bottom:14px;box-sizing:border-box;outline:none;transition:all var(--transition)">
+    <button onclick="doLogin()" style="width:100%;background:linear-gradient(135deg, var(--accent), #2dd4bf);border:none;color:var(--bg);padding:11px;border-radius:var(--radius-sm);cursor:pointer;font-size:14px;font-weight:600">确认</button>
     <div id="login-error" style="color:var(--red);font-size:12px;margin-top:10px;display:none">密钥错误，请重试</div>
   </div>
 </div>
@@ -576,7 +657,7 @@ async function loadItems(page) {
         <td><span class="tag">${it.tag||'-'}</span></td>
         <td style="color:var(--muted)">${it.site_name||'-'}</td>
         <td style="color:var(--muted)">${(it.snapshot_time||'').slice(0,19)}</td>
-        <td><button onclick="fetchSummary(this, '${it.url.replace(/'/g, "\\'")}', '${(it.title||'').replace(/'/g, "\\'")}')" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">查看摘要</button></td>
+        <td><button onclick="fetchSummary(this, '${it.url.replace(/'/g, "\\'")}', '${(it.title||'').replace(/'/g, "\\'")}')" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:500">查看摘要</button></td>
       </tr>`).join('')
     : '<tr><td colspan="5" style="color:var(--muted)">No items found.</td></tr>';
 
@@ -588,11 +669,11 @@ function renderPagination() {
   const el = document.getElementById('pagination');
   if (totalPages <= 1) { el.innerHTML = ''; return; }
   let html = '';
-  html += `<button onclick="loadItems(0)" ${itemsPage===0?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">&laquo; First</button>`;
-  html += `<button onclick="loadItems(${itemsPage-1})" ${itemsPage===0?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">&lsaquo; Prev</button>`;
+  html += `<button onclick="loadItems(0)" ${itemsPage===0?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:5px 12px;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;font-weight:500">&laquo; First</button>`;
+  html += `<button onclick="loadItems(${itemsPage-1})" ${itemsPage===0?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:5px 12px;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;font-weight:500">&lsaquo; Prev</button>`;
   html += `<span style="color:var(--muted);font-size:12px">Page ${itemsPage+1} / ${totalPages} (${itemsTotal} items)</span>`;
-  html += `<button onclick="loadItems(${itemsPage+1})" ${itemsPage>=totalPages-1?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">Next &rsaquo;</button>`;
-  html += `<button onclick="loadItems(${totalPages-1})" ${itemsPage>=totalPages-1?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">Last &raquo;</button>`;
+  html += `<button onclick="loadItems(${itemsPage+1})" ${itemsPage>=totalPages-1?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:5px 12px;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;font-weight:500">Next &rsaquo;</button>`;
+  html += `<button onclick="loadItems(${totalPages-1})" ${itemsPage>=totalPages-1?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:5px 12px;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;font-weight:500">Last &raquo;</button>`;
   el.innerHTML = html;
 }
 
@@ -617,18 +698,18 @@ function showSummaryModal(title, summary) {
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'summary-modal';
-    modal.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:200;justify-content:center;align-items:center';
+    modal.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);backdrop-filter:blur(4px);z-index:200;justify-content:center;align-items:center';
     modal.onclick = function(e) { if (e.target === modal) modal.style.display = 'none'; };
     document.body.appendChild(modal);
   }
   modal.innerHTML = `
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:560px;width:90%;max-height:80vh;overflow-y:auto">
+    <div style="background:var(--card);border:1px solid var(--border-light);border-radius:var(--radius-lg);padding:24px;max-width:560px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:var(--shadow-lg);animation:fadeSlideIn 0.25s ease">
       <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px">
-        <h3 style="color:var(--accent);font-size:15px;margin:0">文章摘要</h3>
-        <button onclick="document.getElementById('summary-modal').style.display='none'" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">&times;</button>
+        <h3 style="color:var(--text);font-size:15px;margin:0;font-weight:600">文章摘要</h3>
+        <button onclick="document.getElementById('summary-modal').style.display='none'" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1;padding:0 4px">&times;</button>
       </div>
       <div style="color:var(--text);font-size:14px;line-height:1.7;margin-bottom:12px">${summary}</div>
-      <div style="color:var(--muted);font-size:12px;border-top:1px solid var(--border);padding-top:8px">${title}</div>
+      <div style="color:var(--muted);font-size:12px;border-top:1px solid var(--border-light);padding-top:10px">${title}</div>
     </div>`;
   modal.style.display = 'flex';
 }
@@ -667,29 +748,29 @@ async function loadTargets() {
 async function refreshAll() {
   const btn = document.getElementById('refresh-all-btn');
   btn.textContent = 'Running...'; btn.disabled = true;
-  btn.style.background = 'var(--muted)';
+  btn.style.opacity = '0.6';
   try {
     await fetch('/api/refresh-all', {method:'POST'});
   } catch(e) {}
   setTimeout(() => {
     btn.textContent = 'Refresh All'; btn.disabled = false;
-    btn.style.background = 'var(--accent)';
+    btn.style.opacity = '1';
   }, 3000);
 }
 
 function renderActionButtons() {
   const el = document.getElementById('action-buttons');
   el.innerHTML = `<button onclick="refreshAll()" id="refresh-all-btn"
-      style="background:var(--accent);border:none;color:var(--bg);padding:5px 16px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">
+      style="background:linear-gradient(135deg, var(--accent), #2dd4bf);border:none;color:var(--bg);padding:6px 18px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:600">
       Refresh All
     </button>` + targetsData.map(t => `
     <button onclick="triggerRun('${t.name}','${t.url}',${t.use_browser})" title="Run ${t.name}"
-      style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px">
+      style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:500">
       Run: ${t.name}
     </button>
   `).join('') + targetsData.map(t => `
     <button onclick="resetSite('${t.name}')" title="Reset ${t.name}"
-      style="background:var(--bg);border:1px solid var(--red);color:var(--red);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px">
+      style="background:var(--bg);border:1px solid rgba(248,113,113,0.3);color:var(--red);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:500">
       Reset: ${t.name}
     </button>
   `).join('');
@@ -783,7 +864,7 @@ async function loadPapers(page) {
         <td><span class="tag">${it.site_name||'-'}</span></td>
         <td style="color:var(--muted);font-size:12px;max-width:360px">${(it.summary||'').slice(0,150)}</td>
         <td style="color:var(--muted);font-size:12px">${(it.snapshot_time||'').slice(0,10)}</td>
-        <td><button onclick="fetchSummary(this, '${(it.url||'').replace(/'/g,"\\'")}', '${(it.title||'').replace(/'/g,"\\'")}')" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">摘要</button></td>
+        <td><button onclick="fetchSummary(this, '${(it.url||'').replace(/'/g,"\\'")}', '${(it.title||'').replace(/'/g,"\\'")}')" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:500">摘要</button></td>
       </tr>`).join('')
     : '<tr><td colspan="5" style="color:var(--muted)">No papers found.</td></tr>';
 
@@ -795,11 +876,11 @@ function renderPapersPagination() {
   const el = document.getElementById('papers-pagination');
   if (totalPages <= 1) { el.innerHTML = ''; return; }
   el.innerHTML = `
-    <button onclick="loadPapers(0)" ${papersPage===0?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">&laquo; First</button>
-    <button onclick="loadPapers(${papersPage-1})" ${papersPage===0?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">&lsaquo; Prev</button>
+    <button onclick="loadPapers(0)" ${papersPage===0?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:5px 12px;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;font-weight:500">&laquo; First</button>
+    <button onclick="loadPapers(${papersPage-1})" ${papersPage===0?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:5px 12px;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;font-weight:500">&lsaquo; Prev</button>
     <span style="color:var(--muted);font-size:12px">Page ${papersPage+1} / ${totalPages} (${papersTotal} items)</span>
-    <button onclick="loadPapers(${papersPage+1})" ${papersPage>=totalPages-1?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">Next &rsaquo;</button>
-    <button onclick="loadPapers(${totalPages-1})" ${papersPage>=totalPages-1?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;cursor:pointer">Last &raquo;</button>`;
+    <button onclick="loadPapers(${papersPage+1})" ${papersPage>=totalPages-1?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:5px 12px;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;font-weight:500">Next &rsaquo;</button>
+    <button onclick="loadPapers(${totalPages-1})" ${papersPage>=totalPages-1?'disabled':''} style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:5px 12px;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;font-weight:500">Last &raquo;</button>`;
 }
 
 // ── Schedule status ─────────────────────────────────────────────────
@@ -819,7 +900,7 @@ function renderPaperActions() {
   const targets = scheduleData.targets || [];
   el.innerHTML = targets.filter(t => t.is_article).map(t => `
     <button onclick="triggerRun('${t.name}','${t.url}',false)" title="Run ${t.name}"
-      style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px">
+      style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:500">
       Fetch: ${t.name}
     </button>
   `).join('');
@@ -890,10 +971,10 @@ async function sendChat() {
                 if (!thinkingCard) {
                   thinkingCard = document.createElement('div');
                   thinkingCard.style.cssText =
-                    'padding:8px 14px;margin:4px 0;border-radius:10px;' +
-                    'background:rgba(56,189,248,0.06);border-left:3px solid var(--accent);' +
+                    'padding:10px 16px;margin:2px 0;border-radius:var(--radius);' +
+                    'background:var(--accent-soft);border-left:3px solid var(--accent);' +
                     'font-size:12px;color:var(--muted);align-self:flex-start;max-width:85%;' +
-                    'transition:opacity 0.5s';
+                    'transition:opacity 0.5s;animation:fadeSlideIn 0.25s ease';
                   container.appendChild(thinkingCard);
                 }
                 thinkingCard.textContent = parsed.text;
@@ -901,8 +982,8 @@ async function sendChat() {
               } else if (event === 'tool_call') {
                 const chip = document.createElement('span');
                 chip.style.cssText =
-                  'display:inline-block;padding:2px 8px;margin:0 2px;' +
-                  'background:rgba(56,189,248,0.12);border-radius:4px;font-size:11px;color:var(--accent)';
+                  'display:inline-block;padding:3px 10px;margin:0 3px;' +
+                  'background:var(--accent-soft);border-radius:12px;font-size:11px;color:var(--accent);font-weight:500';
                 chip.textContent = parsed.tool;
                 chip.dataset.tool = parsed.tool;
                 traceEl.appendChild(chip);
@@ -953,7 +1034,7 @@ async function sendChat() {
 function appendChatMessage(role, content) {
   const container = document.getElementById('chat-messages');
   const placeholder = container.querySelector('div:first-child');
-  if (placeholder && placeholder.style.color === 'var(--muted)') {
+  if (placeholder && placeholder.querySelector('div[style*="pulse"]')) {
     placeholder.remove();
   }
 
@@ -963,14 +1044,15 @@ function appendChatMessage(role, content) {
     'display:flex', 'flex-direction:column',
     `align-items:${isUser ? 'flex-end' : 'flex-start'}`,
     `align-self:${isUser ? 'flex-end' : 'flex-start'}`,
-    'max-width:80%'
+    'max-width:82%', 'animation: fadeSlideIn 0.25s ease'
   ].join(';');
   bubble.innerHTML =
-    `<div style="font-size:11px;color:var(--muted);margin-bottom:2px">${isUser ? 'You' : 'AI 助手'}</div>` +
-    `<div style="padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.6;` +
-      `background:${isUser ? 'var(--accent)' : 'var(--bg)'};` +
+    `<div style="font-size:11px;color:var(--muted);margin-bottom:3px;padding:0 4px;font-weight:500">${isUser ? 'You' : 'AI 助手'}</div>` +
+    `<div style="padding:10px 15px;border-radius:${isUser ? '14px 14px 4px 14px' : '14px 14px 14px 4px'};font-size:14px;line-height:1.65;` +
+      `background:${isUser ? 'linear-gradient(135deg, var(--accent), #2dd4bf)' : 'var(--bg)'};` +
       `color:${isUser ? 'var(--bg)' : 'var(--text)'};` +
-      `${isUser ? '' : 'border:1px solid var(--border)'};` +
+      `font-weight:${isUser ? '500' : '400'};` +
+      `${isUser ? '' : 'border:1px solid var(--border-light)'};` +
     `">${content}</div>`;
   container.appendChild(bubble);
   container.scrollTop = container.scrollHeight;
@@ -980,8 +1062,10 @@ function appendChatMessage(role, content) {
 async function clearChat() {
   try { await fetch('/api/chat', {method:'DELETE'}); } catch(e) {}
   document.getElementById('chat-messages').innerHTML =
-    `<div style="color:var(--muted);text-align:center;padding:40px 0">
-      我是监控数据助手，可以帮你查询新闻、统计、搜索文章。<br>试试问："有哪些监控站点？" 或 "最近有哪些科技新闻？"
+    `<div style="color:var(--muted);text-align:center;padding:48px 20px;animation:pulse 2s ease-in-out infinite">
+      <div style="font-size:40px;margin-bottom:12px;opacity:0.6">&#59140;</div>
+      <div style="font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:6px">AI 监控数据助手</div>
+      <div style="font-size:13px;line-height:1.7">可以查询新闻、统计、搜索文章<br>试试问："有哪些监控站点？" 或 "最近有哪些科技新闻？"</div>
     </div>`;
   document.getElementById('chat-tool-trace').innerHTML = '';
   const bar = document.getElementById('chat-context-bar');
