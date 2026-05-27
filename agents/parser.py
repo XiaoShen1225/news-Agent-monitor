@@ -145,6 +145,41 @@ class ParserAgent(BaseAgent):
         )
         return self._build_result(raw_links, confidence)
 
+    # Patterns for extracting publication time from ancestor text
+    _TIME_PATTERNS = [
+        # Absolute: "2026-05-27 14:30", "2026/05/27", "2026年5月27日 09:00"
+        re.compile(
+            r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}[日号]?(?:\s*\d{1,2}:\d{2}(?::\d{2})?)?)"
+        ),
+        # Short: "05-27 14:30", "05/27 14:30"
+        re.compile(r"(\d{2}[-/]\d{2}\s+\d{2}:\d{2})"),
+        # Relative: "5小时前", "3分钟前", "昨天 14:30", "今天 08:15", "刚刚"
+        re.compile(
+            r"((?:\d+\s*(?:小时|分钟|天)前)|(?:[昨天今].*?\d{1,2}:\d{2})|(?:刚刚))"
+        ),
+    ]
+
+    @classmethod
+    def _extract_time_from_ancestors(cls, a_tag, max_depth: int = 5) -> str:
+        """Walk up ancestor elements to find publication time via regex."""
+        ancestor_texts = []
+        el = a_tag.parent
+        depth = 0
+        while el and depth < max_depth:
+            if hasattr(el, "get_text"):
+                text = el.get_text(strip=True)
+                if text and len(text) < 500:  # skip huge containers
+                    ancestor_texts.append(text)
+            el = el.parent
+            depth += 1
+
+        combined = " ".join(ancestor_texts)
+        for pattern in cls._TIME_PATTERNS:
+            m = pattern.search(combined)
+            if m:
+                return m.group(1)
+        return ""
+
     def _extract_candidates(
         self, soup: BeautifulSoup, page_url: str, profile_obj: SiteProfile
     ) -> list[dict]:
@@ -173,15 +208,26 @@ class ParserAgent(BaseAgent):
             seen.add(text)
             full_url = urljoin(page_url, href) if page_url else href
 
-            # Extract time hint from parent container (usually contains both title + timestamp)
-            time_hint = ""
-            parent = a_tag.parent
-            if parent:
-                parent_text = parent.get_text(strip=True)
-                if parent_text and parent_text != text:
-                    time_hint = parent_text[:120]
+            # Extract time from ancestor chain via regex
+            extracted_time = self._extract_time_from_ancestors(a_tag)
 
-            candidates.append({"title": text, "url": full_url, "time_hint": time_hint})
+            # Fallback: broader ancestor text as LLM hint
+            time_hint = extracted_time or ""
+            if not time_hint:
+                parent = a_tag.parent
+                if parent:
+                    parent_text = parent.get_text(strip=True)
+                    if parent_text and parent_text != text:
+                        time_hint = parent_text[:200]
+
+            candidates.append(
+                {
+                    "title": text,
+                    "url": full_url,
+                    "time_hint": time_hint,
+                    "extracted_time": extracted_time,  # guaranteed regex match or ""
+                }
+            )
 
         return candidates
 
@@ -203,8 +249,10 @@ class ParserAgent(BaseAgent):
         lines = []
         for i, c in enumerate(candidates, 1):
             parts = [c["title"]]
-            if c.get("time_hint"):
-                parts.append(f"上下文: {c['time_hint']}")
+            if c.get("extracted_time"):
+                parts.append(f"时间: {c['extracted_time']}")
+            elif c.get("time_hint"):
+                parts.append(f"上下文: {c['time_hint'][:150]}")
             lines.append(f"{i}. {' | '.join(parts)}")
         candidate_text = "\n".join(lines)
 
@@ -267,12 +315,16 @@ class ParserAgent(BaseAgent):
                 continue
             idx = sel.get("index", -1) - 1  # 1-based to 0-based
             if 0 <= idx < len(candidates):
+                # Prefer LLM-extracted time, fall back to regex-extracted time
+                llm_time = sel.get("time") or ""
+                regex_time = candidates[idx].get("extracted_time", "")
+                published = llm_time or regex_time
                 result.append(
                     {
                         "title": candidates[idx]["title"],
                         "url": candidates[idx]["url"],
                         "tag": sel.get("tag", "其他"),
-                        "published": sel.get("time") or "",
+                        "published": published,
                     }
                 )
 
