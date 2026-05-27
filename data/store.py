@@ -521,7 +521,7 @@ class DataStore:
             params.append(date_to)
 
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        query = f"SELECT title, url, tag, summary, snapshot_time, site_name FROM news_items {where} ORDER BY snapshot_time DESC LIMIT ?"
+        query = f"SELECT title, url, tag, summary, snapshot_time, published, site_name FROM news_items {where} ORDER BY snapshot_time DESC LIMIT ?"
         params.append(limit)
 
         with sqlite3.connect(self.db_path) as conn:
@@ -533,7 +533,8 @@ class DataStore:
                 "tag": r[2],
                 "summary": r[3],
                 "snapshot_time": r[4],
-                "site_name": r[5],
+                "published": r[5] or r[4],
+                "site_name": r[6],
             }
             for r in rows
         ]

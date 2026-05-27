@@ -449,7 +449,7 @@ SIGNAL_HALFLIFE_DAYS = 14  # signal weight halves after this many days
 
 MAX_TOOL_ROUNDS = 3
 MAX_HISTORY_TOKENS = (
-    4000  # budget for _history only; system prompt + response use separate budget
+    12000  # budget for _history only; system prompt + response use separate budget
 )
 MIN_EXCHANGES = 1  # always keep at least this many exchanges
 COMPRESSION_THRESHOLD = 0.6  # compress when history exceeds 60% of budget
@@ -905,7 +905,7 @@ class ChatAgent(BaseAgent):
                         lines.append(f"  [{kw}] {t}")
 
                 for it in items[:limit]:
-                    t = it.get("snapshot_time", "")[:10]
+                    t = (it.get("published") or it.get("snapshot_time", ""))[:10]
                     lines.append(
                         f"- [{it.get('tag', '无标签')}] {it.get('title', '无标题')[:60]} ({t})"
                     )
@@ -1028,7 +1028,7 @@ class ChatAgent(BaseAgent):
                 cutoff = datetime.now(timezone.utc) - timedelta(days=days)
                 recent = []
                 for it in items:
-                    ts_str = it.get("snapshot_time", "")
+                    ts_str = it.get("published") or it.get("snapshot_time", "")
                     if ts_str:
                         try:
                             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
@@ -1048,7 +1048,8 @@ class ChatAgent(BaseAgent):
 
                 items_text = "\n".join(
                     f"- [{it.get('tag', '?')}] {it['title'][:80]} "
-                    f"({it.get('site_name', '?')})"
+                    f"({(it.get('published') or it.get('snapshot_time', ''))[:10]}, "
+                    f"{it.get('site_name', '?')})"
                     for it in recent
                 )
                 # Count tags
@@ -1056,12 +1057,14 @@ class ChatAgent(BaseAgent):
 
                 tag_counts = Counter(it.get("tag", "其他") for it in recent)
                 site_counts = Counter(it.get("site_name", "?") for it in recent)
+                top_tags = ", ".join(
+                    f"{k}({v}条)" for k, v in tag_counts.most_common(5)
+                )
                 return (
-                    f"[趋势总结] 最近{days}天，共 {len(recent)} 条内容，"
+                    f"[趋势总结] 最近{days}天共抓取 {len(recent)} 条内容，"
                     f"覆盖 {len(site_counts)} 个站点。"
-                    f"热门标签: {dict(tag_counts.most_common(5))}。"
-                    f"最近条目:\n{items_text}\n\n"
-                    f"请基于以上数据，用2-4句中文向用户总结最近的热点趋势和值得关注的变化。"
+                    f"热门标签: {top_tags}。"
+                    f"以下为最近条目（按时间倒序）：\n{items_text}"
                 )
 
             if name == "set_alert":
