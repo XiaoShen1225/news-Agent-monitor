@@ -648,6 +648,29 @@ class DataStore:
             for r in rows
         ]
 
+    def get_latest_stats(self, site_name: str) -> dict:
+        """Return aggregated stats for a site: total_runs, recent_runs, tag_distribution."""
+        with sqlite3.connect(self.db_path) as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM run_logs WHERE site_name = ?",
+                (site_name,),
+            ).fetchone()[0]
+            recent = conn.execute(
+                "SELECT COUNT(*) FROM run_logs WHERE site_name = ? "
+                "AND created_at > datetime('now', '-7 days')",
+                (site_name,),
+            ).fetchone()[0]
+            meta = conn.execute(
+                "SELECT latest_tag_distribution FROM site_metadata WHERE site_name = ?",
+                (site_name,),
+            ).fetchone()
+        tag_dist = json.loads(meta[0]) if meta and meta[0] else {}
+        return {
+            "total_runs": total or 0,
+            "recent_runs": recent or 0,
+            "tag_distribution": tag_dist,
+        }
+
     def get_all_snapshots(self, site_name: str) -> list:
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(
