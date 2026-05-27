@@ -1681,6 +1681,11 @@ class ChatAgent(BaseAgent):
     def _collect_behavior_signals(self):
         """Extract time-decayed heuristic signals from the latest exchange.
 
+        Collects:
+        - Explicit: tool calls, sites, tags, search topics
+        - Implicit satisfaction: fetch_article after query = deep interest;
+          same tag queried 3+ times = strong signal; empty results = weak signal
+
         Returns "none" | "lite" | "full" to indicate what inference level is due.
         """
         signals = self._preferences.setdefault("signals", {})
@@ -1689,7 +1694,17 @@ class ChatAgent(BaseAgent):
         signals.setdefault("used_tools", {})
         signals.setdefault("searched_topics", [])
         signals.setdefault("fetched_urls", [])
+        signals.setdefault("interest_depth", {})
         signals.setdefault("total_exchanges", 0)
+        satisfaction = signals.setdefault("satisfaction", {})
+        satisfaction.setdefault("articles_read", 0)
+        satisfaction.setdefault("empty_queries", 0)
+        satisfaction.setdefault("keyword_retries", 0)
+
+        # Track query tags and fetch_article across this exchange
+        exchange_query_tags: list[str] = []
+        exchange_fetched: bool = False
+        exchange_had_empty: bool = False
 
         for msg in reversed(self._history):
             if msg["role"] == "user":
@@ -1712,6 +1727,7 @@ class ChatAgent(BaseAgent):
                     tag = tool_args.get("tag")
                     if tag and tool_name == "query_news":
                         self._bump_signal(signals["queried_tags"], tag)
+                        exchange_query_tags.append(tag)
 
                     if tool_name == "search_semantic":
                         query = tool_args.get("query", "")
@@ -1725,6 +1741,35 @@ class ChatAgent(BaseAgent):
                         if url and url not in signals["fetched_urls"]:
                             signals["fetched_urls"].append(url)
                             signals["fetched_urls"] = signals["fetched_urls"][-20:]
+                        exchange_fetched = True
+
+            # Detect empty tool results
+            if msg.get("role") == "tool" and msg.get("content", "").startswith(
+                "[查询结果] 未找到"
+            ):
+                exchange_had_empty = True
+
+        # ── Satisfaction signals ─────────────────────────────────────
+        if exchange_fetched:
+            satisfaction["articles_read"] += 1
+            # Bump interest_depth for tags from the same exchange
+            for tag in exchange_query_tags:
+                depth = signals["interest_depth"].setdefault(tag, 0)
+                signals["interest_depth"][tag] = depth + 1
+
+        if exchange_had_empty:
+            satisfaction["empty_queries"] += 1
+            # If user retried with different keywords after empty result
+            if exchange_query_tags:
+                satisfaction["keyword_retries"] += 1
+
+        # Boost confidence for deep-interest tags (queried 3+ times)
+        for tag, depth in signals["interest_depth"].items():
+            if depth >= 3 and tag not in signals.get("queried_tags", {}):
+                signals["queried_tags"][tag] = {
+                    "count": depth,
+                    "last_ts": self._now_iso(),
+                }
 
         signals["total_exchanges"] += 1
         self._save_preferences()
@@ -1745,24 +1790,42 @@ class ChatAgent(BaseAgent):
         return "none"
 
     def _compute_confidence(self, interest: str) -> float:
-        """Estimate confidence (0–1) for a given interest based on signal consistency."""
+        """Estimate confidence (0–1) combining explicit signals, depth, and consistency."""
         signals = self._preferences.get("signals", {})
+        overrides = self._preferences.get("explicit_overrides", {})
+
+        # Explicit overrides get max confidence
+        if interest in overrides:
+            return overrides[interest].get("confidence", 0.9)
+
+        # Base: query tag frequency
         tags = signals.get("queried_tags", {})
         entry = tags.get(interest, {})
         count = entry.get("count", 0) if isinstance(entry, dict) else entry
-        if count >= 3:
-            return 0.9
-        if count >= 2:
-            return 0.6 + min(0.15, (count - 2) * 0.05)
-        if count >= 1:
-            return 0.3 + min(0.15, count * 0.05)
+
+        # Boost: interest_depth (user read articles from this tag)
+        depth = signals.get("interest_depth", {}).get(interest, 0)
+        effective = count + depth * 1.5  # reading is a stronger signal than querying
+
+        if effective >= 5:
+            return 0.95
+        if effective >= 3:
+            return min(0.9, 0.7 + effective * 0.05)
+        if effective >= 2:
+            return 0.5 + min(0.2, effective * 0.05)
+        if effective >= 1:
+            return 0.3 + min(0.15, effective * 0.05)
         return 0.15
 
     async def _infer_preferences(self, mode: str = "full"):
-        """Use LLM to analyze behavior signals and infer user preferences.
+        """Infer user preferences from behavior signals.
 
-        mode: "lite" — only extract top_interests (fast, low token cost)
-              "full" — full analysis with summary, sources, behavior pattern
+        mode: "lite" — pure statistical (zero LLM cost), compute top_interests
+              "full" — statistical top_interests + LLM for summary text
+
+        Design: structured data (top_interests, preferred_sources, confidence)
+        is computed by statistical rules. LLM is only used in full mode to
+        generate human-readable summary and behavior_pattern text.
         """
         signals = self._preferences.get("signals", {})
         existing = self._preferences.get("inferences", {})
@@ -1772,69 +1835,100 @@ class ChatAgent(BaseAgent):
 
         weighted_tags = _weighted_dict(signals.get("queried_tags", {}))
         weighted_sites = _weighted_dict(signals.get("queried_sites", {}))
-        weighted_tools = _weighted_dict(signals.get("used_tools", {}))
+
+        # ── Statistical computation (shared by lite and full) ──────────
+        # Sort by decayed weight, include explicit likes at top
+        overrides = self._preferences.get("explicit_overrides", {})
+        explicit_likes = {k for k, v in overrides.items() if v.get("action") == "like"}
+
+        sorted_tags = sorted(weighted_tags.items(), key=lambda x: x[1], reverse=True)
+        top_interests = [t for t, w in sorted_tags if w > 0.1]
+        # Explicit likes always appear first
+        for tag in explicit_likes:
+            if tag not in top_interests:
+                top_interests.insert(0, tag)
+        top_interests = top_interests[:5]
+
+        sorted_sites = sorted(weighted_sites.items(), key=lambda x: x[1], reverse=True)
+        preferred_sources = [s for s, w in sorted_sites[:3] if w > 0.1]
+
+        # Compute confidence for each interest
+        interest_confidence = {
+            interest: round(self._compute_confidence(interest), 2)
+            for interest in top_interests
+        }
+
+        # ── Build inferences dict ──────────────────────────────────────
+        inferences = {
+            "inferred_at": self._now_iso(),
+            "based_on_exchanges": signals.get("total_exchanges", 0),
+            "mode": mode,
+            "top_interests": top_interests,
+            "interest_confidence": interest_confidence,
+            "preferred_sources": preferred_sources,
+        }
 
         if mode == "lite":
-            prompt = f"""根据用户行为信号，提取核心兴趣标签（最多5个）。
-查询标签频次（已时间衰减）: {json.dumps(weighted_tags, ensure_ascii=False)}
-查询站点频次（已时间衰减）: {json.dumps(weighted_sites, ensure_ascii=False)}
-请输出 JSON: {{"top_interests": ["兴趣1", "兴趣2", ...]}}"""
-            max_tok = 128
-            system = (
-                "你是用户行为分析专家。输出严格的 JSON，不要额外文字。只提取兴趣标签。"
+            # Lite: pure statistical, zero LLM cost
+            if existing:
+                existing.update(inferences)
+                self._preferences["inferences"] = existing
+            else:
+                self._preferences["inferences"] = inferences
+            self._save_preferences()
+            logger.info(
+                "[ChatAgent] Updated lite preferences (statistical): %s",
+                top_interests,
             )
-        else:
-            overrides = self._preferences.get("explicit_overrides", {})
-            prompt = f"""你是用户偏好分析专家。根据以下用户行为信号，推断用户的核心兴趣和偏好。
+            return
 
-行为信号（已时间衰减）:
-- 查询标签频率: {json.dumps(weighted_tags, ensure_ascii=False)}
-- 查询站点频率: {json.dumps(weighted_sites, ensure_ascii=False)}
-- 工具使用频率: {json.dumps(weighted_tools, ensure_ascii=False)}
-- 语义搜索主题: {json.dumps(signals.get("searched_topics", []), ensure_ascii=False)}
-- 抓取文章数: {len(signals.get("fetched_urls", []))}
+        # ── Full mode: LLM only for text description ──────────────────
+        depth_tags = {k: v for k, v in signals.get("interest_depth", {}).items()}
+        satisfaction = signals.get("satisfaction", {})
+
+        prompt = f"""根据已计算出的结构化偏好，生成一段简洁的用户画像描述。
+
+统计结果:
+- 核心兴趣（按衰减权重排序）: {json.dumps(top_interests, ensure_ascii=False)}
+- 置信度: {json.dumps(interest_confidence, ensure_ascii=False)}
+- 偏好来源: {json.dumps(preferred_sources, ensure_ascii=False)}
+- 显式喜欢: {list(explicit_likes) if explicit_likes else "无"}
+- 搜索主题: {json.dumps(signals.get("searched_topics", [])[-5:], ensure_ascii=False)}
+- 深度关注标签（重复查询≥3次）: {json.dumps(depth_tags, ensure_ascii=False)}
+- 阅读文章数: {satisfaction.get("articles_read", 0)}
 - 总对话轮次: {signals.get("total_exchanges", 0)}
-- 用户显式偏好（最高优先级）: {json.dumps(overrides, ensure_ascii=False) if overrides else "无"}
 
-已有偏好推断: {json.dumps(existing, ensure_ascii=False) if existing else "无"}
-
-请综合以上信号分析用户核心兴趣，输出 JSON：
-{{"summary": "一二句总结用户整体偏好", "top_interests": ["兴趣1", ...], "preferred_sources": ["来源1", ...], "behavior_pattern": "用户行为模式简述"}}"""
-            max_tok = 256
-            system = "你是用户行为分析专家。输出严格的 JSON，不要额外文字。"
+请输出 JSON：
+{{"summary": "用一两句话总结用户整体偏好", "behavior_pattern": "简述用户行为模式（如活跃时间、查询风格、偏好稳定性）"}}"""
 
         try:
             response = await self.call_llm_async(
-                system_prompt=system,
+                system_prompt="你是用户行为分析专家。输出严格的 JSON，不要额外文字。",
                 user_prompt=prompt,
                 temperature=0.1,
-                max_tokens=max_tok,
+                max_tokens=200,
             )
-            inferences = self.parse_json_response(response)
-            if isinstance(inferences, list):
-                inferences = inferences[0] if inferences else {}
-            if isinstance(inferences, dict):
-                inferences["inferred_at"] = self._now_iso()
-                inferences["based_on_exchanges"] = signals.get("total_exchanges", 0)
-                inferences["mode"] = mode
-                if "top_interests" in inferences:
-                    inferences["interest_confidence"] = {
-                        interest: round(self._compute_confidence(interest), 2)
-                        for interest in inferences["top_interests"]
-                    }
-                if mode == "lite" and existing:
-                    existing.update(inferences)
-                    self._preferences["inferences"] = existing
-                else:
-                    self._preferences["inferences"] = inferences
-                self._save_preferences()
-                logger.info(
-                    "[ChatAgent] Updated user preference inferences (%s): %s",
-                    mode,
-                    inferences.get("summary", inferences.get("top_interests", "")),
+            text_inferences = self.parse_json_response(response)
+            if isinstance(text_inferences, list):
+                text_inferences = text_inferences[0] if text_inferences else {}
+            if isinstance(text_inferences, dict):
+                inferences["summary"] = text_inferences.get("summary", "")
+                inferences["behavior_pattern"] = text_inferences.get(
+                    "behavior_pattern", ""
                 )
         except Exception as e:
-            logger.warning("[ChatAgent] Preference inference failed: %s", e)
+            logger.warning("[ChatAgent] Preference LLM summary failed: %s", e)
+            inferences["summary"] = (
+                f"用户主要关注 {', '.join(top_interests[:3])} 相关内容"
+            )
+            inferences["behavior_pattern"] = "偏好分析中"
+
+        self._preferences["inferences"] = inferences
+        self._save_preferences()
+        logger.info(
+            "[ChatAgent] Updated full preferences: %s",
+            inferences.get("summary", ""),
+        )
 
     def _format_preferences(self) -> str:
         """Format preferences for my_preferences tool output."""
