@@ -837,8 +837,9 @@ async def api_chat(request: Request):
     if not message:
         return JSONResponse({"error": "Empty message"}, status_code=400)
 
+    session_id = body.get("session_id") or None
     agent = _get_chat_agent()
-    result = await agent.chat(message)
+    result = await agent.chat(message, session_id=session_id)
     return result
 
 
@@ -856,10 +857,11 @@ async def api_chat_stream(request: Request):
     if not message:
         return JSONResponse({"error": "Empty message"}, status_code=400)
 
+    session_id = body.get("session_id") or None
     agent = _get_chat_agent()
 
     async def event_stream():
-        async for chunk in agent.chat_stream(message):
+        async for chunk in agent.chat_stream(message, session_id=session_id):
             yield chunk
 
     return StreamingResponse(
@@ -873,23 +875,32 @@ async def api_chat_stream(request: Request):
 
 
 @app.get("/api/chat/history")
-async def api_chat_history():
-    """Get current conversation history."""
+async def api_chat_history(session_id: str | None = None):
+    """Get current conversation history for a session."""
     agent = _get_chat_agent()
-    return {"messages": agent._history}
+    agent._activate_session(session_id)
+    return {"messages": list(agent._history), "session_id": session_id}
 
 
 @app.delete("/api/chat")
-async def api_chat_clear():
-    """Clear conversation history."""
-    _get_chat_agent().clear_history()
-    return {"status": "cleared"}
+async def api_chat_clear(session_id: str | None = None):
+    """Clear conversation history for a session."""
+    _get_chat_agent().clear_history(session_id=session_id)
+    return {"status": "cleared", "session_id": session_id}
 
 
 @app.get("/api/chat/context")
-async def api_chat_context():
-    """Get current context usage stats."""
-    return _get_chat_agent().context_stats()
+async def api_chat_context(session_id: str | None = None):
+    """Get current context usage stats for a session."""
+    agent = _get_chat_agent()
+    agent._activate_session(session_id)
+    return agent.context_stats()
+
+
+@app.get("/api/chat/sessions")
+async def api_chat_sessions():
+    """List active chat sessions."""
+    return {"sessions": _get_chat_agent().list_sessions()}
 
 
 # ── WebSocket ──────────────────────────────────────────────────────

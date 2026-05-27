@@ -909,6 +909,20 @@ function renderPaperActions() {
 // ── Chat ─────────────────────────────────────────────────────────────
 let chatAbortController = null;
 
+// Session ID management — persist across page reloads via sessionStorage
+function getSessionId() {
+  let sid = sessionStorage.getItem('chat_session_id');
+  if (!sid) {
+    sid = crypto.randomUUID ? crypto.randomUUID() : 's_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    sessionStorage.setItem('chat_session_id', sid);
+  }
+  return sid;
+}
+
+function setSessionId(sid) {
+  if (sid) sessionStorage.setItem('chat_session_id', sid);
+}
+
 async function sendChat() {
   const input = document.getElementById('chat-input');
   const msg = input.value.trim();
@@ -930,11 +944,13 @@ async function sendChat() {
   if (chatAbortController) chatAbortController.abort();
   chatAbortController = new AbortController();
 
+  const sessionId = getSessionId();
+
   try {
     const res = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({message: msg}),
+      body: JSON.stringify({message: msg, session_id: sessionId}),
       signal: chatAbortController.signal,
     });
 
@@ -1004,6 +1020,7 @@ async function sendChat() {
                 contextText.textContent = parsed.history_tokens + '/' + max + ' tokens (' + (parsed.exchanges || 0) + '轮)';
                 if (pct > 80) contextFill.style.background = '#f59e0b';
               } else if (event === 'done') {
+                if (parsed.session_id) setSessionId(parsed.session_id);
                 traceEl.innerHTML = '';
                 if (thinkingCard) {
                   thinkingCard.style.opacity = '0.3';
@@ -1060,7 +1077,10 @@ function appendChatMessage(role, content) {
 }
 
 async function clearChat() {
-  try { await fetch('/api/chat', {method:'DELETE'}); } catch(e) {}
+  try {
+    const sid = getSessionId();
+    await fetch(`/api/chat?session_id=${encodeURIComponent(sid)}`, {method:'DELETE'});
+  } catch(e) {}
   document.getElementById('chat-messages').innerHTML =
     `<div style="color:var(--muted);text-align:center;padding:48px 20px;animation:pulse 2s ease-in-out infinite">
       <div style="font-size:40px;margin-bottom:12px;opacity:0.6">&#59140;</div>

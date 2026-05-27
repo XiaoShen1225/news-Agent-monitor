@@ -22,6 +22,7 @@ Key design decisions:
 import json
 import logging
 import re
+import uuid
 from pathlib import Path
 
 import httpx
@@ -388,14 +389,81 @@ class ChatAgent(BaseAgent):
         self.paper_store = paper_store
         self.vector_store = vector_store
         self.max_history_tokens = max_history_tokens
-        self._history: list[dict] = []
         self._fetch_client: httpx.AsyncClient | None = None
-        self._total_trimmed = 0  # lifetime counter for observability
-        self._total_compressed = 0
-        self._total_cleaned = 0
         self._preferences: dict = {}
+        # Session support — each session isolates conversation history + stats
+        self._sessions: dict[str, dict] = {}
+        self._current_session_id: str | None = None
+        # Default session (backwards-compat when no session_id provided)
+        self._default_session = self._new_session_data()
         self._load_history()
         self._load_preferences()
+
+    @staticmethod
+    def _new_session_data() -> dict:
+        return {
+            "history": [],
+            "total_trimmed": 0,
+            "total_compressed": 0,
+            "total_cleaned": 0,
+            "created_at": ChatAgent._now_iso(),
+        }
+
+    def _get_session(self, session_id: str | None) -> str:
+        """Resolve session_id; create if new. Returns the session id."""
+        if session_id and session_id in self._sessions:
+            return session_id
+        sid = session_id or str(uuid.uuid4())
+        if sid not in self._sessions:
+            self._sessions[sid] = self._new_session_data()
+            logger.info("[ChatAgent] New session: %s", sid[:8])
+        return sid
+
+    def _activate_session(self, session_id: str | None) -> str:
+        """Set the given session as active; return its id."""
+        sid = self._get_session(session_id)
+        self._current_session_id = sid
+        return sid
+
+    def _active(self) -> dict:
+        """Return the currently active session data dict."""
+        if self._current_session_id and self._current_session_id in self._sessions:
+            return self._sessions[self._current_session_id]
+        return self._default_session
+
+    # ── Properties that delegate to the active session ──────────────
+
+    @property
+    def _history(self) -> list[dict]:
+        return self._active()["history"]
+
+    @_history.setter
+    def _history(self, value):
+        self._active()["history"] = value
+
+    @property
+    def _total_trimmed(self) -> int:
+        return self._active()["total_trimmed"]
+
+    @_total_trimmed.setter
+    def _total_trimmed(self, value):
+        self._active()["total_trimmed"] = value
+
+    @property
+    def _total_compressed(self) -> int:
+        return self._active()["total_compressed"]
+
+    @_total_compressed.setter
+    def _total_compressed(self, value):
+        self._active()["total_compressed"] = value
+
+    @property
+    def _total_cleaned(self) -> int:
+        return self._active()["total_cleaned"]
+
+    @_total_cleaned.setter
+    def _total_cleaned(self, value):
+        self._active()["total_cleaned"] = value
 
     def _get_fetch_client(self) -> httpx.AsyncClient:
         if self._fetch_client is None:
@@ -901,13 +969,14 @@ class ChatAgent(BaseAgent):
 
     # ── chat ──────────────────────────────────────────────────────────
 
-    async def chat(self, user_message: str) -> dict:
+    async def chat(self, user_message: str, session_id: str | None = None) -> dict:
         """Process a user message and return assistant reply with tool call trace.
 
         Persists ALL messages (including tool_calls and tool results) to
         ``_history`` so the LLM retains full context across turns.  Trims
         oldest exchanges when the token budget is exceeded.
         """
+        sid = self._activate_session(session_id)
         rejection = self._validate_input(user_message)
         if rejection:
             self._history.append({"role": "assistant", "content": rejection})
@@ -918,6 +987,7 @@ class ChatAgent(BaseAgent):
                 "context": self.context_stats(),
                 "context_trimmed": 0,
                 "rejected": True,
+                "session_id": sid,
             }
 
         self._history.append({"role": "user", "content": user_message})
@@ -1023,6 +1093,7 @@ class ChatAgent(BaseAgent):
                 "tool_calls": tool_calls_log,
                 "context": self.context_stats(),
                 "context_trimmed": trimmed,
+                "session_id": sid,
             }
 
         # Max rounds exceeded — trim the incomplete tool chain from history
@@ -1035,22 +1106,24 @@ class ChatAgent(BaseAgent):
             "tool_calls": tool_calls_log,
             "context": self.context_stats(),
             "context_trimmed": 0,
+            "session_id": sid,
         }
 
     # ── streaming chat (SSE) ──────────────────────────────────────────
 
-    async def chat_stream(self, user_message: str):
+    async def chat_stream(self, user_message: str, session_id: str | None = None):
         """Async generator yielding SSE events for streaming chat.
 
         Tool-calling rounds use non-streaming (need full JSON to parse tool_calls).
         Final reply tokens are streamed one at a time.
         """
+        sid = self._activate_session(session_id)
         rejection = self._validate_input(user_message)
         if rejection:
             self._history.append({"role": "assistant", "content": rejection})
             self._save_history()
             yield self._sse("token", rejection)
-            yield self._sse("done", {"rejected": True})
+            yield self._sse("done", {"rejected": True, "session_id": sid})
             return
 
         self._history.append({"role": "user", "content": user_message})
@@ -1191,7 +1264,7 @@ class ChatAgent(BaseAgent):
                     "exchanges": ctx["exchanges"],
                 },
             )
-            yield self._sse("done", {"trimmed": trimmed})
+            yield self._sse("done", {"trimmed": trimmed, "session_id": sid})
             return
 
         # Max rounds exceeded
@@ -1200,7 +1273,7 @@ class ChatAgent(BaseAgent):
         self._save_history()
         self._collect_behavior_signals()
         yield self._sse("token", reply)
-        yield self._sse("done", {})
+        yield self._sse("done", {"session_id": sid})
         return
 
     @staticmethod
@@ -1534,10 +1607,32 @@ class ChatAgent(BaseAgent):
 
         return "[偏好分析]\n" + "\n".join(parts)
 
-    def clear_history(self):
+    def clear_history(self, session_id: str | None = None):
+        self._activate_session(session_id)
         self._history.clear()
         self._total_trimmed = 0
         self._total_compressed = 0
         self._total_cleaned = 0
         self._save_history()
-        logger.info("[ChatAgent] History cleared")
+        logger.info(
+            "[ChatAgent] History cleared for session %s", (session_id or "default")[:8]
+        )
+
+    def list_sessions(self) -> list[dict]:
+        """Return active session metadata."""
+        result = []
+        for sid, data in self._sessions.items():
+            msg_count = len(data.get("history", []))
+            exchanges = sum(
+                1 for m in data.get("history", []) if m.get("role") == "user"
+            )
+            result.append(
+                {
+                    "session_id": sid,
+                    "messages": msg_count,
+                    "exchanges": exchanges,
+                    "created_at": data.get("created_at", ""),
+                }
+            )
+        result.sort(key=lambda s: s["created_at"], reverse=True)
+        return result

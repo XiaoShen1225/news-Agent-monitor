@@ -16,7 +16,7 @@
 - **Web 仪表盘**：FastAPI + ECharts 5.5 实时交互图表 + 暗色主题 + 毛玻璃效果，WebSocket 实时推送
 - **分页加载**：News Items 支持分页浏览（30 条/页），避免一次性加载全部数据
 - **仪表盘操作**：Refresh All（一键刷新全部）、Run Now（手动触发抓取）、Reset（重置站点历史）集成到前端
-- **AI 对话助手**：基于 Tool Calling 的智能助手，结构化 System Prompt（身份/工具策略/拒绝规则/输出格式），思考过程实时可见（ReAct 风格）
+- **AI 对话助手**：基于 Tool Calling 的智能助手，多 Session 隔离（独立上下文/偏好），结构化 System Prompt（身份/工具策略/拒绝规则/输出格式），思考过程实时可见（ReAct 风格）
 - **上下文管理**：Token 预算滑动窗口 + Exchange 边界裁剪，参考 ChatGPT/Claude 的混合策略；主动压缩旧对话摘要，工具结果自动清理
 - **Webhook 通知**：钉钉 / 企业微信 / 邮件（SMTP），管道完成后自动推送
 - **自动可视化**：matplotlib 生成 10 种 PNG 图表，6 组时间轮替留存
@@ -245,9 +245,10 @@ Visualization/
 | `POST /api/auth` | 仪表盘 Token 鉴权 |
 | `GET /api/chat/history` | 查看对话历史 |
 | `GET /api/chat/context` | 上下文使用统计（Token 数、Exchange 数） |
+| `GET /api/chat/sessions` | 活跃 Session 列表 |
 | `GET /api/health` | 健康检查（状态、运行时长、scheduler 状态、最后执行时间） |
 | `GET /api/cost?days=7` | Token 用量统计（按站点聚合，支持天数筛选） |
-| `DELETE /api/chat` | 清空对话历史 |
+| `DELETE /api/chat` | 清空对话历史（支持 session_id 参数） |
 | `WS /ws` | WebSocket 实时推送 |
 
 ## 技术栈
