@@ -91,10 +91,11 @@ TOOLS = [
         "function": {
             "name": "query_news",
             "description": (
-                "查询数据库中存储的新闻/论文条目。"
-                "【使用场景】用户询问'最近有什么新闻'、'某类新闻'、'包含某关键词的新闻'时使用。"
-                "【参数提示】site_name限定站点；tag按标签筛选（如科技/财经/国际）；"
-                "keyword用于标题关键词模糊搜索；limit控制返回数量，默认10。"
+                "查询数据库中存储的新闻/论文条目。支持按站点、标签、关键词、时间范围筛选。"
+                "【使用场景】用户询问'最近有什么新闻'、'今天国内有什么大事'、'某类新闻'、'包含某关键词的新闻'时使用。"
+                "【参数提示】site_name限定站点；tag按标签筛选（如科技/财经/国内）；"
+                "keyword用于标题关键词模糊搜索；days为回溯天数（1=今天, 7=一周, 默认不过滤）；limit控制返回数量，默认10。"
+                "【重要】tag是单个字符串（如'国内'），不是数组。用户问'今天的新闻'时传days=1。"
                 "【注意】如果用户想看具体文章内容，应使用 fetch_article 而非此工具。"
             ),
             "parameters": {
@@ -103,17 +104,23 @@ TOOLS = [
                     "site_name": {
                         "type": "string",
                         "enum": VALID_SITES,
-                        "description": "站点名称。不传查询全部。baidu_news（百度新闻）、sina_news（新浪新闻）、deepmind_blog（DeepMind博客）、openai_blog（OpenAI博客）",
+                        "description": "站点名称。不传查询全部",
                     },
                     "tag": {
                         "type": "string",
                         "maxLength": 20,
-                        "description": "标签筛选。新闻站点常见标签：科技, 要闻, 财经, 军事, 娱乐, 国内, 国际, 体育；论文站点固定：AI研究",
+                        "description": "标签筛选（单个标签字符串，如 '国内'、'科技'、'财经'）。新闻站点常见标签：科技, 要闻, 财经, 军事, 娱乐, 国内, 国际, 体育",
                     },
                     "keyword": {
                         "type": "string",
                         "maxLength": 100,
-                        "description": "标题关键词搜索（SQL LIKE模糊匹配），例如 'GPT'、'华为'、'芯片'。适合用户询问特定新闻时使用",
+                        "description": "标题关键词模糊搜索，例如 'GPT'、'华为'、'芯片'",
+                    },
+                    "days": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 30,
+                        "description": "回溯天数。0=今天, 1=今天+昨天, 7=最近一周, 不传则不限时间",
                     },
                     "limit": {
                         "type": "integer",
@@ -834,9 +841,22 @@ class ChatAgent(BaseAgent):
                 tag = args.get("tag")
                 keyword = args.get("keyword")
                 limit = args.get("limit", 10)
+                days = args.get("days")
+                # Compute date_from from days parameter
+                date_from = None
+                if days is not None:
+                    from datetime import datetime, timezone, timedelta
+
+                    date_from = (
+                        datetime.now(timezone.utc) - timedelta(days=days)
+                    ).isoformat()
                 store = self._get_store(site)
                 items = store.query_items(
-                    site_name=site, tag=tag, keyword=keyword, limit=limit
+                    site_name=site,
+                    tag=tag,
+                    keyword=keyword,
+                    limit=limit,
+                    date_from=date_from,
                 )
                 if not items:
                     return (
@@ -1141,6 +1161,25 @@ class ChatAgent(BaseAgent):
                 return (
                     f"[参数提示] 未知站点 '{site}'。"
                     f"有效站点: {', '.join(VALID_SITES)}。已忽略此筛选条件，查询全部站点。"
+                )
+            # Detect hallucinated parameter names
+            known = {"site_name", "tag", "keyword", "days", "limit"}
+            unknown = set(args) - known
+            if unknown:
+                hints = []
+                if "tags" in unknown:
+                    hints.append("tag 是单个字符串（如'国内'），不是数组")
+                if "time_range" in unknown or "date" in unknown:
+                    hints.append("用 days 参数筛选时间（如 days=1 表示今天）")
+                hint_text = (
+                    "；".join(hints)
+                    if hints
+                    else f"未知参数: {', '.join(sorted(unknown))}"
+                )
+                logger.warning(
+                    "[ChatAgent] query_news unknown params %s -> hint: %s",
+                    unknown,
+                    hint_text,
                 )
         if name == "get_stats":
             site = args.get("site_name", "")
