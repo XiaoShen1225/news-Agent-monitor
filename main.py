@@ -310,7 +310,7 @@ def cmd_serve(config: dict, port: int = 8080):
 
 async def _cmd_serve_async(config: dict, port: int):
     import uvicorn
-    from web.app import app, ws_manager, set_runtime_refs, set_scheduler
+    from web.app import app, ws_manager, set_runtime_refs, set_scheduler, set_notifiers
 
     storage = config.get("storage", {})
     news_store = DataStore(
@@ -335,6 +335,7 @@ async def _cmd_serve_async(config: dict, port: int):
         vector_store=vector_store,
     )
     set_runtime_refs(coordinator, config)
+    set_notifiers(notifiers)
 
     targets = config.get("targets", [])
     if not targets:
@@ -441,6 +442,46 @@ async def _cmd_serve_async(config: dict, port: int):
             id=f"monitor_{name}",
             name=f"Monitor {name}",
         )
+
+    # Schedule daily report if enabled
+    auto_cfg = config.get("chat", {}).get("auto_report", {})
+    if auto_cfg.get("enabled"):
+        hour = auto_cfg.get("schedule_hour", 9)
+        minute = auto_cfg.get("schedule_minute", 0)
+        report_sites = auto_cfg.get("include_sites") or [t["name"] for t in targets]
+
+        async def _daily_report_job():
+            from web.app import _get_chat_agent, _notifiers as _nr
+            from notifications.dispatcher import PipelineEvent, notify_all
+
+            agent = _get_chat_agent()
+            result = await agent.generate_daily_report(report_sites)
+            event = PipelineEvent(
+                site_name="all",
+                url="",
+                status="daily_report",
+                items_count=result.get("stats", {}).get("total_items", 0),
+                new_items=0,
+                removed_items=0,
+                modified_items=0,
+                trend_direction="N/A",
+                summary=result.get("report", ""),
+                timestamp=result.get("generated_at", ""),
+            )
+            await notify_all(_nr, event)
+            logger.info(
+                "[DailyReport] Pushed report at %s", result.get("generated_at", "")
+            )
+
+        scheduler.add_job(
+            _daily_report_job,
+            "cron",
+            hour=hour,
+            minute=minute,
+            id="daily_report",
+            name="Daily Report",
+        )
+        logger.info("Daily report scheduled at %02d:%02d", hour, minute)
 
     scheduler.start()
     set_scheduler(scheduler)

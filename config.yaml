@@ -92,3 +92,8 @@ chat:
   preference_lite_interval: 2   # run lightweight inference every N exchanges
   preference_full_interval: 5   # run full inference every N exchanges
   signal_halflife_days: 14      # preference signal weight halves after N days
+  auto_report:
+    enabled: false            # set true to enable daily push reports
+    schedule_hour: 9          # push report at this hour (24h format)
+    schedule_minute: 0        # push report at this minute
+    include_sites: []         # empty = all sites; e.g. ["baidu_news"]

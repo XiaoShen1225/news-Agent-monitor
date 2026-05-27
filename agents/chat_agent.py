@@ -1628,6 +1628,87 @@ class ChatAgent(BaseAgent):
 
         return "[偏好分析]\n" + "\n".join(parts)
 
+    # ── daily report generation ──────────────────────────────────────
+
+    async def generate_daily_report(self, sites: list[str] | None = None) -> dict:
+        """Query recent news and generate an LLM summary report.
+
+        Returns a dict with ``report`` (str) and ``stats`` (dict) suitable
+        for pushing through the notification dispatcher.
+        """
+        now = self._now_iso()
+        store = self.news_store
+        if not store:
+            return {"report": "", "error": "No data store available"}
+
+        all_items = []
+        target_sites = sites or []
+        for site in target_sites:
+            items = store.query_items(site_name=site, limit=20)
+            all_items.extend(items)
+
+        if not all_items:
+            return {
+                "report": f"## 每日新闻简报 ({now[:10]})\n\n暂无新数据。",
+                "stats": {"total_items": 0, "sites": []},
+                "generated_at": now,
+            }
+
+        # Build summary of items by site
+        from collections import Counter
+
+        site_counts = Counter(it["site_name"] for it in all_items)
+        tag_counts = Counter(it.get("tag", "其他") for it in all_items)
+
+        # Prepare a prompt-friendly item list
+        item_lines = []
+        for it in all_items[:30]:
+            item_lines.append(
+                f"- [{it.get('tag', '')}] {it['title'][:80]} "
+                f"({it.get('site_name', '?')})"
+            )
+        items_text = "\n".join(item_lines)
+
+        prompt = (
+            f"今天是 {now[:10]}。以下是过去一段时间监控到的新闻/文章摘要：\n\n"
+            f"站点覆盖: {', '.join(site_counts.keys())}\n"
+            f"标签分布: {dict(tag_counts.most_common(8))}\n\n"
+            f"最近条目:\n{items_text}\n\n"
+            f"请用 3-5 句中文字生成每日简报摘要，"
+            f"突出最重要的变化和新出现的话题，语气简洁专业。"
+        )
+
+        summary = ""
+        try:
+            response = await self.async_client.chat.completions.create(
+                model=self.llm_config.get("model", "glm-4-flash"),
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=512,
+            )
+            summary = response.choices[0].message.content or ""
+        except Exception as e:
+            logger.warning("[ChatAgent] Daily report LLM call failed: %s", e)
+            summary = "（LLM 摘要生成失败，请检查 API 连接）"
+
+        report = (
+            f"## 每日新闻简报 ({now[:10]})\n\n"
+            f"{summary}\n\n"
+            f"**数据概览**: {sum(site_counts.values())} 条新内容，"
+            f"覆盖 {len(site_counts)} 个站点\n"
+            f"**热门标签**: {', '.join(f'{k}({v})' for k, v in tag_counts.most_common(5))}"
+        )
+
+        return {
+            "report": report,
+            "stats": {
+                "total_items": sum(site_counts.values()),
+                "sites": [{"name": k, "count": v} for k, v in site_counts.items()],
+                "tags": dict(tag_counts.most_common(10)),
+            },
+            "generated_at": now,
+        }
+
     def clear_history(self, session_id: str | None = None):
         self._activate_session(session_id)
         self._history.clear()

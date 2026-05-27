@@ -709,6 +709,7 @@ _config = None
 _app_start = datetime.now()
 _last_run_time = None
 _scheduler = None
+_notifiers = []
 
 
 def set_runtime_refs(coordinator, config: dict):
@@ -722,6 +723,12 @@ def set_scheduler(scheduler):
     """Called from main._cmd_serve_async to inject the APScheduler instance."""
     global _scheduler
     _scheduler = scheduler
+
+
+def set_notifiers(notifiers):
+    """Called from main._cmd_serve_async to inject notification channels."""
+    global _notifiers
+    _notifiers = notifiers or []
 
 
 @app.post("/api/trigger-run")
@@ -893,6 +900,56 @@ async def api_chat_context(session_id: str | None = None):
     agent = _get_chat_agent()
     agent._activate_session(session_id)
     return agent.context_stats()
+
+
+# ── Daily Report ──────────────────────────────────────────────────
+
+_report_last_result: dict | None = None
+
+
+@app.post("/api/report/now")
+async def api_report_now():
+    """Trigger a daily report immediately and push via notifications."""
+    global _report_last_result
+    agent = _get_chat_agent()
+    cfg = (_config or {}).get("chat", {}).get("auto_report", {})
+    sites = cfg.get("include_sites") or [
+        t.get("name") for t in (_config or {}).get("targets", [])
+    ]
+    result = await agent.generate_daily_report(sites)
+    _report_last_result = result
+
+    # Push via notification channels
+    from notifications.dispatcher import PipelineEvent, notify_all
+
+    event = PipelineEvent(
+        site_name="all",
+        url="",
+        status="daily_report",
+        items_count=result.get("stats", {}).get("total_items", 0),
+        new_items=0,
+        removed_items=0,
+        modified_items=0,
+        trend_direction="N/A",
+        summary=result.get("report", ""),
+        error=None,
+        timestamp=result.get("generated_at", ""),
+    )
+    await notify_all(_notifiers, event)
+    return {"status": "sent", "report": result}
+
+
+@app.get("/api/report/schedule")
+async def api_report_schedule():
+    """Get daily report schedule configuration."""
+    cfg = (_config or {}).get("chat", {}).get("auto_report", {})
+    return {
+        "enabled": cfg.get("enabled", False),
+        "schedule_hour": cfg.get("schedule_hour", 9),
+        "schedule_minute": cfg.get("schedule_minute", 0),
+        "include_sites": cfg.get("include_sites") or "all",
+        "last_report": _report_last_result,
+    }
 
 
 @app.get("/api/chat/sessions")
