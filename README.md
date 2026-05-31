@@ -13,6 +13,7 @@
 - **AI 更新摘要**：LLM 自动生成每次更新的中文摘要，突出新增内容和变化趋势
 - **智能告警**：关键词自动匹配推送通知、Z-score 异常检测（量级突增/骤降）、中文情感偏移检测，冷却去重
 - **多 Provider LLM 抽象**：可插拔 LLM 提供商（智谱/OpenAI/Claude/本地模型），改配置一键切换，Claude 工具格式自动转换
+- **深度内容分析**：跨站点事件聚合（向量聚类 + LLM 命名）、命名实体识别（PER/ORG/LOC/PROD/EVENT）、事件时间线构建
 - **文章摘要**：点击任意条目可即时获取文章内容摘要
 - **向量语义搜索**：ChromaDB + text2vec-base-chinese 本地嵌入，`/api/search` 端点
 - **Web 仪表盘**：FastAPI + ECharts 5.5 实时交互图表 + 暗色主题 + 毛玻璃效果，WebSocket 实时推送
@@ -33,7 +34,7 @@
 - **结构化日志**：Pipeline 级别 trace_id + JSON 事件日志（pipeline_start/skip/done/error），支持根因分析
 - **健康检查**：`/api/health` 端点，返回服务状态、scheduler 运行状态、最后一次 pipeline 执行时间
 - **Windows 兼容**：信号处理兼容 Windows 平台，schedule 模式可正常 Ctrl+C 退出
-- **208 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
+- **232 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
 - **成本追踪**：Token 用量按站点聚合入库，`/api/cost` 端点查询，支持按天数筛选
 - **LLM 输出评估**：离线评估工具 `eval/judge.py`，faithfulness/relevance 双维度评分
 - **流式输出**：Chat 助手 SSE 流式输出，逐字显示回复，工具调用过程实时可见
@@ -135,6 +136,8 @@ Visualization/
 │   ├── visualizer.py              # matplotlib 10 种图表 + 六组留存策略
 │   ├── coordinator.py             # 流水线编排，集成告警匹配 + 通知 + 向量存储
 │   ├── chat_agent.py              # AI 对话助手（多 Session 隔离 + 结构化 Prompt + Tool Calling + ReAct 思考 + 偏好学习 + Guardrails）
+│   ├── deep_analyzer.py           # 深度分析：跨站事件聚合 + 实体识别 + 时间线构建
+│   ├── clustering.py              # 余弦相似度聚类（Union-Find + VectorStore Embedding）
 │   └── site_profiles.py           # SiteProfile 数据类 + 内置站点配置
 ├── data/
 │   ├── store.py                   # JSON + SQLite + CSV 存储（新闻/论文分离路径）
@@ -158,7 +161,7 @@ Visualization/
 ├── evolution/
 │   ├── memory.py                  # 运行指标记录
 │   └── optimizer.py               # 自进化：Prompt 调优 + 调度频率自适应
-├── tests/                         # 208 个测试
+├── tests/                         # 232 个测试
 │   ├── test_base_agent.py         # LLM JSON 解析容错测试
 │   ├── test_llm_provider.py       # Provider 工厂 + 工具转换测试
 │   ├── test_fetcher.py            # HTML 清洗 + 哈希测试
@@ -167,6 +170,8 @@ Visualization/
 │   ├── test_sentiment.py          # 中文情感分类测试
 │   ├── test_data_store.py         # 快照 CRUD + 查询 + 运行日志
 │   ├── test_alert_store.py        # 告警 CRUD + 冷却 + 匹配测试
+│   ├── test_deep_analyzer.py      # 深度分析 + 事件聚类 + 实体提取 + 时间线
+│   ├── test_clustering.py         # 余弦相似度 + Union-Find 聚类
 │   ├── test_evolution.py          # 调度 + 提示词调优测试
 │   ├── test_chat_agent.py         # ChatAgent 上下文管理 + Token 估算测试
 │   ├── test_notifications.py      # 通知创建 + 事件构建测试
@@ -190,7 +195,7 @@ Visualization/
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                       Coordinator Agent                          │
-│       (编排流水线, 管理调度, 触发通知 + 向量存储)                     │
+│       (编排流水线, 管理调度, 触发通知 + 向量存储 + 深度分析)        │
 └──┬──────┬──────────┬──────────────┬──────────────┬───────────────┘
    │      │          │              │              │
    ▼      ▼          ▼              ▼              ▼
@@ -211,14 +216,23 @@ Visualization/
 ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐
 │    Data Store    │   │   Vector Store   │   │   Alert Store    │
 │ JSON+SQLite+CSV  │   │   ChromaDB       │   │ 关键词 + 冷却     │
-│ (含 sentiment)   │   │ text2vec-chinese │   │ 异常 + 情感偏移   │
+│ events+entities  │   │ text2vec-chinese │   │ 异常 + 情感偏移   │
 └──────────────────┘   └──────────────────┘   └──────────────────┘
           │                       │
           └───────────┬───────────┘
                       ▼
           ┌──────────────────────┐
+          │  Deep Analyzer       │
+          │ 跨站事件聚合 + 聚类   │
+          │ 实体识别 + 时间线     │
+          └──────────────────────┘
+                      │
+                      ▼
+          ┌──────────────────────┐
           │    Web Dashboard     │
           │ FastAPI + WebSocket  │
+          │ /api/events 事件列表 │
+          │ /api/entities 实体榜 │
           │ /api/search 语义搜索 │
           │ /api/chat 对话助手   │
           └──────────────────────┘
@@ -236,8 +250,9 @@ Visualization/
 8. **AlertStore** 关键词匹配 → 冷却检查 → 注入 PipelineEvent
 9. **Visualizer** 生成图表，today/total 每次更新
 10. **通知** → 钉钉/企微/邮件推送（含告警段落）
-11. **Evolution** 指标记录 → 调度频率自适应
-10. **ChatAgent** 通过 Tool Calling 查询数据，上下文窗口自动管理（Token 预算 + Exchange 裁剪）
+11. **DeepAnalyzer** 所有站点完成后 → 跨站事件聚类（Vector Embedding + 余弦相似度）→ LLM 命名 → 实体识别 → 时间线构建
+12. **Evolution** 指标记录 → 调度频率自适应
+13. **ChatAgent** 通过 Tool Calling 查询数据，上下文窗口自动管理（Token 预算 + Exchange 裁剪）
 
 ## API 文档
 
@@ -269,6 +284,10 @@ Visualization/
 | `DELETE /api/chat` | 清空对话历史（支持 session_id 参数） |
 | `POST /api/report/now` | 手动触发每日简报并推送通知 |
 | `GET /api/report/schedule` | 查看简报调度配置 |
+| `GET /api/events` | 跨站事件列表（深度分析） |
+| `GET /api/events/{event_id}` | 事件详情 + 时间线 |
+| `GET /api/entities?type=` | 实体热度榜（可按类型筛选） |
+| `GET /api/entities/{entity_name}` | 实体相关新闻条目 |
 | `WS /ws` | WebSocket 实时推送 |
 
 ## 技术栈
@@ -286,6 +305,6 @@ Visualization/
 | 可视化 | matplotlib（SimHei 中文字体） |
 | 调度 | APScheduler (AsyncIOScheduler) |
 | 通知 | 钉钉 / 企业微信 / SMTP 邮件 |
-| 测试 | pytest（208 tests）+ ruff + pre-commit |
+| 测试 | pytest（232 tests）+ ruff + pre-commit |
 | CI/CD | GitHub Actions |
 | 部署 | Docker + Docker Compose |

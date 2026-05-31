@@ -125,3 +125,11 @@ chat:
     schedule_hour: 9          # push report at this hour (24h format)
     schedule_minute: 0        # push report at this minute
     include_sites: []         # empty = all sites; e.g. ["baidu_news"]
+
+# Deep content analysis — cross-site event aggregation & entity recognition
+deep_analysis:
+  enabled: true
+  cluster_similarity_threshold: 0.75   # cosine similarity threshold for event clustering
+  min_event_items: 2                   # minimum items per event cluster
+  entity_batch_size: 50                # titles per LLM batch for entity extraction
+  timeline_lookback_snapshots: 20      # snapshots to search for timeline construction

@@ -982,6 +982,49 @@ async def api_chat_sessions():
     return {"sessions": _get_chat_agent().list_sessions()}
 
 
+# ── Deep Analysis API ──────────────────────────────────────────────
+
+
+@app.get("/api/events")
+async def api_events(limit: int = Query(20, ge=1, le=100)):
+    """Get recent cross-site event clusters."""
+    store = _get_data_store()
+    events = store.get_events(limit=limit)
+    return {"events": events, "count": len(events)}
+
+
+@app.get("/api/events/{event_id}")
+async def api_event_detail(event_id: str):
+    """Get event detail with timeline items."""
+    store = _get_data_store()
+    event = store.get_event(event_id)
+    if not event:
+        return JSONResponse({"error": "Event not found"}, status_code=404)
+    return event
+
+
+@app.get("/api/entities")
+async def api_entities(
+    limit: int = Query(50, ge=1, le=200),
+    type: str | None = Query(None),
+):
+    """Get entity leaderboard, optionally filtered by type (PER/ORG/LOC/PROD/EVENT)."""
+    store = _get_data_store()
+    entities = store.get_entities(limit=limit, entity_type=type)
+    return {"entities": entities, "count": len(entities)}
+
+
+@app.get("/api/entities/{entity_name}")
+async def api_entity_detail(
+    entity_name: str,
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Get news items mentioning a specific entity."""
+    store = _get_data_store()
+    items = store.get_entity_items(entity_name, limit=limit)
+    return {"entity_name": entity_name, "items": items, "count": len(items)}
+
+
 # ── WebSocket ──────────────────────────────────────────────────────
 
 

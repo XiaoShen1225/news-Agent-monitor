@@ -16,6 +16,18 @@ from .site_profiles import SiteProfile, get_profile
 from data.alert_store import AlertStore
 from notifications.dispatcher import build_event, notify_all
 
+_deep_analyzer = None
+
+
+def _get_deep_analyzer():
+    """Lazy-import DeepAnalyzer to avoid circular import at module level."""
+    global _deep_analyzer
+    if _deep_analyzer is None:
+        from .deep_analyzer import DeepAnalyzer
+
+    return DeepAnalyzer
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -411,4 +423,57 @@ class CoordinatorAgent(BaseAgent):
             )
 
         logger.info("[Coordinator] Running %d targets concurrently", len(tasks))
-        return await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Phase 3: Deep cross-site analysis
+        deep_cfg = self.config.get("deep_analysis", {}) or {}
+        if deep_cfg.get("enabled", True) and len(targets) >= 1:
+            try:
+                await self._run_deep_analysis(results)
+            except Exception as e:
+                logger.warning("[Coordinator] Deep analysis failed: %s", e)
+
+        return results
+
+    async def _run_deep_analysis(self, results: list):
+        """Run cross-site event clustering and entity extraction."""
+        # Collect all new_items from successful results
+        all_new_items = []
+        for result in results:
+            if isinstance(result, Exception):
+                continue
+            if not isinstance(result, dict):
+                continue
+            report = result.get("report", {}) or {}
+            new_items = report.get("new_items", [])
+            site_name = result.get("site_name", "")
+            for it in new_items:
+                if "site_name" not in it:
+                    it["site_name"] = site_name
+            all_new_items.extend(new_items)
+
+        if len(all_new_items) < 2:
+            logger.info(
+                "[Coordinator] Not enough new items for deep analysis (%d)",
+                len(all_new_items),
+            )
+            return
+
+        logger.info(
+            "[Coordinator] Starting deep analysis on %d new items across sites",
+            len(all_new_items),
+        )
+
+        DeepAnalyzerCls = _get_deep_analyzer()
+        deep = DeepAnalyzerCls(self.config)
+        try:
+            deep_result = await deep.run_async(
+                all_new_items, self.vector_store, self.store
+            )
+            logger.info(
+                "[Coordinator] Deep analysis complete: %d events, %d entities",
+                deep_result.get("event_count", 0),
+                deep_result.get("entity_count", 0),
+            )
+        finally:
+            await deep.aclose()
