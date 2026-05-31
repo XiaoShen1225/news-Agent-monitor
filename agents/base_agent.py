@@ -1,23 +1,14 @@
-"""Base agent with Zhipu AI (glm-4-flash) LLM integration — sync + async."""
+"""Base agent with pluggable LLM provider — sync + async."""
 
 import asyncio
 import json
 import logging
 import re
 
-import httpx
-from openai import AsyncOpenAI, OpenAI
+from .provider_factory import create_provider
+from .llm_provider import LLMProvider
 
 logger = logging.getLogger(__name__)
-
-
-def _make_http_client() -> httpx.AsyncClient:
-    """Create an httpx client with safe defaults for LLM API calls."""
-    return httpx.AsyncClient(
-        timeout=30.0,
-        trust_env=False,
-        limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
-    )
 
 
 class BaseAgent:
@@ -26,46 +17,26 @@ class BaseAgent:
         self.config = config
         self.llm_config = config.get("llm", {})
         self.max_retries = self.llm_config.get("max_retries", 3)
-        self._client: OpenAI | None = None
-        self._async_client: AsyncOpenAI | None = None
-        self._http_client: httpx.AsyncClient | None = None
         self._last_tokens = 0
+        self._provider: LLMProvider | None = None
+
+    # ── provider (lazy init) ────────────────────────────────────────────
+
+    @property
+    def provider(self) -> LLMProvider:
+        if self._provider is None:
+            self._provider = create_provider(self.config)
+        return self._provider
 
     def get_last_tokens(self) -> int:
-        """Return total_tokens from the most recent LLM call, or 0 if none."""
         return self._last_tokens
 
-    @property
-    def client(self) -> OpenAI:
-        if self._client is None:
-            self._client = OpenAI(
-                api_key=self.llm_config.get("api_key", ""),
-                base_url=self.llm_config.get(
-                    "base_url", "https://open.bigmodel.cn/api/paas/v4/"
-                ),
-            )
-        return self._client
-
-    @property
-    def async_client(self) -> AsyncOpenAI:
-        if self._async_client is None:
-            self._http_client = _make_http_client()
-            self._async_client = AsyncOpenAI(
-                api_key=self.llm_config.get("api_key", ""),
-                base_url=self.llm_config.get(
-                    "base_url", "https://open.bigmodel.cn/api/paas/v4/"
-                ),
-                http_client=self._http_client,
-            )
-        return self._async_client
-
     async def aclose(self):
-        if self._http_client is not None:
-            await self._http_client.aclose()
-            self._http_client = None
-            self._async_client = None
+        if self._provider is not None:
+            await self._provider.close()
+            self._provider = None
 
-    # ── sync LLM (wraps async) ──────────────────────────────────────
+    # ── sync LLM (wraps async) ──────────────────────────────────────────
 
     def call_llm(
         self,
@@ -87,7 +58,7 @@ class BaseAgent:
             "call_llm (sync) called from async context — use call_llm_async instead"
         )
 
-    # ── async LLM ───────────────────────────────────────────────────
+    # ── async LLM ───────────────────────────────────────────────────────
 
     async def call_llm_async(
         self,
@@ -97,71 +68,41 @@ class BaseAgent:
         max_tokens: int = None,
         fallback: str = ...,
     ) -> str:
+        """Generic async LLM call. Retries handled by provider."""
         if temperature is None:
             temperature = self.llm_config.get("temperature", 0.1)
         if max_tokens is None:
             max_tokens = self.llm_config.get("max_tokens", 2048)
-        model = self.llm_config.get("model", "glm-4-flash")
 
-        last_error = None
-        for attempt in range(self.max_retries):
-            try:
-                logger.info(
-                    "[%s] LLM call attempt %d/%d",
-                    self.name,
-                    attempt + 1,
-                    self.max_retries,
-                )
-                response = await self.async_client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    timeout=30.0,
-                )
-                content = response.choices[0].message.content
-                total_tokens = response.usage.total_tokens if response.usage else 0
-                self._last_tokens = total_tokens
-                logger.info(
-                    "[%s] LLM call successful, tokens: %d",
-                    self.name,
-                    total_tokens,
-                )
-                return content
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
 
-            except Exception as e:
-                last_error = e
-                logger.warning(
-                    "[%s] LLM call failed (attempt %d): %s: %s",
-                    self.name,
-                    attempt + 1,
-                    type(e).__name__,
-                    e,
-                )
-                if attempt < self.max_retries - 1:
-                    wait = 2**attempt
-                    logger.info("[%s] Retrying in %ds...", self.name, wait)
-                    await asyncio.sleep(wait)
-                    # Reset http client on connection errors to force fresh connections
-                    if "onnection" in type(e).__name__ or "onnection" in str(e):
-                        await self.aclose()
-
-        if fallback is not ...:
-            logger.warning(
-                "[%s] LLM call failed after %d attempts, returning fallback.",
-                self.name,
-                self.max_retries,
+        try:
+            result = await self.provider.chat(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=30.0,
             )
-            return fallback
-        raise RuntimeError(
-            f"[{self.name}] LLM call failed after {self.max_retries} attempts: "
-            f"{type(last_error).__name__}: {last_error}"
-        )
+            self._last_tokens = result.total_tokens
+            logger.info(
+                "[%s] LLM call successful, tokens: %d", self.name, result.total_tokens
+            )
+            return result.content
 
-    # ── async streaming LLM ──────────────────────────────────────────
+        except Exception as e:
+            if fallback is not ...:
+                logger.warning(
+                    "[%s] LLM call failed, returning fallback: %s", self.name, e
+                )
+                return fallback
+            raise RuntimeError(
+                f"[{self.name}] LLM call failed: {type(e).__name__}: {e}"
+            )
+
+    # ── async streaming LLM ─────────────────────────────────────────────
 
     async def call_llm_stream(
         self,
@@ -170,38 +111,29 @@ class BaseAgent:
         temperature: float = None,
         max_tokens: int = None,
     ):
-        """Stream LLM response tokens via async generator.
-
-        Yields each delta content string. Does NOT retry (streaming
-        is inherently non-retryable — callers should handle failures).
-        """
+        """Stream LLM response tokens via async generator (no retries)."""
         if temperature is None:
             temperature = self.llm_config.get("temperature", 0.3)
         if max_tokens is None:
             max_tokens = self.llm_config.get("max_tokens", 1024)
-        model = self.llm_config.get("model", "glm-4-flash")
 
-        stream = await self.async_client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        async for event in self.provider.chat_stream(
+            messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
             timeout=60.0,
-            stream=True,
-        )
-        total_tokens = 0
-        async for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta and delta.content:
-                yield delta.content
-            if chunk.usage and chunk.usage.total_tokens:
-                total_tokens = chunk.usage.total_tokens
-        self._last_tokens = total_tokens
+        ):
+            if event.type == "content":
+                yield event.content
+            elif event.type == "done":
+                self._last_tokens = event.total_tokens
 
-    # ── JSON parsing ────────────────────────────────────────────────
+    # ── JSON parsing ────────────────────────────────────────────────────
 
     def parse_json_response(self, response: str) -> list:
         """Extract JSON array from LLM response, with robust error recovery."""

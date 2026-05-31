@@ -1,0 +1,11 @@
+{
+  "config": {
+    "anomaly_enabled": true,
+    "anomaly_zscore": 2.5,
+    "anomaly_baseline": 10,
+    "anomaly_cooldown_minutes": 120,
+    "sentiment_enabled": true,
+    "sentiment_shift_threshold": 0.3,
+    "keyword_cooldown_hours": 24
+  }
+}

@@ -30,4 +30,8 @@ COPY . .
 RUN mkdir -p data/history data/vector_db outputs/charts/{today,yesterday,two_days_ago,one_week_ago,one_month_ago,total} outputs/data
 
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health')"
+
 CMD ["python", "main.py", "--serve", "--port", "8080"]

@@ -11,7 +11,9 @@ from .fetcher import FetcherAgent
 from .parser import ParserAgent
 from .analyzer import AnalyzerAgent
 from .visualizer import VisualizationAgent
+from .sentiment_analyzer import classify
 from .site_profiles import SiteProfile, get_profile
+from data.alert_store import AlertStore
 from notifications.dispatcher import build_event, notify_all
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,8 @@ class CoordinatorAgent(BaseAgent):
         self.evolution = evolution
         self.notifiers = notifiers or []
         self.vector_store = vector_store
+        self.alert_store = AlertStore()
+        self.alert_store.load_config(config)
         self.max_snapshots = config.get("storage", {}).get("max_snapshots_per_site", 0)
 
     # ── sync (wraps async) ──────────────────────────────────────────
@@ -159,6 +163,17 @@ class CoordinatorAgent(BaseAgent):
             items = parse_result["items"]
             confidence = parse_result["extraction_confidence"]
 
+            # Step 3b: Enrich items without published time from article pages
+            items = await self.parser.enrich_times(items)
+            # For browser-based sites, use Playwright to enrich baidu-domain articles
+            if use_browser:
+                items = await self._enrich_times_browser(items)
+
+            # Step 3c: Sentiment labeling (rule-based, no LLM cost)
+            for item in items:
+                if not item.get("sentiment"):
+                    item["sentiment"] = classify(item.get("title", ""))
+
             # Step 4: Analyze
             report = await self.analyzer.run_async(
                 items, site_name, content_hash, store=active_store
@@ -218,6 +233,40 @@ class CoordinatorAgent(BaseAgent):
             result["status"] = "success"
             result["report"] = report
             result["charts"] = chart_result
+
+            # ── Alert matching ────────────────────────────────────────
+            alert_config = self.config.get("alerts", {}) or {}
+            new_items = report.get("new_items", [])
+
+            # Keyword matching
+            alert_matches = self.alert_store.match_items(new_items)
+            result["alert_matches"] = alert_matches
+
+            # Anomaly detection cooldown check
+            anomalies = report.get("anomalies", [])
+            result["anomalies"] = []
+            anomaly_cfg = alert_config.get("anomaly", {})
+            cooldown_min = anomaly_cfg.get("cooldown_minutes", 120)
+            for a in anomalies:
+                if self.alert_store.should_alert_anomaly(
+                    site_name, a["type"], cooldown_min
+                ):
+                    result["anomalies"].append(a)
+                    self.alert_store.log_anomaly_alert(
+                        site_name,
+                        a["type"],
+                        f"{a['type']}: current={a['current_count']}, baseline={a['baseline_avg']}",
+                    )
+
+            # Sentiment shift check
+            sentiment_shift = report.get("sentiment_shift", {}) or {}
+            if sentiment_shift.get("significant"):
+                result["sentiment_shift"] = sentiment_shift
+                self.alert_store.log_sentiment_shift(
+                    site_name, f"情感偏移: {sentiment_shift.get('shifted', {})}"
+                )
+            else:
+                result["sentiment_shift"] = None
 
             elapsed = (time.time() - start_time) * 1000
             total_tokens = (
@@ -290,6 +339,56 @@ class CoordinatorAgent(BaseAgent):
             await notify_all(self.notifiers, build_event(result))
 
         return result
+
+    # ── Article time enrichment via Playwright ─────────────────────────
+
+    async def _enrich_times_browser(self, items: list, max_fetch: int = 15) -> list:
+        """Use Playwright browser to fetch article pages and extract publication times."""
+        import re
+
+        need_enrich = [(i, it) for i, it in enumerate(items) if not it.get("published")]
+        if not need_enrich:
+            return items
+
+        limit = min(len(need_enrich), max_fetch)
+        time_pat = re.compile(
+            r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}[日号]?(?:\s*\d{1,2}:\d{2}(?::\d{2})?)?)"
+        )
+
+        try:
+            from playwright.async_api import async_playwright
+
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
+                enriched = 0
+
+                for _, item in need_enrich[:limit]:
+                    try:
+                        await page.goto(
+                            item["url"],
+                            timeout=15000,
+                            wait_until="domcontentloaded",
+                        )
+                        await page.wait_for_timeout(1000)
+                        text = await page.evaluate("() => document.body.innerText")
+                        m = time_pat.search(text[:5000])
+                        if m:
+                            item["published"] = m.group(1)
+                            enriched += 1
+                    except Exception:
+                        pass
+
+                await browser.close()
+                logger.info(
+                    "[Coordinator] Browser-enriched %d/%d items with times",
+                    enriched,
+                    limit,
+                )
+        except Exception as e:
+            logger.warning("[Coordinator] Browser time enrichment failed: %s", e)
+
+        return items
 
     # ── async multi-target (concurrent) ─────────────────────────────
 

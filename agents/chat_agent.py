@@ -491,12 +491,14 @@ class ChatAgent(BaseAgent):
         news_store=None,
         paper_store=None,
         vector_store=None,
+        alert_store=None,
         max_history_tokens: int | None = None,
     ):
         super().__init__("Chat", config)
         self.news_store = news_store
         self.paper_store = paper_store
         self.vector_store = vector_store
+        self.alert_store = alert_store
         # Read chat settings from config, with module-level constants as fallback
         chat_cfg = config.get("chat", {})
         self.max_history_tokens = max_history_tokens or chat_cfg.get(
@@ -655,14 +657,13 @@ class ChatAgent(BaseAgent):
             "（用户关注的话题、已查询的站点/标签、重要结论）：\n\n" + conversation
         )
         try:
-            response = await self.async_client.chat.completions.create(
-                model=self.llm_config.get("model", "glm-4-flash"),
+            result = await self.provider.chat(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=256,
                 timeout=20.0,
             )
-            return response.choices[0].message.content or ""
+            return result.content or ""
         except Exception as e:
             logger.warning("[ChatAgent] Compression summary failed: %s", e)
             return ""
@@ -819,14 +820,13 @@ class ChatAgent(BaseAgent):
             f"突出关键信息和观点：\n\n{body}"
         )
 
-        response = await self.async_client.chat.completions.create(
-            model=self.llm_config.get("model", "glm-4-flash"),
+        result = await self.provider.chat(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             max_tokens=512,
             timeout=30.0,
         )
-        summary = response.choices[0].message.content or "(摘要生成失败)"
+        summary = result.content or "(摘要生成失败)"
 
         # Cache the summary
         for store in (self.news_store, self.paper_store):
@@ -923,8 +923,12 @@ class ChatAgent(BaseAgent):
                 else:
                     lines = [f"[查询结果] 共找到 {len(items)} 条匹配记录："]
 
-                # Check for alert keyword matches
-                alerts = self._preferences.get("alerts", [])
+                # Check for alert keyword matches (prefer AlertStore, fallback to legacy _preferences)
+                alerts = []
+                if self.alert_store:
+                    alerts = self.alert_store.get_keywords()
+                else:
+                    alerts = self._preferences.get("alerts", [])
                 alert_hits = []
                 if alerts:
                     for it in items[:limit]:
@@ -1102,8 +1106,9 @@ class ChatAgent(BaseAgent):
 
             if name == "set_alert":
                 action = args["action"]
-                alerts = self._preferences.setdefault("alerts", [])
+                store = self.alert_store
                 if action == "list":
+                    alerts = store.get_keywords() if store else []
                     if not alerts:
                         return "[告警] 当前没有设置任何关键词告警。使用 '如果有XX的新闻请告诉我' 来添加。"
                     return "[告警] 当前告警关键词: " + ", ".join(
@@ -1114,19 +1119,16 @@ class ChatAgent(BaseAgent):
                     return (
                         "[告警错误] keyword参数不能为空（add/remove操作需要关键词）。"
                     )
+                if store is None:
+                    return "[告警错误] 告警系统未初始化，请联系管理员。"
                 if action == "add":
-                    if any(a["keyword"] == keyword for a in alerts):
-                        return f"[告警] 关键词「{keyword}」已在告警列表中。"
-                    alerts.append({"keyword": keyword, "created_at": self._now_iso()})
-                    self._save_preferences()
-                    return f"[告警] 已添加关键词「{keyword}」。后续查询新闻时会自动检测并提醒。"
+                    r = store.add_keyword(keyword)
+                    return f"[告警] {r['msg']}。"
                 if action == "remove":
-                    before = len(alerts)
-                    alerts[:] = [a for a in alerts if a["keyword"] != keyword]
-                    self._save_preferences()
-                    if len(alerts) < before:
-                        return f"[告警] 已移除关键词「{keyword}」。"
-                    return f"[告警] 未找到关键词「{keyword}」，无需移除。"
+                    r = store.remove_keyword(keyword)
+                    if r["ok"]:
+                        return f"[告警] {r['msg']}。"
+                    return f"[告警] {r['msg']}，无需移除。"
 
             return f"[工具错误] 未知工具: {name}"
 
@@ -1311,42 +1313,30 @@ class ChatAgent(BaseAgent):
         tool_msg_indices: list[int] = []  # track newly appended messages in _history
 
         for _round in range(self.max_tool_rounds + 1):
-            response = await self.async_client.chat.completions.create(
-                model=self.llm_config.get("model", "glm-4-flash"),
+            result = await self.provider.chat(
                 messages=messages,
                 temperature=0.3,
                 max_tokens=1024,
                 tools=TOOLS,
                 timeout=30.0,
             )
-            choice = response.choices[0]
-            msg = choice.message
 
-            if msg.tool_calls:
-                for tc in msg.tool_calls:
-                    fn = tc.function
-                    args = json.loads(fn.arguments) if fn.arguments else {}
-                    result_text = await self._execute_tool(fn.name, args)
+            if result.tool_calls:
+                for tc in result.tool_calls:
+                    fn = tc["function"]
+                    args = json.loads(fn["arguments"]) if fn["arguments"] else {}
+                    result_text = await self._execute_tool(fn["name"], args)
                     tool_calls_log.append(
-                        {"tool": fn.name, "args": args, "result": result_text[:200]}
+                        {"tool": fn["name"], "args": args, "result": result_text[:200]}
                     )
 
                     assistant_msg = {
                         "role": "assistant",
-                        "tool_calls": [
-                            {
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {
-                                    "name": fn.name,
-                                    "arguments": fn.arguments,
-                                },
-                            }
-                        ],
+                        "tool_calls": [tc],
                     }
                     tool_msg = {
                         "role": "tool",
-                        "tool_call_id": tc.id,
+                        "tool_call_id": tc["id"],
                         "content": result_text,
                     }
 
@@ -1359,7 +1349,7 @@ class ChatAgent(BaseAgent):
                 continue  # next tool-calling round
 
             # Final assistant reply (no more tool calls)
-            reply = msg.content or ""
+            reply = result.content or ""
             self._history.append({"role": "assistant", "content": reply})
 
             # Compress old exchanges (preserve info) → clean old tool results (save tokens) → trim (hard budget)
@@ -1448,53 +1438,42 @@ class ChatAgent(BaseAgent):
 
         for _round in range(self.max_tool_rounds + 1):
             # Tool-calling rounds: non-streaming (need full JSON)
-            response = await self.async_client.chat.completions.create(
-                model=self.llm_config.get("model", "glm-4-flash"),
+            result = await self.provider.chat(
                 messages=messages,
                 temperature=0.3,
                 max_tokens=1024,
                 tools=TOOLS,
                 timeout=30.0,
             )
-            choice = response.choices[0]
-            msg = choice.message
 
-            if msg.tool_calls:
+            if result.tool_calls:
                 # Emit thinking event before executing tools
-                thinking = msg.content or ""
+                thinking = result.content or ""
                 if not thinking:
                     names = [
-                        self._tool_name_zh(tc.function.name) for tc in msg.tool_calls
+                        self._tool_name_zh(tc["function"]["name"])
+                        for tc in result.tool_calls
                     ]
                     thinking = "正在" + "、".join(names)
                 yield self._sse("thinking", {"text": thinking, "round": _round + 1})
 
-                for tc in msg.tool_calls:
-                    fn = tc.function
-                    args = json.loads(fn.arguments) if fn.arguments else {}
-                    yield self._sse("tool_call", {"tool": fn.name, "args": args})
-                    result_text = await self._execute_tool(fn.name, args)
+                for tc in result.tool_calls:
+                    fn = tc["function"]
+                    args = json.loads(fn["arguments"]) if fn["arguments"] else {}
+                    yield self._sse("tool_call", {"tool": fn["name"], "args": args})
+                    result_text = await self._execute_tool(fn["name"], args)
                     tool_calls_log.append(
-                        {"tool": fn.name, "args": args, "result": result_text[:200]}
+                        {"tool": fn["name"], "args": args, "result": result_text[:200]}
                     )
                     yield self._sse("tool_result", {"result": result_text[:200]})
 
                     assistant_msg = {
                         "role": "assistant",
-                        "tool_calls": [
-                            {
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {
-                                    "name": fn.name,
-                                    "arguments": fn.arguments,
-                                },
-                            }
-                        ],
+                        "tool_calls": [tc],
                     }
                     tool_msg = {
                         "role": "tool",
-                        "tool_call_id": tc.id,
+                        "tool_call_id": tc["id"],
                         "content": result_text,
                     }
                     messages.append(assistant_msg)
@@ -1505,27 +1484,19 @@ class ChatAgent(BaseAgent):
 
             # Final reply: streaming
             yield self._sse("status", "正在生成回复...")
-            model = self.llm_config.get("model", "glm-4-flash")
 
-            # Build messages with just the system prompt + history for streaming
             reply_parts = []
-            stream = await self.async_client.chat.completions.create(
-                model=model,
+            async for event in self.provider.chat_stream(
                 messages=messages,
                 temperature=0.3,
                 max_tokens=1024,
                 timeout=30.0,
-                stream=True,
-            )
-            total_tokens = 0
-            async for chunk in stream:
-                delta = chunk.choices[0].delta if chunk.choices else None
-                if delta and delta.content:
-                    reply_parts.append(delta.content)
-                    yield self._sse("token", delta.content)
-                if chunk.usage and chunk.usage.total_tokens:
-                    total_tokens = chunk.usage.total_tokens
-            self._last_tokens = total_tokens
+            ):
+                if event.type == "content":
+                    reply_parts.append(event.content)
+                    yield self._sse("token", event.content)
+                elif event.type == "done":
+                    self._last_tokens = event.total_tokens
 
             reply = "".join(reply_parts)
             self._history.append({"role": "assistant", "content": reply})
@@ -2041,13 +2012,12 @@ class ChatAgent(BaseAgent):
 
         summary = ""
         try:
-            response = await self.async_client.chat.completions.create(
-                model=self.llm_config.get("model", "glm-4-flash"),
+            result = await self.provider.chat(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=512,
             )
-            summary = response.choices[0].message.content or ""
+            summary = result.content or ""
         except Exception as e:
             logger.warning("[ChatAgent] Daily report LLM call failed: %s", e)
             summary = "（LLM 摘要生成失败，请检查 API 连接）"

@@ -1,8 +1,9 @@
-"""AnalyzerAgent: compare snapshots, detect changes, compute trends, generate update summary."""
+"""AnalyzerAgent: compare snapshots, detect changes, compute trends, detect anomalies, sentiment shift."""
 
 import asyncio
 import difflib
 import logging
+import statistics
 from datetime import datetime
 
 from .base_agent import BaseAgent
@@ -61,6 +62,12 @@ class AnalyzerAgent(BaseAgent):
 
         trends = self._compute_trends(site_name, current_items, _store)
 
+        sentiment_dist = self._compute_sentiment_distribution(current_items)
+        sentiment_shift = self._compute_sentiment_shift(
+            site_name, sentiment_dist, _store
+        )
+        anomalies = self._detect_anomalies(site_name, current_items, _store)
+
         report = {
             "site_name": site_name,
             "timestamp": datetime.now().isoformat(),
@@ -75,7 +82,9 @@ class AnalyzerAgent(BaseAgent):
             "is_first_run": not previous,
             "tag_distribution": self._tag_distribution(current_items),
             "trends": trends,
-            "sentiment_distribution": {},  # deprecated, kept for compatibility
+            "sentiment_distribution": sentiment_dist,
+            "sentiment_shift": sentiment_shift,
+            "anomalies": anomalies,
         }
 
         report["update_summary"] = await self._generate_update_summary_async(report)
@@ -248,3 +257,112 @@ class AnalyzerAgent(BaseAgent):
             "recent_average": round(recent_avg, 1),
             "older_average": round(older_avg, 1),
         }
+
+    # ── anomaly detection ──────────────────────────────────────────────
+
+    def _detect_anomalies(
+        self, site_name: str, current_items: list, store=None
+    ) -> list[dict]:
+        """Detect volume spikes/drops using Z-score against recent snapshots."""
+        _store = store or self.store
+        if not _store:
+            return []
+        snapshots = _store.get_all_snapshots(site_name)
+        if len(snapshots) < 5:
+            return []
+
+        counts = [
+            s["items_count"] for s in snapshots[-11:-1]
+        ]  # last 10, excluding current
+        if len(counts) < 5:
+            return []
+
+        current_count = len(current_items)
+        mean = statistics.mean(counts)
+        stdev = statistics.stdev(counts) if len(counts) >= 2 else 0
+
+        anomalies = []
+        if stdev > 0:
+            zscore = (current_count - mean) / stdev
+            if zscore > 2.5:
+                anomalies.append(
+                    {
+                        "type": "volume_spike",
+                        "severity": round(min(zscore / 5.0, 1.0), 2),
+                        "current_count": current_count,
+                        "baseline_avg": round(mean, 1),
+                        "zscore": round(zscore, 2),
+                    }
+                )
+            elif zscore < -2.0 and current_count < 3:
+                anomalies.append(
+                    {
+                        "type": "volume_drop",
+                        "severity": round(min(abs(zscore) / 5.0, 1.0), 2),
+                        "current_count": current_count,
+                        "baseline_avg": round(mean, 1),
+                        "zscore": round(zscore, 2),
+                    }
+                )
+
+        if anomalies:
+            logger.info(
+                "[Analyzer] Anomalies detected for %s: %s", site_name, anomalies
+            )
+        return anomalies
+
+    # ── sentiment analysis ──────────────────────────────────────────────
+
+    def _compute_sentiment_distribution(self, items: list) -> dict:
+        """Count positive/negative/neutral items based on item.sentiment field."""
+        dist = {"positive": 0, "negative": 0, "neutral": 0}
+        for item in items:
+            s = item.get("sentiment", "") or ""
+            dist[s] = dist.get(s, 0) + 1 if s in dist else dist.get("neutral", 0) + 1
+        total = len(items) or 1
+        return {
+            "positive": dist["positive"],
+            "negative": dist["negative"],
+            "neutral": dist["neutral"],
+            "positive_pct": round(dist["positive"] / total, 2),
+            "negative_pct": round(dist["negative"] / total, 2),
+            "neutral_pct": round(dist["neutral"] / total, 2),
+        }
+
+    def _compute_sentiment_shift(
+        self, site_name: str, current_dist: dict, store=None
+    ) -> dict | None:
+        """Compare current sentiment distribution with previous snapshot."""
+        _store = store or self.store
+        if not _store or not current_dist:
+            return None
+        prev = _store.get_last_snapshot(site_name)
+        if not prev or not prev.get("items"):
+            return None
+
+        prev_items = prev["items"]
+        prev_dist = {"positive": 0, "negative": 0, "neutral": 0}
+        for item in prev_items:
+            s = item.get("sentiment", "") or ""
+            prev_dist[s] = (
+                prev_dist.get(s, 0) + 1
+                if s in prev_dist
+                else prev_dist.get("neutral", 0) + 1
+            )
+        prev_total = len(prev_items) or 1
+
+        shift = {}
+        for key in ("positive", "negative"):
+            curr_pct = current_dist.get(f"{key}_pct", 0)
+            prev_pct = prev_dist[key] / prev_total
+            delta = curr_pct - prev_pct
+            if abs(delta) > 0.3:
+                shift[key] = {
+                    "from": round(prev_pct, 2),
+                    "to": round(curr_pct, 2),
+                    "delta": round(delta, 2),
+                }
+
+        if shift:
+            return {"shifted": shift, "significant": True}
+        return {"shifted": {}, "significant": False}

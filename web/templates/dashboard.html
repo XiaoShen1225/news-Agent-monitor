@@ -78,6 +78,35 @@
     border-radius: var(--radius); padding: 16px 12px; text-align: center;
     transition: all var(--transition); }
   .stat:hover { border-color: var(--accent); box-shadow: 0 0 20px rgba(56,189,248,0.08); }
+
+  .site-health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px; margin-top: 14px; }
+  .health-card { background: var(--bg); border: 1px solid var(--border-light);
+    border-radius: var(--radius); padding: 14px 16px;
+    transition: all var(--transition); position: relative; overflow: hidden; }
+  .health-card::before { content: ''; position: absolute; top: 0; left: 0; width: 3px;
+    height: 100%; border-radius: 3px 0 0 3px; transition: background var(--transition); }
+  .health-card.ok::before { background: var(--green); }
+  .health-card.error::before { background: var(--red); }
+  .health-card.warn::before { background: var(--orange); }
+  .health-card.idle::before { background: var(--muted); }
+  .health-card:hover { border-color: var(--border); box-shadow: var(--shadow); }
+  .health-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .health-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .health-dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .health-dot.error { background: var(--red); box-shadow: 0 0 6px var(--red);
+    animation: pulse 1.5s ease-in-out infinite; }
+  .health-dot.warn { background: var(--orange); box-shadow: 0 0 6px var(--orange); }
+  .health-dot.idle { background: var(--muted); }
+  .health-card-header .name { font-size: 13px; font-weight: 600; color: var(--text); }
+  .health-card-header .status { font-size: 11px; color: var(--muted); margin-left: auto; }
+  .health-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+  .health-metric { font-size: 11px; color: var(--muted); }
+  .health-metric span { color: var(--text-secondary); font-weight: 500; }
+  .health-error-msg { font-size: 11px; color: var(--red); margin-top: 8px; padding: 6px 8px;
+    background: var(--red-soft); border-radius: 4px; max-height: 40px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; cursor: default; }
+  .health-error-msg:hover { max-height: none; white-space: normal; }
   .stat .val { font-size: 26px; font-weight: 700; color: var(--accent);
     letter-spacing: -0.5px; line-height: 1.2; }
   .stat .lbl { font-size: 11px; color: var(--muted); margin-top: 6px; font-weight: 500;
@@ -197,6 +226,26 @@
       <div class="stat"><div class="val">--</div><div class="lbl">Items Collected</div></div>
       <div class="stat"><div class="val">--</div><div class="lbl">Sites</div></div>
       <div class="stat"><div class="val">--</div><div class="lbl">Last Run</div></div>
+    </div>
+  </section>
+
+  <!-- Site Health Cards -->
+  <section class="card full" id="site-health-section">
+    <h2>Site Health</h2>
+    <div class="site-health-grid" id="site-health-grid">
+      <div class="health-card idle">
+        <div class="health-card-header">
+          <div class="health-dot idle"></div>
+          <span class="name">Loading...</span>
+          <span class="status">--</span>
+        </div>
+        <div class="health-metrics">
+          <div class="health-metric">Last run: <span>--</span></div>
+          <div class="health-metric">Items: <span>--</span></div>
+          <div class="health-metric">Snapshot: <span>--</span></div>
+          <div class="health-metric">Failures: <span>0</span></div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -1143,17 +1192,68 @@ async function clearChat() {
   if (bar) bar.style.display = 'none';
 }
 
+// ── Site Health Cards ──────────────────────────────────────────────
+function loadSiteHealth() {
+  fetch('/api/stats').then(r => r.json()).then(data => {
+    const health = data.site_health || {};
+    const sites = data.sites || [];
+    const grid = document.getElementById('site-health-grid');
+    if (!sites.length) {
+      grid.innerHTML = '<div class="health-card idle"><div class="health-card-header"><span class="name">No sites configured</span></div></div>';
+      return;
+    }
+    grid.innerHTML = sites.map(s => {
+      const h = health[s] || {};
+      const status = h.last_run_status || 'never';
+      let cls, dotCls, label;
+      if (h.circuit_open) {
+        cls = 'warn'; dotCls = 'warn'; label = 'Circuit Open';
+      } else if (status === 'success') {
+        cls = 'ok'; dotCls = 'ok'; label = 'Healthy';
+      } else if (status === 'error') {
+        cls = 'error'; dotCls = 'error'; label = 'Error';
+      } else if (status === 'skipped_no_change') {
+        cls = 'ok'; dotCls = 'ok'; label = 'No Change';
+      } else {
+        cls = 'idle'; dotCls = 'idle'; label = 'Pending';
+      }
+      const runTime = h.last_run_time ? h.last_run_time.slice(0, 19) : '--';
+      const snapTime = h.last_snapshot_time ? h.last_snapshot_time.slice(0, 19) : '--';
+      const items = h.last_run_items || 0;
+      const snapItems = h.last_snapshot_items || 0;
+      const failures = h.consecutive_failures || 0;
+      const errMsg = h.error_message || '';
+      return `<div class="health-card ${cls}">
+        <div class="health-card-header">
+          <div class="health-dot ${dotCls}"></div>
+          <span class="name">${s}</span>
+          <span class="status">${label}</span>
+        </div>
+        <div class="health-metrics">
+          <div class="health-metric">Last run: <span>${runTime}</span></div>
+          <div class="health-metric">Items found: <span>${items}</span></div>
+          <div class="health-metric">Snapshot: <span>${snapTime}</span></div>
+          <div class="health-metric">Snap items: <span>${snapItems}</span></div>
+        </div>
+        ${failures > 0 ? `<div class="health-metric" style="grid-column:1/-1;margin-top:4px">Consecutive failures: <span style="color:var(--orange)">${failures}</span></div>` : ''}
+        ${errMsg ? `<div class="health-error-msg" title="${errMsg.replace(/"/g, '&quot;')}">${errMsg}</div>` : ''}
+      </div>`;
+    }).join('');
+  }).catch(() => {});
+}
+
 // ── Init ───────────────────────────────────────────────────────────
 checkAuth();
 initECharts();
 loadChartData();
 loadStats();
+loadSiteHealth();
 loadCharts();
 loadTags();
 loadItems(0);
 loadRuns();
 loadTargets();
-setInterval(() => { loadStats(); loadCharts(); loadItems(itemsPage); loadRuns(); }, 60000);
+setInterval(() => { loadStats(); loadSiteHealth(); loadCharts(); loadItems(itemsPage); loadRuns(); }, 60000);
 </script>
 </body>
 </html>

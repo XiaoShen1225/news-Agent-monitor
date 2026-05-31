@@ -17,6 +17,9 @@ class PipelineEvent:
     summary: str | None
     error: str | None
     timestamp: str
+    alert_matches: list | None = None  # keyword alert matches
+    anomalies: list | None = None  # volume spike/drop detections
+    sentiment_shift: dict | None = None  # sentiment distribution shift
 
 
 class BaseNotifier(ABC):
@@ -28,7 +31,7 @@ class BaseNotifier(ABC):
         ...
 
     def _format_message(self, event: PipelineEvent) -> str:
-        """Build a human-readable notification message."""
+        """Build a human-readable notification message with optional alerts."""
         status_icon = {"success": "✅", "error": "❌", "skipped_no_change": "○"}
         icon = status_icon.get(event.status, "?")
 
@@ -52,4 +55,44 @@ class BaseNotifier(ABC):
                 lines.append("")
                 lines.append(f"> {event.summary}")
 
+            # ── Alert section ──────────────────────────────────────────
+            alert_lines = self._format_alerts(event)
+            if alert_lines:
+                lines.append("")
+                lines.append("---")
+                lines.append("")
+                lines.extend(alert_lines)
+
         return "\n".join(lines)
+
+    def _format_alerts(self, event: PipelineEvent) -> list[str]:
+        """Build alert-specific message lines. Override in subclasses for custom formatting."""
+        lines = []
+
+        if event.anomalies:
+            lines.append("### ⚠️ 异常告警")
+            for a in event.anomalies:
+                atype = "📈 量级突增" if a["type"] == "volume_spike" else "📉 量级骤降"
+                lines.append(
+                    f"- {atype}: 当前 {a['current_count']} 条, "
+                    f"基线均值 {a['baseline_avg']}, Z-score={a['zscore']}"
+                )
+
+        if event.alert_matches:
+            lines.append("### 🔔 关键词匹配")
+            for m in event.alert_matches:
+                lines.append(f"- [{m['keyword']}] {m['title']}")
+                if m.get("url"):
+                    lines.append(f"  {m['url']}")
+
+        if event.sentiment_shift and event.sentiment_shift.get("significant"):
+            lines.append("### 💬 情感偏移")
+            shifted = event.sentiment_shift.get("shifted", {})
+            for polarity, s in shifted.items():
+                label = "正面" if polarity == "positive" else "负面"
+                direction_text = "上升" if s["delta"] > 0 else "下降"
+                lines.append(
+                    f"- {label}情感{direction_text}: {s['from']:.0%} → {s['to']:.0%} (Δ{s['delta']:+.0%})"
+                )
+
+        return lines

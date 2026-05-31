@@ -80,6 +80,9 @@ def build_event(result: dict) -> PipelineEvent:
         summary=report.get("update_summary"),
         error=result.get("error"),
         timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        alert_matches=result.get("alert_matches") or [],
+        anomalies=result.get("anomalies") or [],
+        sentiment_shift=result.get("sentiment_shift"),
     )
 
 

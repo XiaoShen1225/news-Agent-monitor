@@ -49,12 +49,12 @@ class TestJsonParsing:
 
     def test_empty_raises(self, agent):
         with pytest.raises(ValueError):
-            agent.parse_json_response('not json')
+            agent.parse_json_response("not json")
 
 
 class TestBaseAgentInit:
     def test_client_lazy_init(self, agent):
-        assert agent._client is None
+        assert agent._provider is None
 
     def test_name_and_config(self, agent):
         assert agent.name == "TestAgent"

@@ -2,14 +2,29 @@
 # Data Visualization Course Assignment - Configuration
 # ============================================================
 
-# LLM Configuration (Zhipu AI glm-4-flash, free tokens)
+# LLM Configuration — multi-provider support
+# provider: "zhipu" | "openai" | "claude" | "local"
 llm:
-  api_key: "${ZHIPU_API_KEY}"
-  base_url: "https://open.bigmodel.cn/api/paas/v4/"
+  provider: "zhipu"
   model: "glm-4-flash"
   temperature: 0.1
   max_tokens: 4096
   max_retries: 3
+  providers:
+    zhipu:
+      api_key: "${ZHIPU_API_KEY}"
+      base_url: "https://open.bigmodel.cn/api/paas/v4/"
+    openai:
+      api_key: "${OPENAI_API_KEY}"
+      base_url: "https://api.openai.com/v1"
+      model: "gpt-4o"
+    claude:
+      api_key: "${ANTHROPIC_API_KEY}"
+      model: "claude-sonnet-4-6"
+    local:
+      base_url: "http://localhost:11434/v1"
+      api_key: "ollama"
+      model: "qwen2.5:14b"
 
 # Target websites to monitor
 # Each target maps to a built-in site profile by name.
@@ -54,6 +69,19 @@ storage:
   history_dir: "data/history"
   db_path: "data/monitor.db"
   max_snapshots_per_site: 50
+
+# Alert settings
+alerts:
+  anomaly:
+    enabled: true
+    zscore_threshold: 2.5          # Z-score threshold for volume spike detection
+    baseline_snapshots: 10          # snapshots used as baseline for anomaly calc
+    cooldown_minutes: 120           # cooldown between anomaly alerts per site+type
+  sentiment:
+    enabled: true
+    shift_threshold: 0.3            # minimum % change to trigger sentiment shift alert
+  keyword:
+    cooldown_hours: 24              # cooldown between keyword alert repeats
 
 # Webhook / notification settings (optional)
 # Uncomment and fill in to enable.

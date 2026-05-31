@@ -9,6 +9,7 @@ from collections import Counter
 from pathlib import Path
 from urllib.parse import urljoin
 
+import httpx
 import yaml
 from bs4 import BeautifulSoup, NavigableString
 
@@ -145,7 +146,7 @@ class ParserAgent(BaseAgent):
         )
         return self._build_result(raw_links, confidence)
 
-    # Patterns for extracting publication time from ancestor text
+    # Patterns for extracting publication time from text
     _TIME_PATTERNS = [
         # Absolute: "2026-05-27 14:30", "2026/05/27", "2026年5月27日 09:00"
         re.compile(
@@ -158,6 +159,22 @@ class ParserAgent(BaseAgent):
             r"((?:\d+\s*(?:小时|分钟|天)前)|(?:[昨天今].*?\d{1,2}:\d{2})|(?:刚刚))"
         ),
     ]
+
+    # Extract dates from URL paths: /2026/05/28/, /2026-05-28/, /20260528/
+    _URL_DATE_PATTERNS = [
+        re.compile(r"/(\d{4})/(\d{1,2})/(\d{1,2})/"),
+        re.compile(r"/(\d{4})-(\d{1,2})-(\d{1,2})[/-]"),
+        re.compile(r"/(\d{4})(\d{2})(\d{2})/"),
+    ]
+
+    @classmethod
+    def _extract_time_from_url(cls, url: str) -> str:
+        """Extract publication date from URL path (e.g. /2026/05/28/article.html)."""
+        for pattern in cls._URL_DATE_PATTERNS:
+            m = pattern.search(url)
+            if m:
+                return f"{m.group(1)}-{m.group(2).zfill(2)}-{m.group(3).zfill(2)}"
+        return ""
 
     @classmethod
     def _extract_time_from_ancestors(cls, a_tag, max_depth: int = 5) -> str:
@@ -208,8 +225,18 @@ class ParserAgent(BaseAgent):
             seen.add(text)
             full_url = urljoin(page_url, href) if page_url else href
 
-            # Extract time from ancestor chain via regex
-            extracted_time = self._extract_time_from_ancestors(a_tag)
+            # Extract time from multiple sources, best source first
+            extracted_time = (
+                self._extract_time_from_url(full_url)  # URL path date
+                or self._extract_time_from_ancestors(a_tag)  # ancestor DOM text
+            )
+            # Also try extracting date from the title itself (e.g. "百度2026年5月...")
+            if not extracted_time:
+                for pattern in self._TIME_PATTERNS:
+                    m = pattern.search(text)
+                    if m:
+                        extracted_time = m.group(1)
+                        break
 
             # Fallback: broader ancestor text as LLM hint
             time_hint = extracted_time or ""
@@ -253,6 +280,7 @@ class ParserAgent(BaseAgent):
                 parts.append(f"时间: {c['extracted_time']}")
             elif c.get("time_hint"):
                 parts.append(f"上下文: {c['time_hint'][:150]}")
+            parts.append(f"URL: {c['url']}")
             lines.append(f"{i}. {' | '.join(parts)}")
         candidate_text = "\n".join(lines)
 
@@ -373,6 +401,63 @@ class ParserAgent(BaseAgent):
         logger.info("[Parser] %d items extracted. Tags: %s", len(items), top_tags)
         return {"items": items, "extraction_confidence": confidence, "raw_response": ""}
 
+    # ── Article-level time enrichment ─────────────────────────────────
+
+    # Patterns for extracting time from article page text
+    _ARTICLE_TIME_PATTERNS = [
+        re.compile(
+            r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}[日号]?(?:\s*\d{1,2}:\d{2}(?::\d{2})?)?)"
+        ),
+        re.compile(r"(\d{1,2}:\d{2}\s+\d{4}[-/年]\d{1,2}[-/月]\d{1,2}[日号]?)"),
+    ]
+
+    async def enrich_times(self, items: list, max_fetch: int = 20) -> list:
+        """For items without 'published', fetch article page and extract time."""
+        need_enrich = [(i, it) for i, it in enumerate(items) if not it.get("published")]
+        if not need_enrich:
+            return items
+
+        limit = min(len(need_enrich), max_fetch)
+        sem = asyncio.Semaphore(5)  # max 5 concurrent fetches
+
+        async def _fetch_one(idx: int, item: dict):
+            async with sem:
+                try:
+                    async with httpx.AsyncClient(timeout=10) as client:
+                        resp = await client.get(
+                            item["url"],
+                            headers={
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                                "Accept-Language": "zh-CN,zh;q=0.9",
+                            },
+                            follow_redirects=True,
+                        )
+                        if resp.status_code == 200:
+                            text = resp.text[:20000]  # first 20KB is enough
+                            for pat in self._ARTICLE_TIME_PATTERNS:
+                                m = pat.search(text)
+                                if m:
+                                    return idx, m.group(1)
+                except Exception:
+                    pass
+            return idx, None
+
+        tasks = [_fetch_one(i, it) for i, it in need_enrich[:limit]]
+        results = await asyncio.gather(*tasks)
+
+        enriched = 0
+        for idx, extracted_time in results:
+            if extracted_time:
+                items[idx]["published"] = extracted_time
+                enriched += 1
+
+        logger.info(
+            "[Parser] Enriched %d/%d items with article-level times",
+            enriched,
+            min(len(need_enrich), max_fetch),
+        )
+        return items
+
     # ── validation ──────────────────────────────────────────────────
 
     def _is_valid_link(
@@ -443,7 +528,24 @@ class ParserAgent(BaseAgent):
                     continue
 
                 full_url = urljoin(page_url, href) if page_url else href
-                links.append({"title": text, "url": full_url, "tag": current_tag})
+                published = self._extract_time_from_url(
+                    full_url
+                ) or self._extract_time_from_ancestors(element)
+                # Also try extracting date from the title text itself
+                if not published:
+                    for pat in self._TIME_PATTERNS:
+                        m = pat.search(text)
+                        if m:
+                            published = m.group(1)
+                            break
+                links.append(
+                    {
+                        "title": text,
+                        "url": full_url,
+                        "tag": current_tag,
+                        "published": published,
+                    }
+                )
 
         return links
 
@@ -498,7 +600,17 @@ class ParserAgent(BaseAgent):
 
                 if text not in seen_texts:
                     seen_texts.add(text)
-                    links.append({"title": text, "url": full_url, "tag": tag})
+                    published = self._extract_time_from_url(
+                        full_url
+                    ) or self._extract_time_from_ancestors(a_tag)
+                    links.append(
+                        {
+                            "title": text,
+                            "url": full_url,
+                            "tag": tag,
+                            "published": published,
+                        }
+                    )
 
         return links
 

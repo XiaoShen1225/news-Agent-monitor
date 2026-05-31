@@ -32,14 +32,9 @@ class EvalJudge:
     """Call LLM to rate faithfulness and relevance of AI responses."""
 
     def __init__(self, config: dict):
-        from openai import AsyncOpenAI
+        from agents.provider_factory import create_provider
 
-        llm = config.get("llm", {})
-        self.client = AsyncOpenAI(
-            api_key=llm.get("api_key", ""),
-            base_url=llm.get("base_url", "https://open.bigmodel.cn/api/paas/v4/"),
-        )
-        self.model = llm.get("model", "glm-4-flash")
+        self.provider = create_provider(config)
 
     async def evaluate(self, question: str, context: str, response: str) -> dict:
         """Score a single (question, context, response) triple."""
@@ -49,8 +44,7 @@ class EvalJudge:
             f"AI 回复: {response}"
         )
         try:
-            result = await self.client.chat.completions.create(
-                model=self.model,
+            result = await self.provider.chat(
                 messages=[
                     {"role": "system", "content": JUDGE_PROMPT},
                     {"role": "user", "content": user_prompt},
@@ -59,20 +53,17 @@ class EvalJudge:
                 max_tokens=128,
                 timeout=20.0,
             )
-            content = result.choices[0].message.content or ""
-            return self._parse_score(content)
+            return self._parse_score(result.content or "")
         except Exception as e:
             logger.warning("EvalJudge failed: %s", e)
             return {"faithfulness": 0, "relevance": 0, "reason": str(e), "error": True}
 
     def _parse_score(self, text: str) -> dict:
         """Extract JSON score from LLM response, with fallback."""
-        # Try direct JSON parse
         try:
             return json.loads(text)
         except json.JSONDecodeError:
             pass
-        # Try regex extraction
         m = re.search(r"\{[^}]+\}", text)
         if m:
             try:
@@ -109,7 +100,7 @@ class EvalJudge:
         }
 
     async def aclose(self):
-        await self.client.close()
+        await self.provider.close()
 
 
 async def evaluate_analyzer_summaries(config: dict, site: str, limit: int):
@@ -124,7 +115,6 @@ async def evaluate_analyzer_summaries(config: dict, site: str, limit: int):
 
     judge = EvalJudge(config)
 
-    # Get metadata with update_summaries
     meta = store.get_metadata(site)
     if not meta or not meta.get("latest_update_summary"):
         print(f"站点 {site} 暂无 update_summary 数据。")
@@ -174,7 +164,6 @@ async def main():
     )
     args = parser.parse_args()
 
-    # Load config
     import yaml
 
     config_path = PROJECT_ROOT / "config.yaml"
@@ -185,7 +174,7 @@ async def main():
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
-    # Resolve env vars
+    # Resolve env vars in config
     for key, val in config.get("llm", {}).items():
         if isinstance(val, str) and val.startswith("${") and val.endswith("}"):
             import os

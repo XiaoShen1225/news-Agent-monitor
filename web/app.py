@@ -397,18 +397,18 @@ async def api_stats(
 ):
     conn = _get_db()
     try:
-        # Run logs
+        # Run logs (with error_message for health diagnostics)
         if site:
             rows = conn.execute(
                 "SELECT status, items_found, changes_detected, extraction_confidence, "
-                "processing_time_ms, created_at FROM run_logs "
+                "processing_time_ms, error_message, created_at FROM run_logs "
                 "WHERE site_name = ? ORDER BY id DESC LIMIT 20",
                 (site,),
             ).fetchall()
         else:
             rows = conn.execute(
                 "SELECT site_name, status, items_found, changes_detected, "
-                "processing_time_ms, created_at FROM run_logs "
+                "processing_time_ms, error_message, created_at FROM run_logs "
                 "ORDER BY id DESC LIMIT 50"
             ).fetchall()
 
@@ -426,7 +426,42 @@ async def api_stats(
             if row:
                 snapshots[s] = dict(row)
 
-        return {"runs": runs, "snapshots": snapshots, "sites": sites}
+        # Per-site health: consecutive_failures + circuit_breaker_until
+        site_health = {}
+        meta_rows = conn.execute(
+            "SELECT site_name, consecutive_failures, circuit_breaker_until "
+            "FROM site_metadata"
+        ).fetchall()
+        meta_map = {r[0]: (r[1] or 0, r[2] or "") for r in meta_rows}
+
+        from datetime import datetime as dt
+
+        for s in sites:
+            last_run = None
+            for r in runs:
+                if r.get("site_name", site) == s:
+                    last_run = r
+                    break
+            failures, circuit_until = meta_map.get(s, (0, ""))
+            circuit_open = bool(circuit_until and circuit_until > dt.now().isoformat())
+            snap = snapshots.get(s, {})
+            site_health[s] = {
+                "last_run_status": last_run["status"] if last_run else "never",
+                "last_run_time": last_run["created_at"] if last_run else None,
+                "last_run_items": last_run.get("items_found", 0) if last_run else 0,
+                "error_message": last_run.get("error_message", "") if last_run else "",
+                "consecutive_failures": failures,
+                "circuit_open": circuit_open,
+                "last_snapshot_time": snap.get("created_at"),
+                "last_snapshot_items": snap.get("items_count", 0),
+            }
+
+        return {
+            "runs": runs,
+            "snapshots": snapshots,
+            "sites": sites,
+            "site_health": site_health,
+        }
     finally:
         conn.close()
 
@@ -556,23 +591,10 @@ async def api_summarize(
     title: str = Query("", description="Article title for context"),
 ):
     """Fetch article content and return an LLM-generated summary."""
-    import os
-
     from agents.base_agent import BaseAgent
 
-    api_key = os.environ.get("ZHIPU_API_KEY")
-    if not api_key:
+    if not _config:
         return JSONResponse({"error": "LLM not configured"}, status_code=503)
-
-    config = {
-        "llm": {
-            "api_key": api_key,
-            "model": os.environ.get("ZHIPU_MODEL", "glm-4-flash"),
-            "base_url": os.environ.get(
-                "ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"
-            ),
-        }
-    }
 
     agent = None
     http_client = None
@@ -610,7 +632,7 @@ async def api_summarize(
         text = text[:3000]
 
         # Step 3: LLM summarize
-        agent = BaseAgent("Summarizer", config)
+        agent = BaseAgent("Summarizer", _config)
         summary = await agent.call_llm_async(
             system_prompt="你是一个新闻摘要助手。用 2-3 句中文简洁准确地概括文章核心内容，不超过 120 字。",
             user_prompt=f"标题：{title}\n\n文章内容：\n{text}\n\n请用中文摘要这篇文章的要点。",
@@ -818,6 +840,7 @@ def _get_chat_agent():
     global _chat_agent
     if _chat_agent is None:
         from data.store import DataStore
+        from data.alert_store import AlertStore
 
         from agents.chat_agent import ChatAgent
 
@@ -826,6 +849,7 @@ def _get_chat_agent():
             news_store=DataStore(source_type="news"),
             paper_store=DataStore(source_type="paper"),
             vector_store=None,  # lazy init to avoid huggingface download on first chat
+            alert_store=AlertStore(),
         )
     return _chat_agent
 

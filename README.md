@@ -10,7 +10,9 @@
 - **导航切换**：新闻监控 + 论文追踪双页面，论文页不含复杂数据分析
 - **异步管道**：httpx.AsyncClient + Playwright async API + AsyncOpenAI，多站点 asyncio.gather 并发
 - **变更分析**：SHA256 内容哈希快速跳过无变化页面；标题级 Diff 识别新增/移除/修改
-- **AI 更新摘要**：LLM 自动生成每次更新的中文摘要（替换情感分析），突出新增内容和变化趋势
+- **AI 更新摘要**：LLM 自动生成每次更新的中文摘要，突出新增内容和变化趋势
+- **智能告警**：关键词自动匹配推送通知、Z-score 异常检测（量级突增/骤降）、中文情感偏移检测，冷却去重
+- **多 Provider LLM 抽象**：可插拔 LLM 提供商（智谱/OpenAI/Claude/本地模型），改配置一键切换，Claude 工具格式自动转换
 - **文章摘要**：点击任意条目可即时获取文章内容摘要
 - **向量语义搜索**：ChromaDB + text2vec-base-chinese 本地嵌入，`/api/search` 端点
 - **Web 仪表盘**：FastAPI + ECharts 5.5 实时交互图表 + 暗色主题 + 毛玻璃效果，WebSocket 实时推送
@@ -31,7 +33,7 @@
 - **结构化日志**：Pipeline 级别 trace_id + JSON 事件日志（pipeline_start/skip/done/error），支持根因分析
 - **健康检查**：`/api/health` 端点，返回服务状态、scheduler 运行状态、最后一次 pipeline 执行时间
 - **Windows 兼容**：信号处理兼容 Windows 平台，schedule 模式可正常 Ctrl+C 退出
-- **169 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
+- **208 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
 - **成本追踪**：Token 用量按站点聚合入库，`/api/cost` 端点查询，支持按天数筛选
 - **LLM 输出评估**：离线评估工具 `eval/judge.py`，faithfulness/relevance 双维度评分
 - **流式输出**：Chat 助手 SSE 流式输出，逐字显示回复，工具调用过程实时可见
@@ -73,7 +75,7 @@ cp .env.example .env
 # 编辑 .env，填入智谱 AI API Key（https://open.bigmodel.cn/ 免费注册）
 ```
 
-`config.yaml` 中 API Key 已使用 `${ZHIPU_API_KEY}` 环境变量占位，无需修改。可按需调整目标站点和调度间隔。
+`config.yaml` 支持多 LLM 提供商切换（`llm.provider: zhipu/openai/claude/local`）。默认使用智谱 AI，API Key 通过 `${ZHIPU_API_KEY}` 环境变量注入。可按需调整目标站点、调度间隔和告警阈值。
 
 ### 4. 运行
 
@@ -118,16 +120,25 @@ Visualization/
 ├── .pre-commit-config.yaml        # pre-commit 配置
 ├── .github/workflows/ci.yml       # GitHub Actions CI（3.10/3.11/3.12 矩阵 + lint）
 ├── agents/
-│   ├── base_agent.py              # Agent 基类（AsyncOpenAI、重试、JSON 容错解析）
+│   ├── base_agent.py              # Agent 基类（Provider 抽象、重试、JSON 容错解析）
+│   ├── llm_provider.py            # LLM Provider 抽象接口 + ChatResult/StreamEvent
+│   ├── provider_factory.py        # Provider 工厂（zhipu/openai/claude/local）
+│   ├── providers/
+│   │   ├── zhipu_provider.py      # 智谱 AI (glm-4-flash)
+│   │   ├── openai_provider.py     # OpenAI (GPT-4o 等)
+│   │   ├── claude_provider.py     # Anthropic Claude (工具格式自动转换)
+│   │   └── local_provider.py      # ollama/vLLM 等本地模型
 │   ├── fetcher.py                 # 网站抓取（httpx + Playwright）+ SHA256 变更检测
 │   ├── parser.py                  # section_walk / css_selector / LLM / RSS 四种提取策略
-│   ├── analyzer.py                # 标题 Diff + 趋势计算 + 情感分析 + LLM 摘要
+│   ├── analyzer.py                # 标题 Diff + 趋势计算 + 异常检测 + 情感偏移 + LLM 摘要
+│   ├── sentiment_analyzer.py      # 规则中文情感分析（~200 词词典，无 LLM 依赖）
 │   ├── visualizer.py              # matplotlib 10 种图表 + 六组留存策略
-│   ├── coordinator.py             # 流水线编排，集成通知 + 向量存储
+│   ├── coordinator.py             # 流水线编排，集成告警匹配 + 通知 + 向量存储
 │   ├── chat_agent.py              # AI 对话助手（多 Session 隔离 + 结构化 Prompt + Tool Calling + ReAct 思考 + 偏好学习 + Guardrails）
 │   └── site_profiles.py           # SiteProfile 数据类 + 内置站点配置
 ├── data/
 │   ├── store.py                   # JSON + SQLite + CSV 存储（新闻/论文分离路径）
+│   ├── alert_store.py             # 统一告警存储（关键词 CRUD + 冷却/去重 + 匹配）
 │   ├── vector_store.py            # ChromaDB 向量存储 + 语义搜索
 │   ├── history/                   # 新闻历史快照 JSON
 │   ├── papers_history/            # 论文历史快照 JSON
@@ -147,12 +158,15 @@ Visualization/
 ├── evolution/
 │   ├── memory.py                  # 运行指标记录
 │   └── optimizer.py               # 自进化：Prompt 调优 + 调度频率自适应
-├── tests/                         # 131 个测试
+├── tests/                         # 208 个测试
 │   ├── test_base_agent.py         # LLM JSON 解析容错测试
+│   ├── test_llm_provider.py       # Provider 工厂 + 工具转换测试
 │   ├── test_fetcher.py            # HTML 清洗 + 哈希测试
 │   ├── test_parser.py             # 过滤 + 章节匹配 + DOM 提取 + Profile 测试
 │   ├── test_analyzer.py           # Diff + 标签分布 + 趋势测试
+│   ├── test_sentiment.py          # 中文情感分类测试
 │   ├── test_data_store.py         # 快照 CRUD + 查询 + 运行日志
+│   ├── test_alert_store.py        # 告警 CRUD + 冷却 + 匹配测试
 │   ├── test_evolution.py          # 调度 + 提示词调优测试
 │   ├── test_chat_agent.py         # ChatAgent 上下文管理 + Token 估算测试
 │   ├── test_notifications.py      # 通知创建 + 事件构建测试
@@ -194,11 +208,11 @@ Visualization/
                       │
           ┌───────────┴───────────┐
           ▼                       ▼
-┌──────────────────┐   ┌──────────────────┐
-│    Data Store    │   │   Vector Store   │
-│ JSON+SQLite+CSV  │   │   ChromaDB       │
-│ (含 sentiment)   │   │ text2vec-chinese │
-└──────────────────┘   └──────────────────┘
+┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐
+│    Data Store    │   │   Vector Store   │   │   Alert Store    │
+│ JSON+SQLite+CSV  │   │   ChromaDB       │   │ 关键词 + 冷却     │
+│ (含 sentiment)   │   │ text2vec-chinese │   │ 异常 + 情感偏移   │
+└──────────────────┘   └──────────────────┘   └──────────────────┘
           │                       │
           └───────────┬───────────┘
                       ▼
@@ -216,11 +230,13 @@ Visualization/
 2. **Fetcher** Playwright 渲染 + 滚动 → SHA256 哈希
 3. **哈希未变** → 跳过，`skipped_no_change`，**零 Token 消耗**
 4. **哈希已变** → **Parser** DOM 遍历 + SiteProfile 策略提取 → 标题+URL+分类+发布时间
-5. 数据存入 **JSON 快照** + **SQLite** + **CSV**，**Vector Store** 索引
-6. **Analyzer** 标题 Diff → 新增/移除/修改 + 趋势方向 + **批量情感分析** + **LLM 摘要**
-7. **Visualizer** 生成图表，today/total 每次更新
-8. **通知** → 钉钉/企微/邮件推送管道结果
-9. **Evolution** 指标记录 → 调度频率自适应
+5. **SentimentAnalyzer** 规则词典快速标注情感（正面/负面/中性）
+6. 数据存入 **JSON 快照** + **SQLite** + **CSV**，**Vector Store** 索引
+7. **Analyzer** 标题 Diff → 新增/移除/修改 + 趋势方向 + 异常检测（Z-score）+ 情感偏移 + **LLM 摘要**
+8. **AlertStore** 关键词匹配 → 冷却检查 → 注入 PipelineEvent
+9. **Visualizer** 生成图表，today/total 每次更新
+10. **通知** → 钉钉/企微/邮件推送（含告警段落）
+11. **Evolution** 指标记录 → 调度频率自适应
 10. **ChatAgent** 通过 Tool Calling 查询数据，上下文窗口自动管理（Token 预算 + Exchange 裁剪）
 
 ## API 文档
@@ -260,7 +276,7 @@ Visualization/
 | 组件 | 技术 |
 |------|------|
 | 语言 | Python 3.10+ |
-| LLM | 智谱 AI glm-4-flash（OpenAI 兼容接口） |
+| LLM | 智谱 AI / OpenAI / Claude / 本地（Provider 可插拔，改配置切换） |
 | 嵌入模型 | shibing624/text2vec-base-chinese（本地，免费） |
 | 浏览器渲染 | Playwright (Chromium headless) |
 | HTML 解析 | BeautifulSoup4 + lxml |
@@ -270,6 +286,6 @@ Visualization/
 | 可视化 | matplotlib（SimHei 中文字体） |
 | 调度 | APScheduler (AsyncIOScheduler) |
 | 通知 | 钉钉 / 企业微信 / SMTP 邮件 |
-| 测试 | pytest（169 tests）+ ruff + pre-commit |
+| 测试 | pytest（208 tests）+ ruff + pre-commit |
 | CI/CD | GitHub Actions |
 | 部署 | Docker + Docker Compose |

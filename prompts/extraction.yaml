@@ -24,7 +24,11 @@ llm_extraction:
 
     2. CLASSIFY: Assign each remaining news item a category tag from the common tags list provided. Pick the most appropriate tag based on the title content. If none fits, use "其他".
 
-    3. EXTRACT TIME: If the candidate's context text contains a publication time (absolute like "2024-05-23 14:30" or relative like "3小时前", "昨天"), extract it as "time". Use null if not found.
+    3. EXTRACT TIME: Extract publication time from available sources, in priority order:
+       - If the candidate text explicitly contains a pre-extracted "时间: ..." value, use it directly.
+       - If the URL path contains a date (e.g. /2026/05/28/ or /2026-05-28/), extract the date from it.
+       - If the context contains a publication time (absolute like "2024-05-23 14:30" or relative like "3小时前", "昨天"), extract it.
+       - Use null if no time can be found.
 
     4. RETURN: A JSON array of objects with "index" (number), "tag" (string), and "time" (string or null). Keep only news items — do not include the filtered-out links.
 

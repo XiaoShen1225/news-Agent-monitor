@@ -1,0 +1,10 @@
+{
+  "sina_news": {
+    "timestamp": "2026-05-28T23:42:22.501629",
+    "old_interval": 120,
+    "new_interval": 60,
+    "action": "increased_frequency",
+    "change_freq_before": 0.71,
+    "runs_at_time": 21
+  }
+}
