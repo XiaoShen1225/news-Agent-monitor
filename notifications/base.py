@@ -20,6 +20,7 @@ class PipelineEvent:
     alert_matches: list | None = None  # keyword alert matches
     anomalies: list | None = None  # volume spike/drop detections
     sentiment_shift: dict | None = None  # sentiment distribution shift
+    story_matches: list | None = None  # story follow-up matches
 
 
 class BaseNotifier(ABC):
@@ -93,6 +94,17 @@ class BaseNotifier(ABC):
                 direction_text = "上升" if s["delta"] > 0 else "下降"
                 lines.append(
                     f"- {label}情感{direction_text}: {s['from']:.0%} → {s['to']:.0%} (Δ{s['delta']:+.0%})"
+                )
+
+        if event.story_matches:
+            lines.append("### 📰 故事后续")
+            for m in event.story_matches:
+                lines.append(f"- 追踪「{m['story_title'][:40]}」")
+                lines.append(f"  后续: {m['item_title'][:80]}")
+                if m.get("item_url"):
+                    lines.append(f"  {m['item_url']}")
+                lines.append(
+                    f"  来源: {m.get('site', '?')} | 相似度: {m.get('score', 0):.2f}"
                 )
 
         return lines

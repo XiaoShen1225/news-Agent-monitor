@@ -83,6 +83,7 @@ def build_event(result: dict) -> PipelineEvent:
         alert_matches=result.get("alert_matches") or [],
         anomalies=result.get("anomalies") or [],
         sentiment_shift=result.get("sentiment_shift"),
+        story_matches=result.get("story_matches") or [],
     )
 
 

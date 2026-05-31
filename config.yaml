@@ -133,3 +133,11 @@ deep_analysis:
   min_event_items: 2                   # minimum items per event cluster
   entity_batch_size: 50                # titles per LLM batch for entity extraction
   timeline_lookback_snapshots: 20      # snapshots to search for timeline construction
+
+# Story watching — track ongoing news stories and detect follow-up coverage
+story_watch:
+  enabled: true
+  similarity_threshold: 0.7            # cosine similarity threshold for follow-up detection
+  match_cooldown_hours: 12             # hours between successive match alerts per story
+  dormant_after_days: 30               # mark story as dormant if no matches for N days
+  remove_dormant_after_days: 90        # remove dormant story after N days of inactivity

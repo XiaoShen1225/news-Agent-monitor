@@ -841,6 +841,7 @@ def _get_chat_agent():
     if _chat_agent is None:
         from data.store import DataStore
         from data.alert_store import AlertStore
+        from data.story_watch import StoryWatchStore
 
         from agents.chat_agent import ChatAgent
 
@@ -850,6 +851,7 @@ def _get_chat_agent():
             paper_store=DataStore(source_type="paper"),
             vector_store=None,  # lazy init to avoid huggingface download on first chat
             alert_store=AlertStore(),
+            story_watch=StoryWatchStore(),
         )
     return _chat_agent
 

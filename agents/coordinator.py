@@ -14,6 +14,7 @@ from .visualizer import VisualizationAgent
 from .sentiment_analyzer import classify
 from .site_profiles import SiteProfile, get_profile
 from data.alert_store import AlertStore
+from data.story_watch import StoryWatchStore
 from notifications.dispatcher import build_event, notify_all
 
 _deep_analyzer = None
@@ -56,6 +57,8 @@ class CoordinatorAgent(BaseAgent):
         self.vector_store = vector_store
         self.alert_store = AlertStore()
         self.alert_store.load_config(config)
+        self.story_watch = StoryWatchStore()
+        self.story_watch.load_config(config)
         self.max_snapshots = config.get("storage", {}).get("max_snapshots_per_site", 0)
 
     # ── sync (wraps async) ──────────────────────────────────────────
@@ -279,6 +282,17 @@ class CoordinatorAgent(BaseAgent):
                 )
             else:
                 result["sentiment_shift"] = None
+
+            # Story follow-up matching
+            result["story_matches"] = []
+            if self.vector_store and new_items:
+                try:
+                    story_matches = self.story_watch.check_new_items(
+                        new_items, self.vector_store
+                    )
+                    result["story_matches"] = story_matches
+                except Exception as e:
+                    logger.warning("[Coordinator] Story watch check failed: %s", e)
 
             elapsed = (time.time() - start_time) * 1000
             total_tokens = (

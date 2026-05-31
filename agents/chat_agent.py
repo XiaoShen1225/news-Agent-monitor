@@ -358,6 +358,47 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "watch_story",
+            "description": (
+                "追踪一个新闻故事的后续报道。系统会自动监测后续抓取中是否出现相关新闻，"
+                "发现后通过通知提醒用户。适合追踪正在发展的新闻事件（如'XX公司新政策'、'YY事件进展'）。"
+                "【使用场景】用户说'帮我追踪这件事后续''关注这个新闻的进展''追踪这个故事'时使用。"
+                "【生命周期】活跃(active) → 30天无匹配自动休眠(dormant) → 90天无匹配自动清理"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["add", "remove", "complete", "list", "reactivate"],
+                        "description": (
+                            "操作：add（添加追踪）/ remove（移除）/ complete（标记完结）/ "
+                            "list（查看所有）/ reactivate（重新激活休眠故事）"
+                        ),
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 100,
+                        "description": "新闻标题（add 时必填）",
+                    },
+                    "url": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "description": "新闻链接（add 时可选）",
+                    },
+                    "story_id": {
+                        "type": "string",
+                        "description": "故事ID（remove/complete/reactivate 时必填）",
+                    },
+                },
+                "required": ["action"],
+                "additionalProperties": False,
+            },
+        },
+    },
 ]
 
 SYSTEM_PROMPT = """# 最高准则：数据真实性
@@ -492,6 +533,7 @@ class ChatAgent(BaseAgent):
         paper_store=None,
         vector_store=None,
         alert_store=None,
+        story_watch=None,
         max_history_tokens: int | None = None,
     ):
         super().__init__("Chat", config)
@@ -499,6 +541,7 @@ class ChatAgent(BaseAgent):
         self.paper_store = paper_store
         self.vector_store = vector_store
         self.alert_store = alert_store
+        self.story_watch = story_watch
         # Read chat settings from config, with module-level constants as fallback
         chat_cfg = config.get("chat", {})
         self.max_history_tokens = max_history_tokens or chat_cfg.get(
@@ -1130,6 +1173,9 @@ class ChatAgent(BaseAgent):
                         return f"[告警] {r['msg']}。"
                     return f"[告警] {r['msg']}，无需移除。"
 
+            if name == "watch_story":
+                return self._execute_watch_story(args)
+
             return f"[工具错误] 未知工具: {name}"
 
         except httpx.HTTPStatusError as e:
@@ -1161,6 +1207,95 @@ class ChatAgent(BaseAgent):
         except Exception as e:
             logger.warning("[ChatAgent] Tool %s failed: %s", name, e)
             return f"[工具异常 - {type(e).__name__}] 执行 {name} 时发生意外错误。建议简化查询条件或稍后重试。"
+
+    def _execute_watch_story(self, args: dict) -> str:
+        """Execute watch_story tool operations."""
+        action = args["action"]
+        store = self.story_watch
+
+        if store is None:
+            return "[故事追踪错误] 故事追踪系统未初始化，请联系管理员。"
+
+        if action == "list":
+            stories = store.list_stories()
+            if not stories:
+                return (
+                    "[故事追踪] 当前没有追踪任何新闻故事。"
+                    "在浏览新闻时可以说'帮我追踪这条新闻的后续'来添加。"
+                )
+            # Group by status
+            active = [s for s in stories if s["status"] == "active"]
+            completed = [s for s in stories if s["status"] == "completed"]
+            dormant = [s for s in stories if s["status"] == "dormant"]
+
+            lines = ["[故事追踪] 当前追踪状态："]
+            if active:
+                lines.append(f"\n活跃 ({len(active)} 个)：")
+                for s in active:
+                    lines.append(
+                        f"  ID: {s['id']} | 「{s['title'][:50]}」"
+                        f" | 已匹配 {s['match_count']} 次"
+                    )
+            if completed:
+                lines.append(f"\n已完成 ({len(completed)} 个)：")
+                for s in completed:
+                    lines.append(f"  ID: {s['id']} | 「{s['title'][:50]}」")
+            if dormant:
+                lines.append(f"\n休眠 ({len(dormant)} 个，超过30天无后续)：")
+                for s in dormant:
+                    lines.append(f"  ID: {s['id']} | 「{s['title'][:50]}」")
+            return "\n".join(lines)
+
+        if action == "add":
+            title = (args.get("title") or "").strip()
+            if not title:
+                return "[故事追踪错误] 请提供要追踪的新闻标题（title参数）。"
+            url = (args.get("url") or "").strip()
+
+            # Compute embedding if vector_store available
+            embedding = None
+            source_site = ""
+            if self.vector_store:
+                embedding = store.compute_embedding(title, self.vector_store)
+            # Try to detect source site from URL or title context
+            if url:
+                for site in self._get_all_sites():
+                    if site in url:
+                        source_site = site
+                        break
+
+            r = store.add_story(
+                title=title,
+                url=url,
+                source_site=source_site,
+                embedding=embedding,
+            )
+            return f"[故事追踪] {r['msg']}。活跃的故事会在每次新闻抓取后自动检查后续报道。\n"
+            "生命周期：30天无后续自动休眠 → 90天无后续自动清理。"
+
+        if action == "remove":
+            story_id = (args.get("story_id") or "").strip()
+            title = (args.get("title") or "").strip()
+            if not story_id and not title:
+                return "[故事追踪错误] 请提供 story_id 或 title。"
+            r = store.remove_story(story_id=story_id, title=title)
+            return f"[故事追踪] {r['msg']}。"
+
+        if action == "complete":
+            story_id = (args.get("story_id") or "").strip()
+            if not story_id:
+                return "[故事追踪错误] 请提供 story_id。"
+            r = store.complete_story(story_id)
+            return f"[故事追踪] {r['msg']}。"
+
+        if action == "reactivate":
+            story_id = (args.get("story_id") or "").strip()
+            if not story_id:
+                return "[故事追踪错误] 请提供 story_id。"
+            r = store.reactivate_story(story_id)
+            return f"[故事追踪] {r['msg']}。"
+
+        return f"[故事追踪错误] 未知操作: {action}"
 
     def _validate_tool_args(self, name: str, args: dict) -> str | None:
         """Validate tool arguments. Returns error message or None if valid."""
