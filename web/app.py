@@ -84,6 +84,29 @@ def _get_vector_store():
     return _shared_vector_store
 
 
+# Shared HybridSearcher — BM25 + Vector + RRF fusion
+_shared_hybrid_searcher = None
+
+
+def _get_hybrid_searcher():
+    global _shared_hybrid_searcher
+    if _shared_hybrid_searcher is None:
+        from data.hybrid_search import BM25Index, HybridSearcher
+        from data.store import DataStore
+
+        vs = _get_vector_store()
+        bm25_index = BM25Index()
+        store = DataStore(
+            history_dir=str(PROJECT_ROOT / "data" / "history"),
+            db_path=str(DB_PATH),
+            bm25_index=bm25_index,
+        )
+        store.rebuild_bm25_index()
+        cfg = _config.get("search", {}) if _config else {}
+        _shared_hybrid_searcher = HybridSearcher(bm25_index, vs, cfg)
+    return _shared_hybrid_searcher
+
+
 # ── helpers ────────────────────────────────────────────────────────
 
 
@@ -543,6 +566,36 @@ async def api_search(
     return {"query": q, "results": results, "count": len(results)}
 
 
+@app.get("/api/search/hybrid")
+async def api_search_hybrid(
+    q: str = Query(..., min_length=1, description="Search query"),
+    site: str | None = Query(None),
+    tag: str | None = Query(None),
+    days: int | None = Query(None, ge=0, le=30),
+    limit: int = Query(15, ge=1, le=50),
+):
+    """Hybrid search: BM25 keyword + vector semantic + RRF fusion."""
+    from datetime import datetime, timezone, timedelta
+
+    hs = _get_hybrid_searcher()
+    date_from = None
+    if days is not None:
+        date_from = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    results = hs.search(
+        query=q,
+        site_name=site,
+        tag=tag,
+        date_from=date_from,
+        limit=limit,
+    )
+    return {
+        "query": q,
+        "method": "hybrid",
+        "results": results,
+        "count": len(results),
+    }
+
+
 @app.get("/api/charts")
 async def api_charts():
     chart_sets = {}
@@ -852,6 +905,7 @@ def _get_chat_agent():
             vector_store=None,  # lazy init to avoid huggingface download on first chat
             alert_store=AlertStore(),
             story_watch=StoryWatchStore(),
+            hybrid_searcher=_get_hybrid_searcher(),
         )
     return _chat_agent
 

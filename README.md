@@ -1,6 +1,6 @@
 # News Agent Monitor —— 多 Agent 新闻监控与可视化系统
 
-基于多 Agent 协同的网站内容监控系统。定时抓取多个新闻网站，检测内容变更，结构化提取新闻条目，LLM 情感分析 + 自动摘要，向量语义搜索，生成可视化图表，支持 Web 仪表盘实时查看。
+基于多 Agent 协同的网站内容监控系统。定时抓取多个新闻网站，检测内容变更，结构化提取新闻条目，LLM 情感分析 + 自动摘要，混合搜索引擎（BM25 + 向量 + RRF 融合），生成可视化图表，支持 Web 仪表盘实时查看。
 
 ## 功能特性
 
@@ -17,6 +17,7 @@
 - **故事追踪**：用户添加追踪 → 自动匹配后续报道 → 通知推送；完整生命周期管理（活跃/休眠/完结自动清理）
 - **文章摘要**：点击任意条目可即时获取文章内容摘要
 - **向量语义搜索**：ChromaDB + text2vec-base-chinese 本地嵌入，`/api/search` 端点
+- **混合搜索引擎**：jieba 分词 + BM25 倒排索引 + 向量语义 + RRF 融合排序，统一 `search_news` 工具 + `/api/search/hybrid` 端点
 - **Web 仪表盘**：FastAPI + ECharts 5.5 实时交互图表 + 暗色主题 + 毛玻璃效果，WebSocket 实时推送
 - **分页加载**：News Items 支持分页浏览（30 条/页），避免一次性加载全部数据
 - **仪表盘操作**：Refresh All（一键刷新全部）、Run Now（手动触发抓取）、Reset（重置站点历史）集成到前端
@@ -144,6 +145,7 @@ Visualization/
 │   ├── store.py                   # JSON + SQLite + CSV 存储（新闻/论文分离路径）
 │   ├── alert_store.py             # 统一告警存储（关键词 CRUD + 冷却/去重 + 匹配）
 │   ├── vector_store.py            # ChromaDB 向量存储 + 语义搜索
+│   ├── hybrid_search.py           # BM25 + 向量 + RRF 混合搜索引擎
 │   ├── history/                   # 新闻历史快照 JSON
 │   ├── papers_history/            # 论文历史快照 JSON
 │   ├── monitor.db                 # 新闻 SQLite 数据库
@@ -265,6 +267,7 @@ Visualization/
 | `GET /api/stats?site=` | 运行统计 + 快照概览 |
 | `GET /api/query?site=&tag=&date_from=&date_to=&limit=&offset=` | 新闻条目查询（分页） |
 | `GET /api/search?q=&site=&limit=` | 向量语义搜索 |
+| `GET /api/search/hybrid?q=&site=&tag=&days=&limit=` | 混合搜索（BM25+向量+RRF） |
 | `GET /api/charts` | PNG 图表文件列表 |
 | `GET /api/chart-data?site=` | ECharts 实时图表数据 |
 | `GET /api/summarize?url=&title=` | 文章内容即时摘要 |

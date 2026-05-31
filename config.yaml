@@ -134,6 +134,14 @@ deep_analysis:
   entity_batch_size: 50                # titles per LLM batch for entity extraction
   timeline_lookback_snapshots: 20      # snapshots to search for timeline construction
 
+# Hybrid search — BM25 keyword + vector semantic + RRF fusion
+search:
+  rrf_k: 60                  # RRF fusion smoothing parameter
+  bm25_k1: 1.5               # BM25 term frequency saturation
+  bm25_b: 0.75               # BM25 document length normalization
+  bm25_top_k: 50             # BM25 coarse retrieval count
+  vector_top_k: 50           # Vector coarse retrieval count
+
 # Story watching — track ongoing news stories and detect follow-up coverage
 story_watch:
   enabled: true

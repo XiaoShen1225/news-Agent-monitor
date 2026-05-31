@@ -34,6 +34,7 @@ class DataStore:
         db_path: str = None,
         csv_path: str = None,
         source_type: str = None,
+        bm25_index=None,
     ):
         # Resolve defaults: explicit args take priority, then source_type, then news defaults
         st = source_type or "news"
@@ -44,6 +45,7 @@ class DataStore:
         self.csv_path = Path(csv_path or defaults["csv_path"])
         self.csv_path.parent.mkdir(parents=True, exist_ok=True)
         self.source_type = st
+        self._bm25 = bm25_index
         self._init_db()
 
     def _init_db(self):
@@ -516,6 +518,23 @@ class DataStore:
         # Append to CSV
         self._append_csv(site_name, now_iso, items)
 
+        # Sync to BM25 index
+        if self._bm25 is not None:
+            for item in items:
+                self._bm25.add(
+                    item.get("title", ""),
+                    {
+                        "title": item.get("title", ""),
+                        "url": item.get("url", ""),
+                        "site_name": site_name,
+                        "tag": item.get("tag", ""),
+                        "sentiment": item.get("sentiment", ""),
+                        "summary": item.get("summary", ""),
+                        "snapshot_time": now_iso,
+                        "published": item.get("published", ""),
+                    },
+                )
+
         return str(filepath)
 
     def _append_csv(self, site_name: str, timestamp: str, items: list):
@@ -929,3 +948,16 @@ class DataStore:
             }
             for r in rows
         ]
+
+    def rebuild_bm25_index(self):
+        """Rebuild BM25 index from all items in the news_items table."""
+        if self._bm25 is None:
+            return
+        items = self.query_items(limit=100000)
+        if items:
+            self._bm25.rebuild(items)
+            logger.info(
+                "[DataStore] BM25 index rebuilt: %d items from %s",
+                len(items),
+                self.db_path,
+            )
