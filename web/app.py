@@ -903,6 +903,7 @@ def _get_chat_agent():
             alert_store=AlertStore(),
             story_watch=StoryWatchStore(),
             hybrid_searcher=_get_hybrid_searcher(),
+            coordinator=_coordinator,
         )
     return _chat_agent
 
