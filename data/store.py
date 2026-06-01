@@ -1,11 +1,11 @@
 """Data persistence layer: JSON snapshots + SQLite metadata + CSV export."""
 
-import difflib
 import json
 import csv
 import hashlib
 import logging
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -46,10 +46,30 @@ class DataStore:
         self.csv_path.parent.mkdir(parents=True, exist_ok=True)
         self.source_type = st
         self._bm25 = bm25_index
+        self._conn: sqlite3.Connection | None = None
         self._init_db()
 
+    @contextmanager
+    def _get_conn(self):
+        """Yield a cached SQLite connection (WAL mode, single-thread safe)."""
+        if self._conn is None:
+            self._conn = sqlite3.connect(self.db_path)
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA foreign_keys=ON")
+        try:
+            yield self._conn
+        except Exception:
+            self._conn.rollback()
+            raise
+
+    def close(self):
+        """Close the cached connection."""
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
     def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS snapshots (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -198,7 +218,7 @@ class DataStore:
         """Keep only the most recent N snapshots for a site, delete older JSON + DB rows."""
         if keep_count <= 0:
             return
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             rows = conn.execute(
                 "SELECT id, snapshot_path FROM snapshots WHERE site_name = ? ORDER BY id DESC",
                 (site_name,),
@@ -229,7 +249,7 @@ class DataStore:
     ):
         """Upsert per-site metadata for fast dashboard queries without full snapshot scan."""
         ts = timestamp or datetime.now().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT count_history FROM site_metadata WHERE site_name = ?",
                 (site_name,),
@@ -266,7 +286,7 @@ class DataStore:
             conn.commit()
 
     def get_metadata(self, site_name: str) -> dict:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT count_history, latest_tag_distribution, latest_changes, "
                 "latest_update_summary, updated_at FROM site_metadata WHERE site_name = ?",
@@ -286,7 +306,7 @@ class DataStore:
 
     def increment_failure(self, site_name: str) -> bool:
         """Increment consecutive_failures. Returns True if circuit is now OPEN."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             conn.execute(
                 """INSERT INTO site_metadata (site_name, consecutive_failures)
                    VALUES (?, 1)
@@ -316,7 +336,7 @@ class DataStore:
 
     def reset_failure(self, site_name: str):
         """Reset consecutive_failures to 0 and clear circuit breaker."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             conn.execute(
                 """INSERT INTO site_metadata (site_name, consecutive_failures, circuit_breaker_until)
                    VALUES (?, 0, '')
@@ -330,7 +350,7 @@ class DataStore:
 
     def is_circuit_open(self, site_name: str) -> bool:
         """Return True if the circuit breaker is currently OPEN for this site."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT circuit_breaker_until FROM site_metadata WHERE site_name = ?",
                 (site_name,),
@@ -344,13 +364,9 @@ class DataStore:
     @staticmethod
     def _is_similar(a: str, b: str, threshold: float = 0.7) -> bool:
         """Check if two title strings likely refer to the same underlying item."""
-        if not a or not b:
-            return False
-        a_norm = a.strip()
-        b_norm = b.strip()
-        if a_norm == b_norm:
-            return True
-        return difflib.SequenceMatcher(None, a_norm, b_norm).ratio() >= threshold
+        from .utils import title_similar
+
+        return title_similar(a, b, threshold)
 
     def _deduplicate_items(self, items: list, site_name: str) -> list:
         """Two-pass dedup: same-site (0.7) then cross-site (0.85)."""
@@ -412,7 +428,7 @@ class DataStore:
 
     def _get_recent_cross_site_items(self, limit: int = 200) -> list:
         """Get distinct titles from the most recent items across all sites."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             rows = conn.execute(
                 "SELECT DISTINCT title FROM news_items ORDER BY id DESC LIMIT ?",
                 (limit,),
@@ -422,7 +438,7 @@ class DataStore:
     def _get_recent_items(self, site_name: str, snapshots: int = 3) -> list:
         """Get all item titles from the most recent N snapshots for a site."""
         titles = []
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             rows = conn.execute(
                 "SELECT snapshot_path FROM snapshots WHERE site_name = ? "
                 "ORDER BY id DESC LIMIT ?",
@@ -445,7 +461,7 @@ class DataStore:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def get_last_snapshot(self, site_name: str) -> dict | None:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT snapshot_path, content_hash FROM snapshots WHERE site_name = ? ORDER BY id DESC LIMIT 1",
                 (site_name,),
@@ -458,7 +474,7 @@ class DataStore:
         return None
 
     def get_last_hash(self, site_name: str) -> str | None:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT content_hash FROM snapshots WHERE site_name = ? ORDER BY id DESC LIMIT 1",
                 (site_name,),
@@ -488,7 +504,7 @@ class DataStore:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(snapshot, f, ensure_ascii=False, indent=2)
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             cursor = conn.execute(
                 "INSERT INTO snapshots (site_name, url, content_hash, items_count, snapshot_path) "
                 "VALUES (?, ?, ?, ?, ?)",
@@ -590,7 +606,7 @@ class DataStore:
         query = f"SELECT title, url, tag, summary, snapshot_time, published, site_name FROM news_items {where} ORDER BY snapshot_time DESC LIMIT ?"
         params.append(limit)
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             rows = conn.execute(query, params).fetchall()
         return [
             {
@@ -607,7 +623,7 @@ class DataStore:
 
     def update_item_summary(self, url: str, summary: str):
         """Cache an LLM-generated summary for a news item URL."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             conn.execute(
                 "UPDATE news_items SET summary = ? WHERE url = ?",
                 (summary, url),
@@ -616,7 +632,7 @@ class DataStore:
 
     def get_item_summary(self, url: str) -> str | None:
         """Retrieve a cached summary for a URL, or None if not cached."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT summary FROM news_items WHERE url = ? AND summary != '' ORDER BY id DESC LIMIT 1",
                 (url,),
@@ -637,7 +653,7 @@ class DataStore:
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         query = f"SELECT tag, COUNT(*) as cnt FROM news_items {where} GROUP BY tag ORDER BY cnt DESC"
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             rows = conn.execute(query, params).fetchall()
         return {r[0]: r[1] for r in rows}
 
@@ -653,7 +669,7 @@ class DataStore:
         trace_id: str = "",
         total_tokens: int = 0,
     ):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             conn.execute(
                 "INSERT INTO run_logs (site_name, status, items_found, changes_detected, "
                 "extraction_confidence, processing_time_ms, error_message, trace_id, total_tokens) "
@@ -673,7 +689,7 @@ class DataStore:
             conn.commit()
 
     def get_run_history(self, site_name: str, limit: int = 50) -> list:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             rows = conn.execute(
                 "SELECT status, items_found, changes_detected, extraction_confidence, "
                 "processing_time_ms, total_tokens, created_at FROM run_logs WHERE site_name = ? "
@@ -695,7 +711,7 @@ class DataStore:
 
     def get_cost_summary(self, days: int = 7) -> list:
         """Aggregate token usage by site over the last N days."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             rows = conn.execute(
                 "SELECT site_name, SUM(total_tokens) as sum_tokens, COUNT(*) as runs, "
                 "AVG(total_tokens) as avg_tokens "
@@ -717,7 +733,7 @@ class DataStore:
 
     def get_latest_stats(self, site_name: str) -> dict:
         """Return aggregated stats for a site: total_runs, recent_runs, tag_distribution."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             total = conn.execute(
                 "SELECT COUNT(*) FROM run_logs WHERE site_name = ?",
                 (site_name,),
@@ -739,7 +755,7 @@ class DataStore:
         }
 
     def get_all_snapshots(self, site_name: str) -> list:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             rows = conn.execute(
                 "SELECT snapshot_path, created_at FROM snapshots WHERE site_name = ? ORDER BY id ASC",
                 (site_name,),
@@ -757,7 +773,7 @@ class DataStore:
 
     def save_events(self, events: list[dict]):
         """Save detected event clusters and their items to SQLite."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             for evt in events:
                 eid = evt["event_id"]
                 conn.execute(
@@ -790,7 +806,7 @@ class DataStore:
 
     def get_events(self, limit: int = 20) -> list[dict]:
         """Get recent events with metadata."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             rows = conn.execute(
                 "SELECT event_id, event_name, sites, tags, item_count, created_at "
                 "FROM events ORDER BY created_at DESC LIMIT ?",
@@ -810,7 +826,7 @@ class DataStore:
 
     def get_event(self, event_id: str) -> dict | None:
         """Get a single event with its timeline items."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             evt = conn.execute(
                 "SELECT event_id, event_name, sites, tags, item_count, created_at "
                 "FROM events WHERE event_id = ?",
@@ -847,7 +863,7 @@ class DataStore:
         self, keyword: str, lookback_snapshots: int = 20
     ) -> list[dict]:
         """Find historical items related to an event by keyword."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             rows = conn.execute(
                 "SELECT title, site_name, url, tag, sentiment, snapshot_time "
                 "FROM news_items WHERE title LIKE ? "
@@ -870,7 +886,7 @@ class DataStore:
 
     def save_entities(self, entities: list[dict]):
         """Upsert extracted entities into SQLite."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             now = datetime.now().isoformat()
             for ent in entities:
                 row = conn.execute(
@@ -904,7 +920,7 @@ class DataStore:
 
     def get_entities(self, limit: int = 50, entity_type: str = None) -> list[dict]:
         """Get top entities sorted by mentions."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             if entity_type:
                 rows = conn.execute(
                     "SELECT name, type, mentions, first_seen, last_seen "
@@ -930,7 +946,7 @@ class DataStore:
 
     def get_entity_items(self, entity_name: str, limit: int = 50) -> list[dict]:
         """Get news items mentioning a specific entity."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_conn() as conn:
             rows = conn.execute(
                 "SELECT title, site_name, url, tag, sentiment, snapshot_time "
                 "FROM news_items WHERE title LIKE ? "

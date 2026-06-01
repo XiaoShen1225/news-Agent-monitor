@@ -1798,26 +1798,41 @@ class ChatAgent(BaseAgent):
     # ── persistence ─────────────────────────────────────────────────────
 
     def _load_history(self):
-        """Load chat history from JSON file. Graceful on missing/corrupt file."""
+        """Load all sessions from JSON file. Migrates legacy single-session format."""
         try:
             if CHAT_HISTORY_FILE.exists():
                 data = json.loads(CHAT_HISTORY_FILE.read_text(encoding="utf-8"))
                 if isinstance(data, list):
-                    self._history = data
+                    # Legacy format: single list → migrate to sessions dict
+                    sid = str(uuid.uuid4())
+                    self._sessions[sid] = self._new_session_data()
+                    self._sessions[sid]["history"] = data
+                    self._default_session = self._sessions[sid]
                     logger.info(
-                        "[ChatAgent] Loaded %d messages from %s",
-                        len(self._history),
+                        "[ChatAgent] Migrated legacy history (%d msgs) → session %s",
+                        len(data),
+                        sid[:8],
+                    )
+                elif isinstance(data, dict):
+                    self._sessions = data
+                    # Restore default session from first loaded session
+                    if self._sessions:
+                        first = next(iter(self._sessions.values()))
+                        self._default_session = first
+                    logger.info(
+                        "[ChatAgent] Loaded %d sessions from %s",
+                        len(self._sessions),
                         CHAT_HISTORY_FILE,
                     )
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("[ChatAgent] Failed to load chat history: %s", e)
 
     def _save_history(self):
-        """Persist chat history to JSON file."""
+        """Persist all sessions to JSON file."""
         try:
             CHAT_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
             CHAT_HISTORY_FILE.write_text(
-                json.dumps(self._history, ensure_ascii=False, indent=2),
+                json.dumps(self._sessions, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
         except OSError as e:

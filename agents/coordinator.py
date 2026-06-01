@@ -383,35 +383,38 @@ class CoordinatorAgent(BaseAgent):
         )
 
         try:
-            from playwright.async_api import async_playwright
+            browser = await self.fetcher._ensure_browser()
+            if browser is None:
+                return items
 
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page()
-                enriched = 0
+            context = await browser.new_context(
+                viewport={"width": 1280, "height": 720},
+            )
+            page = await context.new_page()
+            enriched = 0
 
-                for _, item in need_enrich[:limit]:
-                    try:
-                        await page.goto(
-                            item["url"],
-                            timeout=15000,
-                            wait_until="domcontentloaded",
-                        )
-                        await page.wait_for_timeout(1000)
-                        text = await page.evaluate("() => document.body.innerText")
-                        m = time_pat.search(text[:5000])
-                        if m:
-                            item["published"] = m.group(1)
-                            enriched += 1
-                    except Exception:
-                        pass
+            for _, item in need_enrich[:limit]:
+                try:
+                    await page.goto(
+                        item["url"],
+                        timeout=15000,
+                        wait_until="domcontentloaded",
+                    )
+                    await page.wait_for_timeout(1000)
+                    text = await page.evaluate("() => document.body.innerText")
+                    m = time_pat.search(text[:5000])
+                    if m:
+                        item["published"] = m.group(1)
+                        enriched += 1
+                except Exception:
+                    pass
 
-                await browser.close()
-                logger.info(
-                    "[Coordinator] Browser-enriched %d/%d items with times",
-                    enriched,
-                    limit,
-                )
+            await context.close()
+            logger.info(
+                "[Coordinator] Browser-enriched %d/%d items with times",
+                enriched,
+                limit,
+            )
         except Exception as e:
             logger.warning("[Coordinator] Browser time enrichment failed: %s", e)
 

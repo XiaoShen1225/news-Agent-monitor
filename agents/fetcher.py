@@ -37,6 +37,10 @@ class FetcherAgent(BaseAgent):
         self.timeout = httpx.Timeout(connect=15.0, read=30.0, write=15.0, pool=5.0)
         self._browser_timeout_ms = 30_000
         self._client = None
+        self._playwright = None
+        self._browser = None
+        self._browser_context_count = 0
+        self._max_contexts_before_restart = 20
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -53,6 +57,7 @@ class FetcherAgent(BaseAgent):
         if self._client is not None:
             await self._client.aclose()
             self._client = None
+        await self._close_browser()
 
     # ── sync (wraps async) ──────────────────────────────────────────
 
@@ -120,10 +125,45 @@ class FetcherAgent(BaseAgent):
 
         raise last_error or RuntimeError(f"All {MAX_RETRIES} attempts failed for {url}")
 
-    async def _fetch_with_browser(self, url: str) -> str:
+    async def _ensure_browser(self):
+        """Lazily launch and cache Playwright browser. Reuses across requests."""
+        if self._browser is not None:
+            # Periodically restart to prevent memory leaks from many contexts
+            if self._browser_context_count >= self._max_contexts_before_restart:
+                await self._close_browser()
+            else:
+                return self._browser
+
         try:
             from playwright.async_api import async_playwright
         except ImportError:
+            return None
+
+        self._playwright = await async_playwright().start()
+        self._browser = await self._playwright.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+            ],
+        )
+        self._browser_context_count = 0
+        logger.info("[Fetcher] Browser launched (reusable)")
+        return self._browser
+
+    async def _close_browser(self):
+        if self._browser is not None:
+            await self._browser.close()
+            self._browser = None
+        if self._playwright is not None:
+            await self._playwright.stop()
+            self._playwright = None
+        self._browser_context_count = 0
+
+    async def _fetch_with_browser(self, url: str) -> str:
+        browser = await self._ensure_browser()
+        if browser is None:
             logger.warning(
                 "[Fetcher] Playwright not installed. "
                 "Run: pip install playwright && playwright install chromium"
@@ -131,26 +171,19 @@ class FetcherAgent(BaseAgent):
             logger.warning("[Fetcher] Falling back to static fetch.")
             return await self._fetch_static(url)
 
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                ],
-            )
-            context = await browser.new_context(
-                user_agent=HEADERS["User-Agent"],
-                locale="zh-CN",
-                viewport={"width": 1920, "height": 1080},
-                extra_http_headers={"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"},
-            )
-            page = await context.new_page()
-            await page.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            """)
+        context = await browser.new_context(
+            user_agent=HEADERS["User-Agent"],
+            locale="zh-CN",
+            viewport={"width": 1920, "height": 1080},
+            extra_http_headers={"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"},
+        )
+        self._browser_context_count += 1
+        page = await context.new_page()
+        await page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+        """)
 
+        try:
             try:
                 await page.goto(
                     url, wait_until="domcontentloaded", timeout=self._browser_timeout_ms
@@ -177,8 +210,9 @@ class FetcherAgent(BaseAgent):
             await page.wait_for_timeout(2000)
 
             html = await page.content()
-            await browser.close()
             return html
+        finally:
+            await context.close()
 
     # ── utilities (shared) ──────────────────────────────────────────
 

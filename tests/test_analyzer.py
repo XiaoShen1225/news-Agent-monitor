@@ -147,9 +147,11 @@ class TestTagDistribution:
 
 class TestTrendComputation:
     def test_insufficient_data(self, agent):
-        # Without a store, _compute_trends returns empty dict
-        trends = agent._compute_trends("test", [{"tag": "A"}])
-        assert trends == {}
+        trends = agent._compute_trends([{"tag": "A"}], [])
+        assert trends == {
+            "status": "insufficient_data",
+            "message": "Need at least 2 snapshots",
+        }
 
     def test_with_store_data(self, agent_with_store):
         items = [{"title": "New News C", "url": "/c", "tag": "科技"}]

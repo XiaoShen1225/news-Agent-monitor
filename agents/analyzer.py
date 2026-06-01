@@ -1,29 +1,15 @@
 """AnalyzerAgent: compare snapshots, detect changes, compute trends, detect anomalies, sentiment shift."""
 
 import asyncio
-import difflib
 import logging
 import statistics
 from datetime import datetime
 
+from data.utils import title_similar
+
 from .base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
-
-
-def _is_similar(a: str, b: str, threshold: float = 0.85) -> bool:
-    """Check if two title strings refer to the same underlying item.
-
-    Uses difflib.SequenceMatcher (stdlib, no extra deps) to catch minor
-    variations like truncation, punctuation, or whitespace differences.
-    """
-    if not a or not b:
-        return False
-    a_norm = a.strip()
-    b_norm = b.strip()
-    if a_norm == b_norm:
-        return True
-    return difflib.SequenceMatcher(None, a_norm, b_norm).ratio() >= threshold
 
 
 class AnalyzerAgent(BaseAgent):
@@ -60,13 +46,14 @@ class AnalyzerAgent(BaseAgent):
 
         total_changes = len(new_items) + len(removed_items) + len(modified_items)
 
-        trends = self._compute_trends(site_name, current_items, _store)
+        snapshots = _store.get_all_snapshots(site_name) if _store else []
+
+        trends = self._compute_trends(current_items, snapshots)
 
         sentiment_dist = self._compute_sentiment_distribution(current_items)
-        sentiment_shift = self._compute_sentiment_shift(
-            site_name, sentiment_dist, _store
-        )
-        anomalies = self._detect_anomalies(site_name, current_items, _store)
+        sentiment_shift = self._compute_sentiment_shift(sentiment_dist, prev_items)
+
+        anomalies = self._detect_anomalies(current_items, snapshots)
 
         report = {
             "site_name": site_name,
@@ -176,7 +163,7 @@ class AnalyzerAgent(BaseAgent):
             for pt in unmatched_rem:
                 if pt in matched_prev:
                     continue
-                if _is_similar(ct, pt):
+                if title_similar(ct, pt):
                     matched_prev.add(pt)
                     matched_curr.add(ct)
                     prev_item = prev_titles[pt]
@@ -226,11 +213,7 @@ class AnalyzerAgent(BaseAgent):
             dist[tag] = dist.get(tag, 0) + 1
         return dict(sorted(dist.items(), key=lambda x: x[1], reverse=True))
 
-    def _compute_trends(self, site_name: str, current_items: list, store=None) -> dict:
-        _store = store or self.store
-        if not _store:
-            return {}
-        snapshots = _store.get_all_snapshots(site_name)
+    def _compute_trends(self, current_items: list, snapshots: list) -> dict:
         if len(snapshots) < 2:
             return {
                 "status": "insufficient_data",
@@ -260,14 +243,8 @@ class AnalyzerAgent(BaseAgent):
 
     # ── anomaly detection ──────────────────────────────────────────────
 
-    def _detect_anomalies(
-        self, site_name: str, current_items: list, store=None
-    ) -> list[dict]:
+    def _detect_anomalies(self, current_items: list, snapshots: list) -> list[dict]:
         """Detect volume spikes/drops using Z-score against recent snapshots."""
-        _store = store or self.store
-        if not _store:
-            return []
-        snapshots = _store.get_all_snapshots(site_name)
         if len(snapshots) < 5:
             return []
 
@@ -306,9 +283,7 @@ class AnalyzerAgent(BaseAgent):
                 )
 
         if anomalies:
-            logger.info(
-                "[Analyzer] Anomalies detected for %s: %s", site_name, anomalies
-            )
+            logger.info("[Analyzer] Anomalies detected: %s", anomalies)
         return anomalies
 
     # ── sentiment analysis ──────────────────────────────────────────────
@@ -330,17 +305,11 @@ class AnalyzerAgent(BaseAgent):
         }
 
     def _compute_sentiment_shift(
-        self, site_name: str, current_dist: dict, store=None
+        self, current_dist: dict, prev_items: list
     ) -> dict | None:
         """Compare current sentiment distribution with previous snapshot."""
-        _store = store or self.store
-        if not _store or not current_dist:
+        if not current_dist or not prev_items:
             return None
-        prev = _store.get_last_snapshot(site_name)
-        if not prev or not prev.get("items"):
-            return None
-
-        prev_items = prev["items"]
         prev_dist = {"positive": 0, "negative": 0, "neutral": 0}
         for item in prev_items:
             s = item.get("sentiment", "") or ""

@@ -157,29 +157,24 @@ def print_summary(result: dict, charts: dict = None):
     print("=" * 60)
 
 
-def cmd_once(config: dict, url: str, name: str):
-    """Run a single monitoring pass."""
+def _create_coordinator(config: dict):
+    """Create CoordinatorAgent with all dependencies wired.
+
+    Extracted from cmd_once / cmd_schedule / cmd_serve to eliminate ~100 lines
+    of duplicated initialization.
+    """
     storage = config.get("storage", {})
     news_store = DataStore(
         history_dir=storage.get("history_dir", "data/history"),
         db_path=storage.get("db_path", "data/monitor.db"),
     )
     paper_store = DataStore(source_type="paper")
-
     memory = EvolutionMemory()
     optimizer = (
         EvolutionOptimizer(config, memory)
         if config.get("evolution", {}).get("enabled")
         else None
     )
-
-    # Look up target config for use_browser etc.
-    use_browser = False
-    for t in config.get("targets", []):
-        if t.get("name") == name:
-            use_browser = t.get("use_browser", False)
-            break
-
     notifiers = create_notifiers(config)
     vector_store = _safe_vector_store(config)
     coordinator = CoordinatorAgent(
@@ -190,6 +185,20 @@ def cmd_once(config: dict, url: str, name: str):
         notifiers=notifiers,
         vector_store=vector_store,
     )
+    return coordinator, notifiers, vector_store, memory
+
+
+def cmd_once(config: dict, url: str, name: str):
+    """Run a single monitoring pass."""
+    coordinator, _, __, ___ = _create_coordinator(config)
+
+    # Look up target config for use_browser etc.
+    use_browser = False
+    for t in config.get("targets", []):
+        if t.get("name") == name:
+            use_browser = t.get("use_browser", False)
+            break
+
     result = coordinator.run(url, name, use_browser=use_browser)
 
     print_summary(result, result.get("charts"))
@@ -204,28 +213,7 @@ def cmd_schedule(config: dict):
 async def _cmd_schedule_async(config: dict):
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-    storage = config.get("storage", {})
-    news_store = DataStore(
-        history_dir=storage.get("history_dir", "data/history"),
-        db_path=storage.get("db_path", "data/monitor.db"),
-    )
-    paper_store = DataStore(source_type="paper")
-    memory = EvolutionMemory()
-    optimizer = (
-        EvolutionOptimizer(config, memory)
-        if config.get("evolution", {}).get("enabled")
-        else None
-    )
-    notifiers = create_notifiers(config)
-    vector_store = _safe_vector_store(config)
-    coordinator = CoordinatorAgent(
-        config,
-        data_store=news_store,
-        paper_store=paper_store,
-        evolution=optimizer,
-        notifiers=notifiers,
-        vector_store=vector_store,
-    )
+    coordinator, notifiers, __, memory = _create_coordinator(config)
 
     scheduler = AsyncIOScheduler()
     targets = config.get("targets", [])
@@ -312,28 +300,7 @@ async def _cmd_serve_async(config: dict, port: int):
     import uvicorn
     from web.app import app, ws_manager, set_runtime_refs, set_scheduler, set_notifiers
 
-    storage = config.get("storage", {})
-    news_store = DataStore(
-        history_dir=storage.get("history_dir", "data/history"),
-        db_path=storage.get("db_path", "data/monitor.db"),
-    )
-    paper_store = DataStore(source_type="paper")
-    memory = EvolutionMemory()
-    optimizer = (
-        EvolutionOptimizer(config, memory)
-        if config.get("evolution", {}).get("enabled")
-        else None
-    )
-    notifiers = create_notifiers(config)
-    vector_store = _safe_vector_store(config)
-    coordinator = CoordinatorAgent(
-        config,
-        data_store=news_store,
-        paper_store=paper_store,
-        evolution=optimizer,
-        notifiers=notifiers,
-        vector_store=vector_store,
-    )
+    coordinator, notifiers, __, memory = _create_coordinator(config)
     set_runtime_refs(coordinator, config)
     set_notifiers(notifiers)
 

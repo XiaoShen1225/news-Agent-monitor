@@ -371,8 +371,6 @@ def _cosine_sim(a: list[float], b: list[float]) -> float:
 
 def _is_near_duplicate(a: str, b: str, threshold: float = 0.85) -> bool:
     """Check if two titles are near-duplicates (same article, not a follow-up)."""
-    import difflib
+    from .utils import title_similar
 
-    if not a or not b:
-        return False
-    return difflib.SequenceMatcher(None, a.strip(), b.strip()).ratio() >= threshold
+    return title_similar(a, b, threshold)
