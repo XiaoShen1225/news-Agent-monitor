@@ -403,13 +403,21 @@ async def _cmd_serve_async(config: dict, port: int):
     coordinator.run_async = run_with_broadcast
 
     async def run_all_with_broadcast():
-        return await asyncio.gather(
+        results = await asyncio.gather(
             *[
                 run_with_broadcast(t["url"], t["name"], t.get("use_browser", False))
                 for t in targets
             ],
             return_exceptions=True,
         )
+        # Deep cross-site analysis after all targets complete
+        deep_cfg = config.get("deep_analysis", {}) or {}
+        if deep_cfg.get("enabled", True):
+            try:
+                await coordinator._run_deep_analysis(results)
+            except Exception as e:
+                logger.warning("Deep analysis failed: %s", e)
+        return results
 
     coordinator.run_all_targets_async = run_all_with_broadcast
 

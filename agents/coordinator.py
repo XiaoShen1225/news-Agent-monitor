@@ -26,7 +26,8 @@ def _get_deep_analyzer():
     if _deep_analyzer is None:
         from .deep_analyzer import DeepAnalyzer
 
-    return DeepAnalyzer
+        _deep_analyzer = DeepAnalyzer
+    return _deep_analyzer
 
 
 logger = logging.getLogger(__name__)
