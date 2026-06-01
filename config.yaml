@@ -141,6 +141,9 @@ search:
   bm25_b: 0.75               # BM25 document length normalization
   bm25_top_k: 50             # BM25 coarse retrieval count
   vector_top_k: 50           # Vector coarse retrieval count
+  rerank_enabled: true       # Cross-Encoder reranker for precision refinement
+  rerank_model: "BAAI/bge-reranker-v2-m3"  # reranker model (lazy-loaded on first use)
+  rerank_top_k: 20           # reranker coarse candidate pool size
 
 # Story watching — track ongoing news stories and detect follow-up coverage
 story_watch:

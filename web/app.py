@@ -91,7 +91,7 @@ _shared_hybrid_searcher = None
 def _get_hybrid_searcher():
     global _shared_hybrid_searcher
     if _shared_hybrid_searcher is None:
-        from data.hybrid_search import BM25Index, HybridSearcher
+        from data.hybrid_search import BM25Index, HybridSearcher, Reranker
         from data.store import DataStore
 
         vs = _get_vector_store()
@@ -103,7 +103,8 @@ def _get_hybrid_searcher():
         )
         store.rebuild_bm25_index()
         cfg = _config.get("search", {}) if _config else {}
-        _shared_hybrid_searcher = HybridSearcher(bm25_index, vs, cfg)
+        reranker = Reranker(model_name=cfg.get("rerank_model"))
+        _shared_hybrid_searcher = HybridSearcher(bm25_index, vs, cfg, reranker=reranker)
     return _shared_hybrid_searcher
 
 
