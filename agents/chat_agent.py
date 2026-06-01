@@ -19,6 +19,7 @@ Key design decisions:
 - Return context stats in every response so the frontend can surface usage
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -507,9 +508,10 @@ Fetch（httpx/Playwright 抓取网页）→ Parse（LLM 提取新闻+分类打�
 | 问项目本身的问题 | 不调用工具 | "有哪些监控站点？""系统是怎么工作的？" |
 
 **规则**：
-- 一次只调用一个工具，等待结果后再决定下一步
+- **并行调用**：如果多个工具之间不依赖彼此结果（如同时查两个站点、或同时查新闻+站点状态），可以在同一轮并行调用多个工具，系统会自动并发执行
+- **串行调用**：如果工具 B 依赖工具 A 的结果（如先搜索再抓取），用两轮分别调用
+- 判断标准：问自己"第二个工具的参数是否需要第一个工具的返回结果？"如果是 → 串行；如果否 → 并行
 - 最多调用 3 轮工具；如果 3 轮后仍无法回答，如实说明
-- 如果用户问题需要多个工具配合，先查列表（search_news），再查详情（fetch_article）
 - query_news 和 search_semantic 是旧版工具，仍可使用但推荐用 search_news
 
 # 思考流程
@@ -1523,30 +1525,48 @@ class ChatAgent(BaseAgent):
             )
 
             if result.tool_calls:
+                # Parse all tool calls first
+                parsed = []
                 for tc in result.tool_calls:
                     fn = tc["function"]
                     args = json.loads(fn["arguments"]) if fn["arguments"] else {}
-                    result_text = await self._execute_tool(fn["name"], args)
-                    tool_calls_log.append(
-                        {"tool": fn["name"], "args": args, "result": result_text[:200]}
-                    )
+                    parsed.append((tc, fn, args))
 
-                    assistant_msg = {
-                        "role": "assistant",
-                        "tool_calls": [tc],
-                    }
+                # Execute all tools in parallel within this round
+                async def _run(tc, fn, args):
+                    try:
+                        return tc, fn, args, await self._execute_tool(fn["name"], args)
+                    except Exception as e:
+                        return tc, fn, args, f"[工具错误] {e}"
+
+                exec_results = await asyncio.gather(
+                    *[_run(tc, fn, args) for tc, fn, args in parsed]
+                )
+
+                # ONE assistant message with ALL tool_calls
+                assistant_msg = {
+                    "role": "assistant",
+                    "tool_calls": result.tool_calls,
+                }
+                messages.append(assistant_msg)
+                self._history.append(assistant_msg)
+
+                for tc, fn, args, result_text in exec_results:
+                    tool_calls_log.append(
+                        {
+                            "tool": fn["name"],
+                            "args": args,
+                            "result": str(result_text)[:200],
+                        }
+                    )
                     tool_msg = {
                         "role": "tool",
                         "tool_call_id": tc["id"],
-                        "content": result_text,
+                        "content": str(result_text),
                     }
-
-                    # Append to both working messages and persistent history
-                    messages.append(assistant_msg)
                     messages.append(tool_msg)
-                    self._history.append(assistant_msg)
                     self._history.append(tool_msg)
-                    tool_msg_indices.extend([-2, -1])  # track for potential rollback
+                    tool_msg_indices.extend([-2, -1])
                 continue  # next tool-calling round
 
             # Final assistant reply (no more tool calls)
@@ -1648,38 +1668,58 @@ class ChatAgent(BaseAgent):
             )
 
             if result.tool_calls:
-                # Emit thinking event before executing tools
-                thinking = result.content or ""
-                if not thinking:
-                    names = [
-                        self._tool_name_zh(tc["function"]["name"])
-                        for tc in result.tool_calls
-                    ]
-                    thinking = "正在" + "、".join(names)
-                yield self._sse("thinking", {"text": thinking, "round": _round + 1})
-
+                # Parse all tool calls first
+                parsed = []
                 for tc in result.tool_calls:
                     fn = tc["function"]
                     args = json.loads(fn["arguments"]) if fn["arguments"] else {}
-                    yield self._sse("tool_call", {"tool": fn["name"], "args": args})
-                    result_text = await self._execute_tool(fn["name"], args)
-                    tool_calls_log.append(
-                        {"tool": fn["name"], "args": args, "result": result_text[:200]}
-                    )
-                    yield self._sse("tool_result", {"result": result_text[:200]})
+                    parsed.append((tc, fn, args))
 
-                    assistant_msg = {
-                        "role": "assistant",
-                        "tool_calls": [tc],
-                    }
+                # Emit thinking event before executing tools
+                thinking = result.content or ""
+                if not thinking:
+                    names = [self._tool_name_zh(fn["name"]) for _, fn, _ in parsed]
+                    thinking = "正在" + "、".join(names)
+                yield self._sse("thinking", {"text": thinking, "round": _round + 1})
+
+                # Execute all tools in parallel within this round
+                async def _run(tc, fn, args):
+                    try:
+                        result_text = await self._execute_tool(fn["name"], args)
+                        return tc, fn, args, result_text
+                    except Exception as e:
+                        return tc, fn, args, f"[工具错误] {e}"
+
+                exec_results = await asyncio.gather(
+                    *[_run(tc, fn, args) for tc, fn, args in parsed]
+                )
+
+                for tc, fn, args, result_text in exec_results:
+                    yield self._sse("tool_call", {"tool": fn["name"], "args": args})
+                    yield self._sse("tool_result", {"result": str(result_text)[:200]})
+
+                # ONE assistant message with ALL tool_calls
+                assistant_msg = {
+                    "role": "assistant",
+                    "tool_calls": result.tool_calls,
+                }
+                messages.append(assistant_msg)
+                self._history.append(assistant_msg)
+
+                for tc, fn, args, result_text in exec_results:
+                    tool_calls_log.append(
+                        {
+                            "tool": fn["name"],
+                            "args": args,
+                            "result": str(result_text)[:200],
+                        }
+                    )
                     tool_msg = {
                         "role": "tool",
                         "tool_call_id": tc["id"],
-                        "content": result_text,
+                        "content": str(result_text),
                     }
-                    messages.append(assistant_msg)
                     messages.append(tool_msg)
-                    self._history.append(assistant_msg)
                     self._history.append(tool_msg)
                 continue  # next tool round
 
