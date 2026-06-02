@@ -28,12 +28,71 @@
       "anomaly_type": "volume_spike",
       "message": "volume_spike: current=975, baseline=193.4",
       "time": "2026-06-01T17:27:58"
+    },
+    {
+      "type": "anomaly",
+      "site": "openai_blog",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=978, baseline=215.8",
+      "time": "2026-06-02T13:33:41"
+    },
+    {
+      "type": "keyword",
+      "keyword": "AI",
+      "title": "OpenAI appoints Denise Dresser as Chief Revenue Officer",
+      "time": "2026-06-02T18:02:48"
+    },
+    {
+      "type": "anomaly",
+      "site": "openai_blog",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=979, baseline=216.2",
+      "time": "2026-06-02T19:32:57"
+    },
+    {
+      "type": "anomaly",
+      "site": "baidu_news",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=241, baseline=39.6",
+      "time": "2026-06-02T19:34:07"
+    },
+    {
+      "type": "anomaly",
+      "site": "sina_news",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=342, baseline=107.8",
+      "time": "2026-06-02T20:13:29"
+    },
+    {
+      "type": "anomaly",
+      "site": "openai_blog",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=979, baseline=216.6",
+      "time": "2026-06-02T22:14:15"
+    },
+    {
+      "type": "anomaly",
+      "site": "sina_news",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=347, baseline=108.8",
+      "time": "2026-06-02T22:14:33"
+    },
+    {
+      "type": "anomaly",
+      "site": "baidu_news",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=241, baseline=52.6",
+      "time": "2026-06-02T23:23:08"
     }
   ],
   "keywords": [
     {
       "keyword": "AI",
       "created_at": "2026-05-31T23:11:57"
+    },
+    {
+      "keyword": "芯片",
+      "created_at": "2026-06-02T23:38:31"
     }
   ]
 }

@@ -36,7 +36,7 @@
 - **结构化日志**：Pipeline 级别 trace_id + JSON 事件日志（pipeline_start/skip/done/error），支持根因分析
 - **健康检查**：`/api/health` 端点，返回服务状态、scheduler 运行状态、最后一次 pipeline 执行时间
 - **Windows 兼容**：信号处理兼容 Windows 平台，schedule 模式可正常 Ctrl+C 退出
-- **252 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
+- **68 个精简测试**：pytest + pre-commit + ruff lint + GitHub Actions CI（~1.9s 执行）
 - **成本追踪**：Token 用量按站点聚合入库，`/api/cost` 端点查询，支持按天数筛选
 - **LLM 输出评估**：离线评估工具 `eval/judge.py`，faithfulness/relevance 双维度评分
 - **流式输出**：Chat 助手 SSE 流式输出，逐字显示回复，工具调用过程实时可见
@@ -180,21 +180,8 @@ Visualization/
 ├── evolution/
 │   ├── memory.py                  # 运行指标记录
 │   └── optimizer.py               # 自进化：Prompt 调优 + 调度频率自适应
-├── tests/                         # 252 个测试
-│   ├── test_base_agent.py         # LLM JSON 解析容错测试
-│   ├── test_llm_provider.py       # Provider 工厂 + 工具转换测试
-│   ├── test_fetcher.py            # HTML 清洗 + 哈希测试
-│   ├── test_parser.py             # 过滤 + 章节匹配 + DOM 提取 + Profile 测试
-│   ├── test_analyzer.py           # Diff + 标签分布 + 趋势测试
-│   ├── test_sentiment.py          # 中文情感分类测试
-│   ├── test_data_store.py         # 快照 CRUD + 查询 + 运行日志
-│   ├── test_alert_store.py        # 告警 CRUD + 冷却 + 匹配测试
-│   ├── test_deep_analyzer.py      # 深度分析 + 事件聚类 + 实体提取 + 时间线
-│   ├── test_clustering.py         # 余弦相似度 + Union-Find 聚类
-│   ├── test_evolution.py          # 调度 + 提示词调优测试
-│   ├── test_chat_agent.py         # ChatAgent 上下文管理 + Token 估算测试
-│   ├── test_notifications.py      # 通知创建 + 事件构建测试
-│   └── test_eval.py               # LLM 输出评估评分解析测试
+├── tests/                         # 68 个精简测试
+│   └── test_core.py               # 纯逻辑测试（JSON/情感/Hash/余弦/聚类/链接校验/协调器/输入校验/上下文管理/Key解析/进化记忆/Web API）
 ├── outputs/
 │   ├── charts/                    # 生成的 PNG 图表（6 组目录）
 │   │   ├── today/                 # 今日最新
@@ -330,6 +317,6 @@ Visualization/
 | 可视化 | matplotlib（SimHei 中文字体） |
 | 调度 | APScheduler (AsyncIOScheduler) |
 | 通知 | 钉钉 / 企业微信 / SMTP 邮件 |
-| 测试 | pytest（252 tests）+ ruff + pre-commit |
+| 测试 | pytest（68 tests, ~1.9s）+ ruff + pre-commit |
 | CI/CD | GitHub Actions |
 | 部署 | Docker + Docker Compose |

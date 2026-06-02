@@ -1,10 +1,18 @@
 {
   "sina_news": {
-    "timestamp": "2026-06-02T12:53:03.844030",
+    "timestamp": "2026-06-02T23:31:00.401456",
     "old_interval": 120,
     "new_interval": 60,
     "action": "increased_frequency",
-    "change_freq_before": 0.75,
-    "runs_at_time": 24
+    "change_freq_before": 0.81,
+    "runs_at_time": 32
+  },
+  "openai_blog": {
+    "timestamp": "2026-06-02T23:30:33.696179",
+    "old_interval": 360,
+    "new_interval": 180,
+    "action": "increased_frequency",
+    "change_freq_before": 0.74,
+    "runs_at_time": 38
   }
 }

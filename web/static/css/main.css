@@ -56,6 +56,14 @@ header .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--gre
 header .dot.offline { background: var(--red); box-shadow: 0 0 6px var(--red); }
 header .header-actions { display: flex; gap: 8px; align-items: center; }
 
+/* ── Hamburger ────────────────────────────────────────────────── */
+.hamburger {
+  display: none; background: none; border: none; font-size: 22px;
+  cursor: pointer; color: var(--text-secondary); padding: 4px 8px;
+  border-radius: var(--radius-sm); transition: all var(--transition);
+}
+.hamburger:hover { color: var(--accent); background: var(--bg-soft); }
+
 /* ── Theme Toggle ─────────────────────────────────────────────── */
 .theme-toggle {
   background: var(--bg-soft); border: 1px solid var(--border);
@@ -101,6 +109,7 @@ header .header-actions { display: flex; gap: 8px; align-items: center; }
 .chat-container {
   flex: 1; display: flex; flex-direction: column;
   padding: 16px 24px; max-width: 900px; margin: 0 auto; width: 100%;
+  min-height: 0; overflow: hidden;
 }
 .chat-header {
   display: flex; justify-content: space-between; align-items: center;
@@ -197,6 +206,24 @@ header .header-actions { display: flex; gap: 8px; align-items: center; }
   background: var(--accent-soft); border-left: 3px solid var(--accent);
   font-size: 12px; color: var(--muted); align-self: flex-start; max-width: 85%;
   transition: opacity 0.5s; animation: fadeSlideIn 0.25s ease;
+}
+
+/* ── Tool Results Block (inside chat bubble) ──────────────────── */
+.tool-results-block { margin-bottom: 10px; }
+.tool-result-detail {
+  margin: 4px 0; padding: 6px 10px; background: var(--bg-soft);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 12px; color: var(--text-secondary);
+}
+.tool-result-detail summary {
+  cursor: pointer; font-weight: 600; font-size: 12px; color: var(--accent);
+  padding: 2px 0; outline: none;
+}
+.tool-result-detail pre {
+  margin: 6px 0 0 0; padding: 8px; background: var(--bg);
+  border-radius: 4px; font-size: 11px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-all;
+  max-height: 200px; overflow-y: auto; color: var(--text-secondary);
 }
 
 /* ── Tool Call Chip ───────────────────────────────────────────── */
@@ -404,6 +431,7 @@ tr:hover td { background: var(--accent-soft); }
 
 /* ── Responsive ───────────────────────────────────────────────── */
 @media (max-width: 768px) {
+  .hamburger { display: block; }
   .sidebar { position: fixed; left: 0; top: var(--header-h); bottom: 0;
     z-index: 90; transform: translateX(-100%); }
   .sidebar.open { transform: translateX(0); }

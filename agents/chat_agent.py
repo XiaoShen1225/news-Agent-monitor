@@ -386,6 +386,14 @@ class ChatAgent(BaseAgent):
                 continue
 
             reply = result.content or ""
+            if not reply.strip():
+                # Fallback: retry without tool binding (some models return empty
+                # content when tool_calls are present but not executed)
+                try:
+                    fallback = await self.model.ainvoke(messages)
+                    reply = fallback.content or "抱歉，请换个方式提问。"
+                except Exception:
+                    reply = "抱歉，请换个方式提问。"
             self._history.append({"role": "assistant", "content": reply})
 
             await self._maybe_compress()
@@ -533,6 +541,13 @@ class ChatAgent(BaseAgent):
                     yield self._sse("token", chunk.content)
 
             reply = "".join(reply_parts)
+            if not reply.strip():
+                try:
+                    fallback = await self.model.ainvoke(messages)
+                    reply = fallback.content or "抱歉，请换个方式提问。"
+                except Exception:
+                    reply = "抱歉，请换个方式提问。"
+                yield self._sse("token", reply)
             self._history.append({"role": "assistant", "content": reply})
 
             await self._maybe_compress()

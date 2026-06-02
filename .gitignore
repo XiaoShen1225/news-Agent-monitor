@@ -13,6 +13,8 @@ venv/
 # Data (exclude runtime data, keep directory structure)
 data/monitor.db
 data/papers.db
+*.db-shm
+*.db-wal
 data/history/*.json
 data/papers_history/*.json
 data/evolution_memory.json

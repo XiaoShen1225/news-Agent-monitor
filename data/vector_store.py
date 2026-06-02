@@ -4,9 +4,6 @@ import logging
 import os
 from pathlib import Path
 
-import chromadb
-from chromadb.utils import embedding_functions
-
 # Use HF mirror for China if no endpoint set
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
@@ -34,6 +31,9 @@ class VectorStore:
     """Manages a ChromaDB collection for semantic search over news items."""
 
     def __init__(self, persist_dir: str = "data/vector_db"):
+        import chromadb
+        from chromadb.utils import embedding_functions
+
         self.persist_dir = Path(persist_dir)
         self.persist_dir.mkdir(parents=True, exist_ok=True)
         self._client = chromadb.PersistentClient(path=str(self.persist_dir))

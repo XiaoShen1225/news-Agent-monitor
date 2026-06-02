@@ -394,11 +394,20 @@ async def _cmd_serve_async(config: dict, port: int):
     scheduler = AsyncIOScheduler()
     default_interval = config.get("scheduler", {}).get("default_interval_minutes", 60)
 
-    logger.info("Running initial fetch for %d targets...", len(targets))
-    try:
-        await coordinator.run_all_targets_async()
-    except Exception as e:
-        logger.error("Initial batch fetch failed: %s", e)
+    # Defer initial fetch to background so the server starts immediately.
+    # Deep analysis (vector model download + LLM entity extraction) can take
+    # 30-60s on first run — blocking startup creates a poor UX.
+    async def _initial_fetch():
+        await asyncio.sleep(2)  # let server bind port first
+        logger.info(
+            "Running initial fetch for %d targets (background)...", len(targets)
+        )
+        try:
+            await coordinator.run_all_targets_async()
+        except Exception as e:
+            logger.error("Initial batch fetch failed: %s", e)
+
+    asyncio.create_task(_initial_fetch())
 
     for target in targets:
         name = target["name"]

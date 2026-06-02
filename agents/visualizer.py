@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """VisualizationAgent: generate static PNG charts with chart retention policy.
 
 Chart sets:
@@ -9,20 +11,53 @@ Chart sets:
   total/         - Aggregate historical trends, updated every run
 """
 
-import logging
-import shutil
-from pathlib import Path
-from datetime import date
-from calendar import monthrange
+import logging  # noqa: E402
+import shutil  # noqa: E402
+from pathlib import Path  # noqa: E402
+from datetime import date  # noqa: E402
+from calendar import monthrange  # noqa: E402
 
-import matplotlib
+from .base_agent import BaseAgent  # noqa: E402
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
-import numpy as np
+# Heavy imports deferred — matplotlib/numpy load is ~1s and unnecessary
+# for tests that only import CoordinatorAgent (which pulls in VisualizerAgent).
+_plt = None
+_np = None
+_fm = None
 
-from .base_agent import BaseAgent
+
+def _get_plt():
+    global _plt, _np, _fm
+    if _plt is None:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as _plt_module
+        import matplotlib.font_manager as _fm_module
+        import numpy as _np_module
+
+        _plt = _plt_module
+        _fm = _fm_module
+        _np = _np_module
+    return _plt, _np, _fm
+
+
+class _LazyModule:
+    """Proxy that defers module import until first attribute access."""
+
+    def __init__(self, loader):
+        self._loader = loader
+        self._module = None
+
+    def __getattr__(self, name):
+        if self._module is None:
+            self._module = self._loader()
+        return getattr(self._module, name)
+
+
+plt = _LazyModule(lambda: _get_plt()[0])
+np = _LazyModule(lambda: _get_plt()[1])
+fm = _LazyModule(lambda: _get_plt()[2])
 
 logger = logging.getLogger(__name__)
 

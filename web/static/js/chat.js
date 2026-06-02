@@ -64,6 +64,7 @@ async function sendChat(){
     var res=await fetch('/api/chat/stream',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({message:msg,session_id:sid}),signal:chatAbortController.signal});
     var reader=res.body.getReader();var decoder=new TextDecoder();var buffer='';var tc=null;
+    var toolResults=[];var toolResultsRendered=false;
     var container=document.getElementById('chat-messages');
     var cb=document.getElementById('chat-context-bar');var cf=document.getElementById('chat-context-fill');
     var ct=document.getElementById('chat-context-text');
@@ -76,10 +77,24 @@ async function sendChat(){
         if(line.startsWith('event: '))event=line.slice(7);
         else if(line.startsWith('data: ')){data=line.slice(6);
           if(event&&data){try{var parsed=JSON.parse(data);
-            if(event==='token'){aiContent.textContent+=parsed;container.scrollTop=container.scrollHeight;}
+            if(event==='token'){
+              if(!toolResultsRendered&&toolResults.length>0){toolResultsRendered=true;
+                var trBlock='<div class="tool-results-block">';
+                for(var j=0;j<toolResults.length;j++){
+                  var tr=toolResults[j];var rText=tr.result||'';if(rText.length>800)rText=rText.slice(0,800)+'...';
+                  trBlock+='<details class="tool-result-detail"><summary>\u{1F527} '+tr.name+'</summary><pre>'+rText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</pre></details>';
+                }
+                trBlock+='</div>';aiContent.innerHTML=trBlock;
+              }
+              aiContent.innerHTML+=parsed.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+              container.scrollTop=container.scrollHeight;
+            }
             else if(event==='thinking'){if(!tc){tc=document.createElement('div');tc.className='thinking-card';container.appendChild(tc);}tc.textContent=parsed.text;container.scrollTop=container.scrollHeight;}
             else if(event==='tool_call'){var chip=document.createElement('span');chip.className='tool-call-chip';chip.textContent=parsed.tool;traceEl.appendChild(chip);}
-            else if(event==='tool_result'){var chips=traceEl.querySelectorAll('span');if(chips.length>0){var last=chips[chips.length-1];last.textContent+=' \u2713';last.style.color='var(--green)';}}
+            else if(event==='tool_result'){
+              var chips=traceEl.querySelectorAll('span');if(chips.length>0){var last=chips[chips.length-1];last.textContent+=' \u2713';last.style.color='var(--green)';}
+              toolResults.push({name:parsed.tool,result:parsed.result});
+            }
             else if(event==='status'){traceEl.innerHTML='<span style="font-size:11px;color:var(--muted)">'+parsed+'</span>';}
             else if(event==='context'){cb.style.display='flex';var mx=parsed.max_history_tokens||4000;var pct=Math.min(100,(parsed.history_tokens/mx)*100);cf.style.width=pct+'%';ct.textContent=parsed.history_tokens+'/'+mx+' tokens ('+(parsed.exchanges||0)+'\u8f6e)';if(pct>80)cf.style.background='#f59e0b';}
             else if(event==='done'){if(parsed.session_id)setSessionId(parsed.session_id);traceEl.innerHTML='';if(tc){tc.style.opacity='0.3';tc.style.fontSize='11px';}loadSessions();}

@@ -22,6 +22,7 @@ setInterval(function(){if(ws.readyState===WebSocket.OPEN)ws.send('ping');},30000
 setInterval(function(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();},1000);
 
 var currentDrawer=null;
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');}
 function focusChat(){closeDrawer();document.getElementById('chat-input').focus();}
 function openDrawer(name){
 currentDrawer=name;
