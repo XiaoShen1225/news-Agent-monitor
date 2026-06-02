@@ -179,13 +179,7 @@ class CoordinatorAgent(BaseAgent):
             items = parse_result["items"]
             confidence = parse_result["extraction_confidence"]
 
-            # Step 3b: Enrich items without published time from article pages
-            items = await self.parser.enrich_times(items)
-            # For browser-based sites, use Playwright to enrich baidu-domain articles
-            if use_browser:
-                items = await self._enrich_times_browser(items)
-
-            # Step 3c: Sentiment labeling (rule-based, no LLM cost)
+            # Step 3b: Sentiment labeling (rule-based, no LLM cost)
             for item in items:
                 if not item.get("sentiment"):
                     item["sentiment"] = classify(item.get("title", ""))
@@ -368,60 +362,6 @@ class CoordinatorAgent(BaseAgent):
         return result
 
     # ── Article time enrichment via Playwright ─────────────────────────
-
-    async def _enrich_times_browser(self, items: list, max_fetch: int = 15) -> list:
-        """Use Playwright browser to fetch article pages and extract publication times."""
-        import re
-
-        need_enrich = [(i, it) for i, it in enumerate(items) if not it.get("published")]
-        if not need_enrich:
-            return items
-
-        limit = min(len(need_enrich), max_fetch)
-        time_pat = re.compile(
-            r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}[日号]?(?:\s*\d{1,2}:\d{2}(?::\d{2})?)?)"
-        )
-
-        try:
-            browser = await self.fetcher._ensure_browser()
-            if browser is None:
-                return items
-
-            context = await browser.new_context(
-                viewport={"width": 1280, "height": 720},
-            )
-            page = await context.new_page()
-            enriched = 0
-
-            for _, item in need_enrich[:limit]:
-                try:
-                    await page.goto(
-                        item["url"],
-                        timeout=15000,
-                        wait_until="domcontentloaded",
-                    )
-                    await page.wait_for_timeout(1000)
-                    text = await page.evaluate("() => document.body.innerText")
-                    m = time_pat.search(text[:5000])
-                    if m:
-                        item["published"] = m.group(1)
-                        enriched += 1
-                except Exception:
-                    pass
-
-            try:
-                await context.close()
-            except Exception:
-                pass  # browser already torn down, ignore cleanup error
-            logger.info(
-                "[Coordinator] Browser-enriched %d/%d items with times",
-                enriched,
-                limit,
-            )
-        except Exception as e:
-            logger.warning("[Coordinator] Browser time enrichment failed: %s", e)
-
-        return items
 
     # ── async multi-target (concurrent) ─────────────────────────────
 

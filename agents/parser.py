@@ -9,7 +9,6 @@ from collections import Counter
 from pathlib import Path
 from urllib.parse import urljoin
 
-import httpx
 import yaml
 from bs4 import BeautifulSoup, NavigableString
 
@@ -402,61 +401,6 @@ class ParserAgent(BaseAgent):
         return {"items": items, "extraction_confidence": confidence, "raw_response": ""}
 
     # ── Article-level time enrichment ─────────────────────────────────
-
-    # Patterns for extracting time from article page text
-    _ARTICLE_TIME_PATTERNS = [
-        re.compile(
-            r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}[日号]?(?:\s*\d{1,2}:\d{2}(?::\d{2})?)?)"
-        ),
-        re.compile(r"(\d{1,2}:\d{2}\s+\d{4}[-/年]\d{1,2}[-/月]\d{1,2}[日号]?)"),
-    ]
-
-    async def enrich_times(self, items: list, max_fetch: int = 20) -> list:
-        """For items without 'published', fetch article page and extract time."""
-        need_enrich = [(i, it) for i, it in enumerate(items) if not it.get("published")]
-        if not need_enrich:
-            return items
-
-        limit = min(len(need_enrich), max_fetch)
-        sem = asyncio.Semaphore(5)  # max 5 concurrent fetches
-
-        async def _fetch_one(idx: int, item: dict):
-            async with sem:
-                try:
-                    async with httpx.AsyncClient(timeout=10) as client:
-                        resp = await client.get(
-                            item["url"],
-                            headers={
-                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                                "Accept-Language": "zh-CN,zh;q=0.9",
-                            },
-                            follow_redirects=True,
-                        )
-                        if resp.status_code == 200:
-                            text = resp.text[:20000]  # first 20KB is enough
-                            for pat in self._ARTICLE_TIME_PATTERNS:
-                                m = pat.search(text)
-                                if m:
-                                    return idx, m.group(1)
-                except Exception:
-                    pass
-            return idx, None
-
-        tasks = [_fetch_one(i, it) for i, it in need_enrich[:limit]]
-        results = await asyncio.gather(*tasks)
-
-        enriched = 0
-        for idx, extracted_time in results:
-            if extracted_time:
-                items[idx]["published"] = extracted_time
-                enriched += 1
-
-        logger.info(
-            "[Parser] Enriched %d/%d items with article-level times",
-            enriched,
-            min(len(need_enrich), max_fetch),
-        )
-        return items
 
     # ── validation ──────────────────────────────────────────────────
 
