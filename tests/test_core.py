@@ -520,7 +520,7 @@ async def _async_gen():
 def _patch_web_runtime():
     import web.app as app_module
 
-    app_module._config = {
+    app_config = {
         "targets": [{"url": "https://x.com", "name": "test", "use_browser": False}],
         "llm": {"api_key": "test"},
         "storage": {"max_snapshots_per_site": 10},
@@ -530,9 +530,10 @@ def _patch_web_runtime():
     mc = MagicMock()
     mc.store = None
     mc.paper_store = None
-    app_module._coordinator = mc
-    app_module._scheduler = MagicMock()
-    app_module._scheduler.running = True
+    app_module.ctx.coordinator = mc
+    app_module.ctx.scheduler = MagicMock()
+    app_module.ctx.scheduler.running = True
+    app_module.ctx.config = app_config
 
     mock_chat = MagicMock()
     mock_chat.chat.return_value = {"reply": "ok", "tool_calls": [], "context": {}}
@@ -542,10 +543,10 @@ def _patch_web_runtime():
     mock_chat.context_stats.return_value = {"history_tokens": 0, "exchanges": 0}
     mock_chat.clear_history.return_value = None
     mock_chat.list_sessions.return_value = []
-    app_module._chat_agent = mock_chat
+    app_module.ctx.chat_agent = mock_chat
 
     yield
-    app_module._chat_agent = None
+    app_module.ctx.chat_agent = None
 
 
 @pytest.fixture
@@ -620,10 +621,10 @@ class TestWebAPI:
     def test_trigger_run_no_coord(self, client):
         import web.app as app_module
 
-        saved = app_module._coordinator
-        app_module._coordinator = None
+        saved = app_module.ctx.coordinator
+        app_module.ctx.coordinator = None
         try:
             r = client.post("/api/trigger-run?site=x&url=https://x.com")
             assert r.status_code == 503
         finally:
-            app_module._coordinator = saved
+            app_module.ctx.coordinator = saved

@@ -298,11 +298,13 @@ def cmd_serve(config: dict, port: int = 8080):
 
 async def _cmd_serve_async(config: dict, port: int):
     import uvicorn
-    from web.app import app, ws_manager, set_runtime_refs, set_scheduler, set_notifiers
+    from web.app import app, ws_manager
+    from web.app_context import ctx
 
     coordinator, notifiers, __, memory = _create_coordinator(config)
-    set_runtime_refs(coordinator, config)
-    set_notifiers(notifiers)
+    ctx.coordinator = coordinator
+    ctx.config = config
+    ctx.notifiers = notifiers or []
 
     targets = config.get("targets", [])
     if not targets:
@@ -410,10 +412,11 @@ async def _cmd_serve_async(config: dict, port: int):
         report_sites = auto_cfg.get("include_sites") or [t["name"] for t in targets]
 
         async def _daily_report_job():
-            from web.app import _get_chat_agent, _notifiers as _nr
+            from web.app import _get_chat_agent
             from notifications.dispatcher import PipelineEvent, notify_all
 
             agent = _get_chat_agent()
+            _nr = ctx.notifiers
             result = await agent.generate_daily_report(report_sites)
             event = PipelineEvent(
                 site_name="all",
@@ -443,7 +446,7 @@ async def _cmd_serve_async(config: dict, port: int):
         logger.info("Daily report scheduled at %02d:%02d", hour, minute)
 
     scheduler.start()
-    set_scheduler(scheduler)
+    ctx.scheduler = scheduler
 
     print("\n" + "=" * 60)
     print(f"  Dashboard: http://127.0.0.1:{port}")

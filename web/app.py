@@ -11,6 +11,8 @@ from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from .app_context import ctx
+
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -74,37 +76,25 @@ class ConnectionManager:
 
 ws_manager = ConnectionManager()
 
-# Shared VectorStore instance — loading the embedding model is expensive,
-# so reuse a single instance across all /api/search requests.
-_shared_vector_store = None
-
 
 def _get_vector_store():
-    global _shared_vector_store
-    if _shared_vector_store is None:
-        import logging
-
+    if ctx.vector_store is None:
         try:
             from data.vector_store import VectorStore
 
-            _shared_vector_store = VectorStore(str(VECTOR_DB_DIR))
+            ctx.vector_store = VectorStore(str(VECTOR_DB_DIR))
         except Exception as e:
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "VectorStore init failed (model download/network): %s. "
                 "Semantic search and deep analysis will be unavailable.",
                 e,
             )
-            _shared_vector_store = None
-    return _shared_vector_store
-
-
-# Shared HybridSearcher — BM25 + Vector + RRF fusion
-_shared_hybrid_searcher = None
+            ctx.vector_store = None
+    return ctx.vector_store
 
 
 def _get_hybrid_searcher():
-    global _shared_hybrid_searcher
-    if _shared_hybrid_searcher is None:
+    if ctx.hybrid_searcher is None:
         from data.hybrid_search import BM25Index, HybridSearcher, Reranker
         from data.store import DataStore
 
@@ -117,10 +107,10 @@ def _get_hybrid_searcher():
         )
         if bm25_index.doc_count == 0:
             store.rebuild_bm25_index()
-        cfg = _config.get("search", {}) if _config else {}
+        cfg = ctx.config.get("search", {}) if ctx.config else {}
         reranker = Reranker(model_name=cfg.get("rerank_model"))
-        _shared_hybrid_searcher = HybridSearcher(bm25_index, vs, cfg, reranker=reranker)
-    return _shared_hybrid_searcher
+        ctx.hybrid_searcher = HybridSearcher(bm25_index, vs, cfg, reranker=reranker)
+    return ctx.hybrid_searcher
 
 
 # ── helpers ────────────────────────────────────────────────────────
@@ -160,26 +150,20 @@ def _get_data_store():
     )
 
 
-_alert_store = None
-_story_watch_store = None
-
-
 def _get_alert_store():
-    global _alert_store
-    if _alert_store is None:
+    if ctx.alert_store is None:
         from data.alert_store import AlertStore
 
-        _alert_store = AlertStore()
-    return _alert_store
+        ctx.alert_store = AlertStore()
+    return ctx.alert_store
 
 
 def _get_story_watch_store():
-    global _story_watch_store
-    if _story_watch_store is None:
+    if ctx.story_watch_store is None:
         from data.story_watch import StoryWatchStore
 
-        _story_watch_store = StoryWatchStore()
-    return _story_watch_store
+        ctx.story_watch_store = StoryWatchStore()
+    return ctx.story_watch_store
 
 
 def _is_similar_title(a: str, b: str, threshold: float = 0.85) -> bool:
@@ -363,7 +347,7 @@ def _build_chart_data(site_name: str, store) -> dict:
 @app.get("/api/targets")
 async def api_targets():
     """Return configured monitoring targets."""
-    targets = _config.get("targets", []) if _config else []
+    targets = ctx.config.get("targets", []) if ctx.config else []
     return {
         "targets": [
             {
@@ -428,8 +412,8 @@ async def api_papers(
 @app.get("/api/schedule")
 async def api_schedule_status():
     """Return current scheduler status and config."""
-    targets = _config.get("targets", []) if _config else []
-    scheduler_cfg = _config.get("scheduler", {}) if _config else {}
+    targets = ctx.config.get("targets", []) if ctx.config else []
+    scheduler_cfg = ctx.config.get("scheduler", {}) if ctx.config else {}
     return {
         "targets": [
             {
@@ -680,7 +664,7 @@ async def api_summarize(
     """Fetch article content and return an LLM-generated summary."""
     from agents.base_agent import BaseAgent
 
-    if not _config:
+    if not ctx.config:
         return JSONResponse({"error": "LLM not configured"}, status_code=503)
 
     agent = None
@@ -719,7 +703,7 @@ async def api_summarize(
         text = text[:3000]
 
         # Step 3: LLM summarize
-        agent = BaseAgent("Summarizer", _config)
+        agent = BaseAgent("Summarizer", ctx.config)
         summary = await agent.call_llm_async(
             system_prompt="你是一个新闻摘要助手。用 2-3 句中文简洁准确地概括文章核心内容，不超过 120 字。",
             user_prompt=f"标题：{title}\n\n文章内容：\n{text}\n\n请用中文摘要这篇文章的要点。",
@@ -750,8 +734,8 @@ async def api_summarize(
 def _resolve_dashboard_token() -> str | None:
     """Resolve dashboard token from config, supporting ${ENV_VAR} syntax."""
     raw = ""
-    if _config:
-        raw = _config.get("dashboard", {}).get("token", "")
+    if ctx.config:
+        raw = ctx.config.get("dashboard", {}).get("token", "")
     if not raw:
         return None
     if raw.startswith("${") and raw.endswith("}"):
@@ -759,14 +743,10 @@ def _resolve_dashboard_token() -> str | None:
     return raw.strip() or None
 
 
-_dashboard_token: str | None = None
-
-
 def _get_effective_token() -> str | None:
-    global _dashboard_token
-    if _dashboard_token is None:
-        _dashboard_token = _resolve_dashboard_token()
-    return _dashboard_token
+    if ctx.dashboard_token is None:
+        ctx.dashboard_token = _resolve_dashboard_token()
+    return ctx.dashboard_token
 
 
 @app.middleware("http")
@@ -813,31 +793,28 @@ async def api_auth(request: Request):
 # ── Action endpoints (CLI features in dashboard) ────────────────────
 
 # Coordinator reference — set by _cmd_serve_async on startup
-_coordinator = None
-_config = None
+ctx.coordinator = None
+ctx.config = None
 _app_start = datetime.now()
-_last_run_time = None
-_scheduler = None
-_notifiers = []
+ctx.last_run_time = None
+ctx.scheduler = None
+ctx.notifiers = []
 
 
 def set_runtime_refs(coordinator, config: dict):
     """Called from main._cmd_serve_async to inject runtime instances."""
-    global _coordinator, _config
-    _coordinator = coordinator
-    _config = config
+    ctx.coordinator = coordinator
+    ctx.config = config
 
 
 def set_scheduler(scheduler):
     """Called from main._cmd_serve_async to inject the APScheduler instance."""
-    global _scheduler
-    _scheduler = scheduler
+    ctx.scheduler = scheduler
 
 
 def set_notifiers(notifiers):
     """Called from main._cmd_serve_async to inject notification channels."""
-    global _notifiers
-    _notifiers = notifiers or []
+    ctx.notifiers = notifiers or []
 
 
 @app.post("/api/trigger-run")
@@ -847,11 +824,11 @@ async def api_trigger_run(
     use_browser: bool = Query(False),
 ):
     """Trigger a pipeline run for a specific site."""
-    if _coordinator is None:
+    if ctx.coordinator is None:
         return JSONResponse({"error": "Coordinator not initialized"}, status_code=503)
 
     try:
-        result = await _coordinator.run_async(url, site, use_browser=use_browser)
+        result = await ctx.coordinator.run_async(url, site, use_browser=use_browser)
         return {
             "status": result.get("status"),
             "site_name": site,
@@ -870,12 +847,12 @@ async def api_trigger_run(
 async def api_refresh_all():
     """Trigger pipeline runs for all configured targets concurrently.
     Runs in background — WebSocket broadcasts results as each target completes."""
-    if _coordinator is None:
+    if ctx.coordinator is None:
         return JSONResponse({"error": "Coordinator not initialized"}, status_code=503)
 
     import asyncio as _asyncio
 
-    _asyncio.create_task(_coordinator.run_all_targets_async())
+    _asyncio.create_task(ctx.coordinator.run_all_targets_async())
     return {"status": "started", "message": "Refreshing all targets"}
 
 
@@ -891,8 +868,8 @@ async def api_reset(site: str = Query(..., min_length=1)):
         [str(PAPERS_DB_PATH)]
         if is_paper
         else [
-            _config.get("storage", {}).get("db_path", "data/monitor.db")
-            if _config
+            ctx.config.get("storage", {}).get("db_path", "data/monitor.db")
+            if ctx.config
             else str(DB_PATH),
             str(PAPERS_DB_PATH),
         ]
@@ -920,30 +897,27 @@ async def api_reset(site: str = Query(..., min_length=1)):
 
 # ── Chat assistant ──────────────────────────────────────────────────
 
-_chat_agent = None
-
 
 def _get_chat_agent():
-    global _chat_agent
-    if _chat_agent is None:
+    if ctx.chat_agent is None:
         from data.store import DataStore
         from data.alert_store import AlertStore
         from data.story_watch import StoryWatchStore
 
         from agents.chat_agent import ChatAgent
 
-        _chat_agent = ChatAgent(
-            _config or {},
+        ctx.chat_agent = ChatAgent(
+            ctx.config or {},
             news_store=DataStore(source_type="news"),
             paper_store=DataStore(source_type="paper"),
             vector_store=None,  # lazy init to avoid huggingface download on first chat
             alert_store=AlertStore(),
             story_watch=StoryWatchStore(),
             hybrid_searcher=_get_hybrid_searcher(),
-            coordinator=_coordinator,
-            evolution=_coordinator.evolution if _coordinator else None,
+            coordinator=ctx.coordinator,
+            evolution=ctx.coordinator.evolution if ctx.coordinator else None,
         )
-    return _chat_agent
+    return ctx.chat_agent
 
 
 @app.post("/api/chat")
@@ -1023,20 +997,19 @@ async def api_chat_context(session_id: str | None = None):
 
 # ── Daily Report ──────────────────────────────────────────────────
 
-_report_last_result: dict | None = None
+ctx.report_last_result: dict | None = None
 
 
 @app.post("/api/report/now")
 async def api_report_now():
     """Trigger a daily report immediately and push via notifications."""
-    global _report_last_result
     agent = _get_chat_agent()
-    cfg = (_config or {}).get("chat", {}).get("auto_report", {})
+    cfg = (ctx.config or {}).get("chat", {}).get("auto_report", {})
     sites = cfg.get("include_sites") or [
-        t.get("name") for t in (_config or {}).get("targets", [])
+        t.get("name") for t in (ctx.config or {}).get("targets", [])
     ]
     result = await agent.generate_daily_report(sites)
-    _report_last_result = result
+    ctx.report_last_result = result
 
     # Push via notification channels
     from notifications.dispatcher import PipelineEvent, notify_all
@@ -1054,20 +1027,20 @@ async def api_report_now():
         error=None,
         timestamp=result.get("generated_at", ""),
     )
-    await notify_all(_notifiers, event)
+    await notify_all(ctx.notifiers, event)
     return {"status": "sent", "report": result}
 
 
 @app.get("/api/report/schedule")
 async def api_report_schedule():
     """Get daily report schedule configuration."""
-    cfg = (_config or {}).get("chat", {}).get("auto_report", {})
+    cfg = (ctx.config or {}).get("chat", {}).get("auto_report", {})
     return {
         "enabled": cfg.get("enabled", False),
         "schedule_hour": cfg.get("schedule_hour", 9),
         "schedule_minute": cfg.get("schedule_minute", 0),
         "include_sites": cfg.get("include_sites") or "all",
-        "last_report": _report_last_result,
+        "last_report": ctx.report_last_result,
     }
 
 
@@ -1225,8 +1198,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 async def broadcast_pipeline_update(data: dict):
     """Called from coordinator after each pipeline run."""
-    global _last_run_time
-    _last_run_time = datetime.now()
+    ctx.last_run_time = datetime.now()
     await ws_manager.broadcast(data)
 
 
@@ -1250,12 +1222,14 @@ async def favicon():
 async def health():
     """Liveness/readiness probe for external monitoring."""
     uptime = (datetime.now() - _app_start).total_seconds()
-    scheduler_running = _scheduler is not None and _scheduler.running
+    scheduler_running = ctx.scheduler is not None and ctx.scheduler.running
     return {
         "status": "ok",
         "uptime_seconds": round(uptime, 1),
         "scheduler_running": scheduler_running,
-        "last_pipeline_run": _last_run_time.isoformat() if _last_run_time else None,
+        "last_pipeline_run": ctx.last_run_time.isoformat()
+        if ctx.last_run_time
+        else None,
         "version": "0.6.0",
     }
 
@@ -1264,8 +1238,8 @@ async def health():
 async def api_cost(days: int = Query(7, ge=1, le=90)):
     """Return token usage aggregated by site over the last N days."""
     results = []
-    if _coordinator is not None:
-        for store in [_coordinator.store, _coordinator.paper_store]:
+    if ctx.coordinator is not None:
+        for store in [ctx.coordinator.store, ctx.coordinator.paper_store]:
             if store is not None:
                 try:
                     results.extend(store.get_cost_summary(days=days))
