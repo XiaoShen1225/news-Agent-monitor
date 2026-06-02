@@ -642,8 +642,16 @@ class ChatAgent(BaseAgent):
                         len(self._sessions),
                         CHAT_HISTORY_FILE,
                     )
+                self._repair_all_sessions()
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("[ChatAgent] Failed to load chat history: %s", e)
+
+    def _repair_all_sessions(self):
+        """Ensure every message has a 'content' key (required by LangChain)."""
+        for sid, session in self._sessions.items():
+            for msg in session.get("history", []):
+                if "content" not in msg:
+                    msg["content"] = ""
 
     def _save_history(self):
         """Persist all sessions to JSON file."""
