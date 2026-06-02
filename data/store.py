@@ -359,6 +359,48 @@ class DataStore:
             return False
         return row[0] > datetime.now().isoformat()
 
+    def get_circuit_status(self, site_name: str = None) -> dict | list[dict]:
+        """Return circuit breaker status for one or all sites."""
+        now = datetime.now().isoformat()
+        if site_name:
+            with self._get_conn() as conn:
+                row = conn.execute(
+                    "SELECT site_name, consecutive_failures, circuit_breaker_until "
+                    "FROM site_metadata WHERE site_name = ?",
+                    (site_name,),
+                ).fetchone()
+            if not row:
+                return {
+                    "site_name": site_name,
+                    "consecutive_failures": 0,
+                    "circuit_open": False,
+                    "circuit_breaker_until": None,
+                }
+            cb_until = row[2]
+            return {
+                "site_name": row[0],
+                "consecutive_failures": row[1],
+                "circuit_open": bool(cb_until and cb_until > now),
+                "circuit_breaker_until": cb_until,
+            }
+        # All sites
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT site_name, consecutive_failures, circuit_breaker_until FROM site_metadata"
+            ).fetchall()
+        results = []
+        for row in rows:
+            cb_until = row[2]
+            results.append(
+                {
+                    "site_name": row[0],
+                    "consecutive_failures": row[1],
+                    "circuit_open": bool(cb_until and cb_until > now),
+                    "circuit_breaker_until": cb_until,
+                }
+            )
+        return results
+
     # ── Deduplication ────────────────────────────────────────────────
 
     @staticmethod

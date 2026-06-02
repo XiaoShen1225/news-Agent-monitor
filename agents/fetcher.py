@@ -139,15 +139,23 @@ class FetcherAgent(BaseAgent):
         except ImportError:
             return None
 
-        self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(
-            headless=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-            ],
-        )
+        try:
+            self._playwright = await async_playwright().start()
+            self._browser = await self._playwright.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                ],
+            )
+        except Exception as e:
+            logger.warning("[Fetcher] Browser launch failed: %s", e)
+            logger.warning(
+                "[Fetcher] Falling back to static fetch for browser-required sites."
+            )
+            await self._close_browser()
+            return None
         self._browser_context_count = 0
         logger.info("[Fetcher] Browser launched (reusable)")
         return self._browser
@@ -211,8 +219,17 @@ class FetcherAgent(BaseAgent):
 
             html = await page.content()
             return html
+        except Exception:
+            logger.warning(
+                "[Fetcher] Browser interaction failed for %s, falling back to static fetch",
+                url,
+            )
+            return await self._fetch_static(url)
         finally:
-            await context.close()
+            try:
+                await context.close()
+            except Exception:
+                pass  # browser already torn down, ignore cleanup error
 
     # ── utilities (shared) ──────────────────────────────────────────
 

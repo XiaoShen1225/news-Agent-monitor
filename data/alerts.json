@@ -7,5 +7,33 @@
     "sentiment_enabled": true,
     "sentiment_shift_threshold": 0.3,
     "keyword_cooldown_hours": 24
-  }
+  },
+  "alert_log": [
+    {
+      "type": "anomaly",
+      "site": "openai_blog",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=975, baseline=193.3",
+      "time": "2026-05-31T23:08:03"
+    },
+    {
+      "type": "keyword",
+      "keyword": "AI",
+      "title": "MUFG aims to become AI-native with OpenAI",
+      "time": "2026-06-01T17:27:58"
+    },
+    {
+      "type": "anomaly",
+      "site": "openai_blog",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=975, baseline=193.4",
+      "time": "2026-06-01T17:27:58"
+    }
+  ],
+  "keywords": [
+    {
+      "keyword": "AI",
+      "created_at": "2026-05-31T23:11:57"
+    }
+  ]
 }

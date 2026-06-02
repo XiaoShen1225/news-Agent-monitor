@@ -5,8 +5,8 @@
 # LLM Configuration — multi-provider support
 # provider: "zhipu" | "openai" | "claude" | "local"
 llm:
-  provider: "zhipu"
-  model: "glm-4-flash"
+  provider: "openai"
+  model: "deepseek-chat"
   temperature: 0.1
   max_tokens: 4096
   max_retries: 3
@@ -14,10 +14,11 @@ llm:
     zhipu:
       api_key: "${ZHIPU_API_KEY}"
       base_url: "https://open.bigmodel.cn/api/paas/v4/"
+      model: "glm-4-flash"
     openai:
-      api_key: "${OPENAI_API_KEY}"
-      base_url: "https://api.openai.com/v1"
-      model: "gpt-4o"
+      api_key: "${DEEPSEEK_API_KEY}"
+      base_url: "https://api.deepseek.com/v1"
+      model: "deepseek-chat"
     claude:
       api_key: "${ANTHROPIC_API_KEY}"
       model: "claude-sonnet-4-6"

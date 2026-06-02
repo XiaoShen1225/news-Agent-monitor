@@ -409,7 +409,10 @@ class CoordinatorAgent(BaseAgent):
                 except Exception:
                     pass
 
-            await context.close()
+            try:
+                await context.close()
+            except Exception:
+                pass  # browser already torn down, ignore cleanup error
             logger.info(
                 "[Coordinator] Browser-enriched %d/%d items with times",
                 enriched,
@@ -474,6 +477,13 @@ class CoordinatorAgent(BaseAgent):
             logger.info(
                 "[Coordinator] Not enough new items for deep analysis (%d)",
                 len(all_new_items),
+            )
+            return
+
+        if self.vector_store is None:
+            logger.warning(
+                "[Coordinator] Skipping deep analysis: VectorStore not available "
+                "(model download / network). Entity extraction and event clustering skipped."
             )
             return
 

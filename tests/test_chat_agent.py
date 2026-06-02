@@ -30,6 +30,29 @@ class FakeStore:
     def get_run_history(self, site_name, limit=5):
         return [{"status": "success", "items_found": 10, "changes_detected": 3}]
 
+    def get_circuit_status(self, site_name=None):
+        if site_name:
+            return {
+                "site_name": site_name,
+                "consecutive_failures": 0,
+                "circuit_open": False,
+                "circuit_breaker_until": None,
+            }
+        return [
+            {
+                "site_name": "baidu_news",
+                "consecutive_failures": 0,
+                "circuit_open": False,
+                "circuit_breaker_until": None,
+            },
+        ]
+
+    def get_events(self, limit=20):
+        return []
+
+    def get_entities(self, limit=50, entity_type=None):
+        return []
+
 
 @pytest.fixture
 def agent():

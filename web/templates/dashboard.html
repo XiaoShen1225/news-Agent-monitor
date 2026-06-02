@@ -8,17 +8,17 @@
         onerror="this.onerror=null;this.src='https://unpkg.zhimg.com/echarts@5.5.0/dist/echarts.min.js'"></script>
 <style>
   :root {
-    --bg: #0f172a; --bg-soft: #131c34; --card: #1e293b; --card-hover: #243447;
-    --border: #334155; --border-light: rgba(148,163,184,0.15);
-    --text: #e2e8f0; --text-secondary: #cbd5e1; --muted: #94a3b8;
-    --accent: #38bdf8; --accent-soft: rgba(56,189,248,0.12);
-    --accent-glow: rgba(56,189,248,0.25); --green: #4ade80;
-    --green-soft: rgba(74,222,128,0.12); --red: #f87171;
-    --red-soft: rgba(248,113,113,0.12); --orange: #fb923c;
-    --orange-soft: rgba(251,146,60,0.12);
+    --bg: #ffffff; --bg-soft: #f8fafc; --card: #ffffff; --card-hover: #f1f5f9;
+    --border: #e2e8f0; --border-light: rgba(0,0,0,0.08);
+    --text: #1e293b; --text-secondary: #475569; --muted: #64748b;
+    --accent: #3b82f6; --accent-soft: rgba(59,130,246,0.1);
+    --accent-glow: rgba(59,130,246,0.2); --green: #22c55e;
+    --green-soft: rgba(34,197,94,0.1); --red: #ef4444;
+    --red-soft: rgba(239,68,68,0.08); --orange: #f97316;
+    --orange-soft: rgba(249,115,22,0.08);
     --radius-sm: 6px; --radius: 10px; --radius-lg: 14px;
-    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3); --shadow: 0 4px 12px rgba(0,0,0,0.25);
-    --shadow-lg: 0 8px 24px rgba(0,0,0,0.35);
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.06); --shadow: 0 4px 12px rgba(0,0,0,0.08);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
     --transition: 0.2s ease; --transition-slow: 0.35s ease;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -32,7 +32,7 @@
     font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     min-height: 100vh; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 
-  header { background: linear-gradient(135deg, rgba(30,41,59,0.95), rgba(15,23,42,0.98));
+  header { background: linear-gradient(135deg, rgba(255,255,255,0.98), rgba(248,250,252,0.98));
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--border-light); padding: 14px 28px; display: flex;
     justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 50; }
@@ -50,7 +50,7 @@
   .nav-tab { flex: 1; padding: 10px 20px; cursor: pointer; font-size: 14px; font-weight: 500;
     color: var(--muted); text-align: center; border-radius: 7px;
     transition: all var(--transition); }
-  .nav-tab:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+  .nav-tab:hover { color: var(--text); background: var(--bg-soft); }
   .nav-tab.active { color: var(--text); background: var(--bg); box-shadow: var(--shadow-sm); }
 
   .page { display: none; }
@@ -77,7 +77,7 @@
   .stat { background: var(--bg); border: 1px solid var(--border-light);
     border-radius: var(--radius); padding: 16px 12px; text-align: center;
     transition: all var(--transition); }
-  .stat:hover { border-color: var(--accent); box-shadow: 0 0 20px rgba(56,189,248,0.08); }
+  .stat:hover { border-color: var(--accent); box-shadow: 0 0 20px rgba(59,130,246,0.1); }
 
   .site-health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 12px; margin-top: 14px; }
@@ -166,8 +166,8 @@
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border-light); }
   th { color: var(--muted); font-weight: 600; font-size: 11px;
-    text-transform: uppercase; letter-spacing: 0.5px; background: rgba(15,23,42,0.5); }
-  tr:hover td { background: rgba(56,189,248,0.04); }
+    text-transform: uppercase; letter-spacing: 0.5px; background: var(--bg-soft); }
+  tr:hover td { background: var(--accent-soft); }
 
   .tag { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px;
     font-weight: 500; background: var(--accent-soft); color: var(--accent);
@@ -177,14 +177,14 @@
   .status-ok { color: var(--green); font-weight: 500; }
   .status-skip { color: var(--orange); } .status-err { color: var(--red); }
 
-  #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.88);
+  #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
     backdrop-filter: blur(4px); z-index: 100; justify-content: center; align-items: center;
     animation: fadeIn 0.2s ease; }
   #modal.show { display: flex; }
   #modal img { max-width: 90vw; max-height: 90vh; border-radius: var(--radius);
     box-shadow: var(--shadow-lg); }
 
-  ::selection { background: rgba(56,189,248,0.3); color: #fff; }
+  ::selection { background: rgba(59,130,246,0.2); color: var(--text); }
 
   @media (max-width: 768px) {
     main { padding: 16px; }
@@ -211,6 +211,7 @@
     <div class="nav-tab" onclick="switchPage('papers')">论文追踪</div>
     <div class="nav-tab" onclick="switchPage('chat')">AI 助手</div>
     <div class="nav-tab" onclick="switchPage('deep')">深度分析</div>
+    <div class="nav-tab" onclick="switchPage('ops')">运营管理</div>
   </div>
 
   <!-- ═══ NEWS PAGE ═══ -->
@@ -219,30 +220,30 @@
   <!-- Stats -->
   <section class="card full">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
-      <h2 style="margin:0">Overview</h2>
+      <h2 style="margin:0">概览</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap" id="action-buttons"></div>
     </div>
     <div class="stats" id="stats-grid">
-      <div class="stat"><div class="val">--</div><div class="lbl">Total Runs</div></div>
-      <div class="stat"><div class="val">--</div><div class="lbl">Items Collected</div></div>
-      <div class="stat"><div class="val">--</div><div class="lbl">Sites</div></div>
-      <div class="stat"><div class="val">--</div><div class="lbl">Last Run</div></div>
+      <div class="stat"><div class="val">--</div><div class="lbl">总运行次数</div></div>
+      <div class="stat"><div class="val">--</div><div class="lbl">收集条目</div></div>
+      <div class="stat"><div class="val">--</div><div class="lbl">站点数</div></div>
+      <div class="stat"><div class="val">--</div><div class="lbl">最近运行</div></div>
     </div>
   </section>
 
   <!-- Site Health Cards -->
   <section class="card full" id="site-health-section">
-    <h2>Site Health</h2>
+    <h2>站点健康</h2>
     <div class="site-health-grid" id="site-health-grid">
       <div class="health-card idle">
         <div class="health-card-header">
           <div class="health-dot idle"></div>
-          <span class="name">Loading...</span>
+          <span class="name">加载中...</span>
           <span class="status">--</span>
         </div>
         <div class="health-metrics">
-          <div class="health-metric">Last run: <span>--</span></div>
-          <div class="health-metric">Items: <span>--</span></div>
+          <div class="health-metric">最近运行: <span>--</span></div>
+          <div class="health-metric">条目: <span>--</span></div>
           <div class="health-metric">Snapshot: <span>--</span></div>
           <div class="health-metric">Failures: <span>0</span></div>
         </div>
@@ -252,35 +253,35 @@
 
   <!-- Realtime ECharts -->
   <section class="card full">
-    <h2>Realtime Charts</h2>
+    <h2>实时图表</h2>
     <div class="filters">
       <select id="echart-site" onchange="switchEChartsSite()">
-        <option value="">Select a site...</option>
+        <option value="">选择站点...</option>
       </select>
     </div>
     <div class="echarts-grid" id="echarts-grid">
       <div class="echart-card">
-        <h3>Category Distribution</h3>
+        <h3>分类分布</h3>
         <div id="chart-tag-pie" style="height:300px"></div>
       </div>
       <div class="echart-card">
-        <h3>News Volume Trend</h3>
+        <h3>新闻数量趋势</h3>
         <div id="chart-trend-line" style="height:300px"></div>
       </div>
       <div class="echart-card">
-        <h3>Change Summary</h3>
+        <h3>变更摘要</h3>
         <div id="chart-change-bar" style="height:300px"></div>
       </div>
       <div class="echart-card">
-        <h3>Update Summary</h3>
+        <h3>更新摘要</h3>
         <div id="chart-update-summary" style="height:300px;overflow-y:auto;color:var(--text);font-size:13px;line-height:1.7;padding:4px 0">
-          Select a site to view update summary.
+          选择一个站点以查看更新摘要。
         </div>
       </div>
       <div class="echart-card wide">
-        <h3>Overview</h3>
+        <h3>概览</h3>
         <div id="chart-summary" style="min-height:100px;padding:8px 0;color:var(--muted)">
-          Select a site to view data.
+          选择一个站点以查看数据。
         </div>
       </div>
     </div>
@@ -288,19 +289,19 @@
 
   <!-- Historical PNG Charts -->
   <section class="card full">
-    <h2>Historical Charts (PNG)</h2>
+    <h2>历史图表 (PNG)</h2>
     <div class="tabs" id="chart-tabs"></div>
     <div class="chart-grid" id="chart-grid">
-      <div style="color:var(--muted)">Loading historical charts...</div>
+      <div style="color:var(--muted)">加载历史图表...</div>
     </div>
   </section>
 
   <!-- News Items -->
   <section class="card full">
-    <h2>News Items</h2>
+    <h2>新闻条目</h2>
     <div class="filters">
-      <select id="filter-site" onchange="onSiteFilterChange()"><option value="">All Sites</option></select>
-      <select id="filter-tag"><option value="">All Tags</option></select>
+      <select id="filter-site" onchange="onSiteFilterChange()"><option value="">全部站点</option></select>
+      <select id="filter-tag"><option value="">全部标签</option></select>
       <input type="text" id="filter-search" placeholder="搜索标题关键词..." onkeydown="if(event.key==='Enter')loadItems(0)" style="min-width:180px">
       <button class="tab active" onclick="loadItems(0)" style="cursor:pointer">搜索</button>
     </div>
@@ -317,24 +318,24 @@
     </div>
     <div style="overflow-x:auto">
       <table><thead><tr>
-        <th>Title</th><th>Tag</th><th>Site</th><th>Time</th><th></th>
+        <th>标题</th><th>标签</th><th>站点</th><th>时间</th><th></th>
       </tr></thead>
-      <tbody id="items-body"><tr><td colspan="5" style="color:var(--muted)">Loading...</td></tr></tbody></table>
+      <tbody id="items-body"><tr><td colspan="5" style="color:var(--muted)">加载中...</td></tr></tbody></table>
     </div>
     <div id="pagination" style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap"></div>
   </section>
 
   <!-- Recent runs -->
   <section class="card full">
-    <h2>Recent Pipeline Runs</h2>
+    <h2>最近流水线运行</h2>
     <select id="run-site" onchange="loadRuns()" style="margin-bottom:10px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px">
-      <option value="">All Sites</option>
+      <option value="">全部站点</option>
     </select>
     <div style="overflow-x:auto">
       <table><thead><tr>
-        <th>Time</th><th>Site</th><th>Status</th><th>Items</th><th>Changes</th><th>Confidence</th><th>Duration</th>
+        <th>时间</th><th>站点</th><th>状态</th><th>条目数</th><th>变更数</th><th>置信度</th><th>耗时</th>
       </tr></thead>
-      <tbody id="runs-body"><tr><td colspan="7" style="color:var(--muted)">Loading...</td></tr></tbody></table>
+      <tbody id="runs-body"><tr><td colspan="7" style="color:var(--muted)">加载中...</td></tr></tbody></table>
     </div>
   </section>
   </div><!-- /page-news -->
@@ -343,28 +344,28 @@
   <div id="page-papers" class="page" style="display:none">
   <section class="card" style="margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
-      <h2 style="margin:0">Paper Tracker</h2>
+      <h2 style="margin:0">论文追踪</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap" id="paper-action-buttons"></div>
     </div>
     <div class="stats" style="margin-top:12px">
-      <div class="stat"><div class="val" id="papers-total">--</div><div class="lbl">Total Papers</div></div>
+      <div class="stat"><div class="val" id="papers-total">--</div><div class="lbl">论文总数</div></div>
       <div class="stat"><div class="val" id="papers-deepmind">--</div><div class="lbl">DeepMind</div></div>
       <div class="stat"><div class="val" id="papers-openai">--</div><div class="lbl">OpenAI</div></div>
     </div>
   </section>
 
   <section class="card" style="margin-bottom:16px">
-    <h2>Papers</h2>
+    <h2>论文</h2>
     <div class="filters">
-      <select id="paper-filter-source" onchange="loadPapers(0)"><option value="">All Sources</option></select>
-      <input type="text" id="paper-filter-search" placeholder="Search title...">
-      <button class="tab active" onclick="loadPapers(0)" style="cursor:pointer">Search</button>
+      <select id="paper-filter-source" onchange="loadPapers(0)"><option value="">全部来源</option></select>
+      <input type="text" id="paper-filter-search" placeholder="搜索标题...">
+      <button class="tab active" onclick="loadPapers(0)" style="cursor:pointer">搜索</button>
     </div>
     <div style="overflow-x:auto">
       <table><thead><tr>
-        <th>Title</th><th>Source</th><th>Summary</th><th>Date</th><th></th>
+        <th>标题</th><th>来源</th><th>摘要</th><th>日期</th><th></th>
       </tr></thead>
-      <tbody id="papers-body"><tr><td colspan="5" style="color:var(--muted)">Loading...</td></tr></tbody></table>
+      <tbody id="papers-body"><tr><td colspan="5" style="color:var(--muted)">加载中...</td></tr></tbody></table>
     </div>
     <div id="papers-pagination" style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap"></div>
   </section>
@@ -411,9 +412,9 @@
   <!-- Entity Leaderboard -->
   <section class="card" style="margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
-      <h2 style="margin:0">Entity Leaderboard</h2>
+      <h2 style="margin:0">实体排行榜</h2>
       <div style="display:flex;gap:6px" id="entity-type-filters">
-        <button class="tab active" onclick="loadEntities('')">All</button>
+        <button class="tab active" onclick="loadEntities('')">全部</button>
         <button class="tab" onclick="loadEntities('PER')">人物</button>
         <button class="tab" onclick="loadEntities('ORG')">机构</button>
         <button class="tab" onclick="loadEntities('LOC')">地点</button>
@@ -423,13 +424,13 @@
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px">
       <div class="echart-card">
-        <h3>Top Entities</h3>
+        <h3>热门实体</h3>
         <div id="chart-entities-bar" style="height:360px"></div>
       </div>
       <div class="echart-card" style="max-height:420px;overflow-y:auto">
-        <h3>Entity Details</h3>
+        <h3>实体详情</h3>
         <div id="entity-detail-list" style="color:var(--muted);font-size:13px;padding-top:10px">
-          Click on a bar to view related articles.
+          点击柱状条查看相关文章。
         </div>
       </div>
     </div>
@@ -438,30 +439,80 @@
   <!-- Event Clusters -->
   <section class="card" style="margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
-      <h2 style="margin:0">Cross-Site Events</h2>
-      <button onclick="loadEvents()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:500">Refresh</button>
+      <h2 style="margin:0">跨站事件</h2>
+      <button onclick="loadEvents()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:500">刷新</button>
     </div>
     <div id="events-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;margin-top:12px">
-      <div style="color:var(--muted);padding:20px">Loading events...</div>
+      <div style="color:var(--muted);padding:20px">加载事件中...</div>
     </div>
   </section>
 
   <!-- Event Timeline -->
   <section class="card" id="timeline-section" style="display:none">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <h2 style="margin:0">Event Timeline</h2>
-      <button onclick="closeTimeline()" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);padding:4px 12px;border-radius:var(--radius-sm);cursor:pointer;font-size:12px">Close</button>
+      <h2 style="margin:0">事件时间线</h2>
+      <button onclick="closeTimeline()" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);padding:4px 12px;border-radius:var(--radius-sm);cursor:pointer;font-size:12px">关闭</button>
     </div>
     <div id="timeline-title" style="font-size:16px;font-weight:600;color:var(--accent);margin-bottom:6px"></div>
     <div id="timeline-summary" style="color:var(--text);font-size:13px;line-height:1.7;margin-bottom:12px;padding:10px 14px;background:var(--bg);border-radius:var(--radius);border-left:3px solid var(--accent)"></div>
     <div style="overflow-x:auto">
       <table><thead><tr>
-        <th>Time</th><th>Site</th><th>Title</th><th>Sentiment</th>
+        <th>时间</th><th>站点</th><th>标题</th><th>情感</th>
       </tr></thead>
-      <tbody id="timeline-body"><tr><td colspan="4" style="color:var(--muted)">Loading...</td></tr></tbody></table>
+      <tbody id="timeline-body"><tr><td colspan="4" style="color:var(--muted)">加载中...</td></tr></tbody></table>
     </div>
   </section>
   </div><!-- /page-deep -->
+
+  <!-- ═══ OPS PAGE ═══ -->
+  <div id="page-ops" class="page" style="display:none">
+
+    <!-- Alert Management Panel -->
+    <section class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+        <h2 style="margin:0">告警管理</h2>
+        <div style="display:flex;gap:8px;align-items:center" id="alert-add-form">
+          <input id="alert-keyword-input" type="text" placeholder="输入关键词..."
+            onkeydown="if(event.key==='Enter')addAlertKeyword()"
+            style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:var(--radius-sm);font-size:13px;outline:none;min-width:180px">
+          <button onclick="addAlertKeyword()"
+            style="background:linear-gradient(135deg, var(--accent), #2dd4bf);border:none;color:var(--bg);padding:8px 18px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">
+            + 添加
+          </button>
+        </div>
+      </div>
+      <div style="overflow-x:auto;margin-top:12px">
+        <table><thead><tr>
+          <th>关键词</th><th>创建时间</th><th></th>
+        </tr></thead>
+        <tbody id="alerts-keywords-body">
+          <tr><td colspan="3" style="color:var(--muted)">加载中...</td></tr>
+        </tbody></table>
+      </div>
+      <div id="alerts-config" style="margin-top:12px;font-size:12px;color:var(--muted);padding:8px 12px;background:var(--bg);border-radius:var(--radius-sm);border-left:3px solid var(--accent)"></div>
+    </section>
+
+    <!-- Story 追踪面板 -->
+    <section class="card" style="margin-bottom:16px">
+      <h2 style="margin:0 0 12px">故事追踪</h2>
+      <div class="filters" id="story-status-tabs">
+        <button class="tab active" onclick="loadStories('')">全部</button>
+        <button class="tab" onclick="loadStories('active')">活跃</button>
+        <button class="tab" onclick="loadStories('completed')">已完成</button>
+        <button class="tab" onclick="loadStories('dormant')">休眠</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table><thead><tr>
+          <th>标题</th><th>来源</th><th>状态</th><th>匹配次数</th><th>创建时间</th><th>最近匹配</th><th>操作</th>
+        </tr></thead>
+        <tbody id="stories-body">
+          <tr><td colspan="7" style="color:var(--muted)">加载中...</td></tr>
+        </tbody></table>
+      </div>
+      <div id="stories-config" style="margin-top:12px;font-size:12px;color:var(--muted);padding:8px 12px;background:var(--bg);border-radius:var(--radius-sm);border-left:3px solid var(--accent)"></div>
+    </section>
+
+  </div><!-- /page-ops -->
 
 </main>
 
@@ -470,12 +521,12 @@
 </div>
 
 <!-- Login overlay -->
-<div id="login-overlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.95);backdrop-filter:blur(8px);z-index:300;justify-content:center;align-items:center">
+<div id="login-overlay" style="display:none;position:fixed;inset:0;background:rgba(248,250,252,0.97);backdrop-filter:blur(8px);z-index:300;justify-content:center;align-items:center">
   <div style="background:var(--card);border:1px solid var(--border-light);border-radius:var(--radius-lg);padding:36px;max-width:380px;width:90%;text-align:center;box-shadow:var(--shadow-lg);animation:fadeSlideIn 0.3s ease">
     <div style="font-size:32px;margin-bottom:8px">&#59140;</div>
     <h2 style="background:linear-gradient(135deg, var(--accent), #818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:8px;font-size:19px;font-weight:700">News Agent Monitor</h2>
     <p style="color:var(--muted);font-size:13px;margin-bottom:20px">请输入访问密钥</p>
-    <input id="login-token" type="password" placeholder="Access Token" onkeydown="if(event.key==='Enter')doLogin()"
+    <input id="login-token" type="password" placeholder="访问密钥" onkeydown="if(event.key==='Enter')doLogin()"
       style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:var(--radius-sm);font-size:14px;margin-bottom:14px;box-sizing:border-box;outline:none;transition:all var(--transition)">
     <button onclick="doLogin()" style="width:100%;background:linear-gradient(135deg, var(--accent), #2dd4bf);border:none;color:var(--bg);padding:11px;border-radius:var(--radius-sm);cursor:pointer;font-size:14px;font-weight:600">确认</button>
     <div id="login-error" style="color:var(--red);font-size:12px;margin-top:10px;display:none">密钥错误，请重试</div>
@@ -521,9 +572,9 @@ async function doLogin() {
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 const ws = new WebSocket(`${wsProtocol}//${location.host}/ws`);
 ws.onopen = () => { document.getElementById('ws-dot').classList.remove('offline');
-  document.getElementById('ws-text').textContent = 'Live'; };
+  document.getElementById('ws-text').textContent = '在线'; };
 ws.onclose = () => { document.getElementById('ws-dot').classList.add('offline');
-  document.getElementById('ws-text').textContent = 'Offline'; };
+  document.getElementById('ws-text').textContent = '离线'; };
 ws.onmessage = (e) => {
   const data = JSON.parse(e.data);
   if (data.type === 'pipeline_update') {
@@ -570,7 +621,7 @@ async function loadChartData() {
 
   const sel = document.getElementById('echart-site');
   const sites = Object.keys(echartSiteData);
-  sel.innerHTML = '<option value="">Select a site...</option>' +
+  sel.innerHTML = '<option value="">选择站点...</option>' +
     sites.map(s => `<option value="${s}">${s}</option>`).join('');
 
   if (sites.length > 0) {
@@ -602,11 +653,11 @@ function renderTagPie(data) {
   chart.setOption({
     tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
     legend: { orient: 'vertical', right: 8, top: 'center',
-              textStyle: { color: '#94a3b8', fontSize: 10 } },
+              textStyle: { color: '#64748b', fontSize: 10 } },
     series: [{
       type: 'pie', radius: ['40%', '72%'], center: ['38%', '50%'],
-      itemStyle: { borderRadius: 5, borderColor: '#1e293b', borderWidth: 2 },
-      label: { color: '#e2e8f0', fontSize: 10 },
+      itemStyle: { borderRadius: 5, borderColor: '#ffffff', borderWidth: 2 },
+      label: { color: '#1e293b', fontSize: 10 },
       data: data || [],
     }],
   }, true);
@@ -620,15 +671,15 @@ function renderTrendLine(data) {
   chart.setOption({
     tooltip: { trigger: 'axis' },
     grid: { left: '3%', right: '4%', bottom: '12%', containLabel: true },
-    xAxis: { type: 'category', data: times, axisLabel: { color: '#94a3b8', rotate: 45, fontSize: 9 } },
-    yAxis: { type: 'value', axisLabel: { color: '#94a3b8' } },
+    xAxis: { type: 'category', data: times, axisLabel: { color: '#64748b', rotate: 45, fontSize: 9 } },
+    yAxis: { type: 'value', axisLabel: { color: '#64748b' } },
     series: [{
       type: 'line', data: counts, smooth: true, symbol: 'circle', symbolSize: 8,
       lineStyle: { color: '#38bdf8', width: 2 },
       itemStyle: { color: '#38bdf8' },
       areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-        { offset: 0, color: 'rgba(56,189,248,0.25)' },
-        { offset: 1, color: 'rgba(56,189,248,0.02)' }
+        { offset: 0, color: 'rgba(59,130,246,0.15)' },
+        { offset: 1, color: 'rgba(59,130,246,0.02)' }
       ]) },
       markLine: { silent: true, symbol: 'none',
         data: [{ yAxis: data.recent_average, label: { formatter: 'Avg: {c}', color: '#f87171', fontSize: 10 },
@@ -643,9 +694,9 @@ function renderChangeBar(data) {
   if (!chart) return;
   chart.setOption({
     tooltip: { trigger: 'axis' },
-    xAxis: { type: 'category', data: ['New', 'Removed', 'Modified'],
-             axisLabel: { color: '#94a3b8' } },
-    yAxis: { type: 'value', axisLabel: { color: '#94a3b8' } },
+    xAxis: { type: 'category', data: ['新增', '移除', '修改'],
+             axisLabel: { color: '#64748b' } },
+    yAxis: { type: 'value', axisLabel: { color: '#64748b' } },
     series: [{
       type: 'bar',
       data: [
@@ -654,7 +705,7 @@ function renderChangeBar(data) {
         { value: data.modified || 0, itemStyle: { color: '#fb923c' } },
       ],
       barWidth: '50%',
-      label: { show: true, position: 'top', color: '#e2e8f0', fontWeight: 'bold' },
+      label: { show: true, position: 'top', color: '#1e293b', fontWeight: 'bold' },
     }],
   }, true);
 }
@@ -663,12 +714,12 @@ function renderUpdateSummary(text) {
   const el = document.getElementById('chart-update-summary');
   if (!el) return;
   if (text) {
-    el.innerHTML = `<div style="padding:16px;background:rgba(56,189,248,0.06);border-radius:8px;border-left:3px solid var(--accent);line-height:1.7;height:100%;box-sizing:border-box">
-      <div style="color:var(--green);font-size:11px;margin-bottom:8px">AI Update Summary</div>
+    el.innerHTML = `<div style="padding:16px;background:rgba(59,130,246,0.06);border-radius:8px;border-left:3px solid var(--accent);line-height:1.7;height:100%;box-sizing:border-box">
+      <div style="color:var(--green);font-size:11px;margin-bottom:8px">AI 更新摘要</div>
       ${text}
     </div>`;
   } else {
-    el.innerHTML = '<div style="color:var(--muted);padding:16px">No update data yet. Run the pipeline to generate summaries.</div>';
+    el.innerHTML = '<div style="color:var(--muted);padding:16px">暂无更新数据。运行流水线以生成摘要。</div>';
   }
 }
 
@@ -686,10 +737,10 @@ function renderSummary(s) {
       <div class="stat"><div class="val">${s.total_changes||0}</div><div class="lbl">Changes</div></div>
       <div class="stat"><div class="val" style="color:${dirColor}">${dirIcon} ${s.trend_direction||'stable'}</div><div class="lbl">Trend</div></div>
       <div class="stat"><div class="val" style="color:var(--green)">+${s.new_count||0}</div><div class="lbl">New</div></div>
-      <div class="stat"><div class="val" style="color:var(--red)">-${s.removed_count||0}</div><div class="lbl">Removed</div></div>
+      <div class="stat"><div class="val" style="color:var(--red)">-${s.removed_count||0}</div><div class="lbl">移除条目</div></div>
     </div>
-    ${s.llm_summary ? `<div style="padding:10px 14px;background:rgba(56,189,248,0.06);border-radius:8px;border-left:3px solid var(--accent);font-size:13px;color:var(--text);line-height:1.6">
-      <strong style="color:var(--accent)">AI Summary:</strong> ${s.llm_summary}</div>` : ''}
+    ${s.llm_summary ? `<div style="padding:10px 14px;background:rgba(59,130,246,0.06);border-radius:8px;border-left:3px solid var(--accent);font-size:13px;color:var(--text);line-height:1.6">
+      <strong style="color:var(--accent)">AI 摘要:</strong> ${s.llm_summary}</div>` : ''}
     <div style="font-size:11px;color:var(--muted);margin-top:6px">Last update: ${(s.timestamp||'').slice(0,19)}</div>
   `;
 }
@@ -710,15 +761,15 @@ async function loadStats() {
   const lastRun = runs[0]?.created_at?.slice(0, 19) || 'N/A';
 
   grid.innerHTML = `
-    <div class="stat"><div class="val">${totalRuns}</div><div class="lbl">Total Runs</div></div>
-    <div class="stat"><div class="val">${totalItems}</div><div class="lbl">Items Collected</div></div>
-    <div class="stat"><div class="val">${(data.sites||[]).length}</div><div class="lbl">Sites</div></div>
-    <div class="stat"><div class="val">${lastRun}</div><div class="lbl">Last Run</div></div>`;
+    <div class="stat"><div class="val">${totalRuns}</div><div class="lbl">总运行次数</div></div>
+    <div class="stat"><div class="val">${totalItems}</div><div class="lbl">收集条目</div></div>
+    <div class="stat"><div class="val">${(data.sites||[]).length}</div><div class="lbl">站点数</div></div>
+    <div class="stat"><div class="val">${lastRun}</div><div class="lbl">最近运行</div></div>`;
 
   ['filter-site', 'run-site'].forEach(id => {
     const sel = document.getElementById(id);
     const val = sel.value;
-    sel.innerHTML = '<option value="">All Sites</option>' +
+    sel.innerHTML = '<option value="">全部站点</option>' +
       (data.sites||[]).map(s => `<option value="${s}">${s}</option>`).join('');
     sel.value = val;
   });
@@ -730,7 +781,7 @@ async function loadCharts() {
   const tabs = document.getElementById('chart-tabs');
   const grid = document.getElementById('chart-grid');
   const sets = Object.keys(data);
-  if (!sets.length) { grid.innerHTML = '<div style="color:var(--muted)">No charts yet. Run a pipeline first.</div>'; tabs.innerHTML = ''; return; }
+  if (!sets.length) { grid.innerHTML = '<div style="color:var(--muted)">暂无图表。请先运行流水线。</div>'; tabs.innerHTML = ''; return; }
 
   tabs.innerHTML = sets.map((s, i) =>
     `<span class="tab${i===0?' active':''}" onclick="showChartSet('${s}')">${s}</span>`
@@ -769,7 +820,7 @@ async function loadTags() {
     allTags = data.tags || {};
     const sel = document.getElementById('filter-tag');
     const val = sel.value;
-    sel.innerHTML = '<option value="">All Tags</option>' +
+    sel.innerHTML = '<option value="">全部标签</option>' +
       Object.keys(allTags).map(t => `<option value="${t}">${t} (${allTags[t]})</option>`).join('');
     sel.value = val;
   } catch(e) {}
@@ -851,7 +902,7 @@ function showSummaryModal(title, summary) {
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'summary-modal';
-    modal.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);backdrop-filter:blur(4px);z-index:200;justify-content:center;align-items:center';
+    modal.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);backdrop-filter:blur(4px);z-index:200;justify-content:center;align-items:center';
     modal.onclick = function(e) { if (e.target === modal) modal.style.display = 'none'; };
     document.body.appendChild(modal);
   }
@@ -900,13 +951,13 @@ async function loadTargets() {
 
 async function refreshAll() {
   const btn = document.getElementById('refresh-all-btn');
-  btn.textContent = 'Running...'; btn.disabled = true;
+  btn.textContent = '运行中...'; btn.disabled = true;
   btn.style.opacity = '0.6';
   try {
     await fetch('/api/refresh-all', {method:'POST'});
   } catch(e) {}
   setTimeout(() => {
-    btn.textContent = 'Refresh All'; btn.disabled = false;
+    btn.textContent = '刷新全部'; btn.disabled = false;
     btn.style.opacity = '1';
   }, 3000);
 }
@@ -915,7 +966,7 @@ function renderActionButtons() {
   const el = document.getElementById('action-buttons');
   el.innerHTML = `<button onclick="refreshAll()" id="refresh-all-btn"
       style="background:linear-gradient(135deg, var(--accent), #2dd4bf);border:none;color:var(--bg);padding:6px 18px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:600">
-      Refresh All
+      刷新全部
     </button>` + targetsData.map(t => `
     <button onclick="triggerRun('${t.name}','${t.url}',${t.use_browser})" title="Run ${t.name}"
       style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:500">
@@ -936,12 +987,12 @@ async function triggerRun(name, url, useBrowser) {
     const res = await fetch(`/api/trigger-run?site=${encodeURIComponent(name)}&url=${encodeURIComponent(url)}&use_browser=${useBrowser}`, {method:'POST'});
     const data = await res.json();
     if (data.status === 'success') {
-      alert(`Run complete: ${name} — ${data.items_found} items`);
+      alert(`运行完成: ${name} — ${data.items_found} 条`);
     } else {
-      alert(`Run failed: ${name} — ${data.error || data.status || 'unknown'}`);
+      alert(`运行失败: ${name} — ${data.error || data.status || '未知'}`);
     }
   } catch(e) {
-    alert(`Request failed: ${e.message}`);
+    alert(`请求失败: ${e.message}`);
   }
   btns.forEach(b => b.disabled = false);
   loadStats(); loadItems(itemsPage); loadRuns(); loadChartData(); loadCharts();
@@ -952,10 +1003,10 @@ async function resetSite(name) {
   try {
     const res = await fetch(`/api/reset?site=${encodeURIComponent(name)}`, {method:'POST'});
     const data = await res.json();
-    alert(data.message || 'Reset complete');
+    alert(data.message || '重置完成');
     loadStats(); loadItems(0); loadRuns(); loadChartData(); loadCharts();
   } catch(e) {
-    alert(`Reset failed: ${e.message}`);
+    alert(`重置失败: ${e.message}`);
   }
 }
 
@@ -969,7 +1020,8 @@ function switchPage(page) {
       (page === 'news' && t.textContent.includes('新闻')) ||
       (page === 'papers' && t.textContent.includes('论文')) ||
       (page === 'chat' && t.textContent.includes('AI')) ||
-      (page === 'deep' && t.textContent.includes('深度')));
+      (page === 'deep' && t.textContent.includes('深度')) ||
+      (page === 'ops' && t.textContent.includes('运营')));
   });
   document.getElementById('page-news').style.display = page === 'news' ? '' : 'none';
   document.getElementById('page-news').classList.toggle('active', page === 'news');
@@ -979,6 +1031,8 @@ function switchPage(page) {
   document.getElementById('page-chat').classList.toggle('active', page === 'chat');
   document.getElementById('page-deep').style.display = page === 'deep' ? '' : 'none';
   document.getElementById('page-deep').classList.toggle('active', page === 'deep');
+  document.getElementById('page-ops').style.display = page === 'ops' ? '' : 'none';
+  document.getElementById('page-ops').classList.toggle('active', page === 'ops');
   if (page === 'papers') {
     loadPapers(0);
     loadSchedule();
@@ -990,6 +1044,10 @@ function switchPage(page) {
     loadEvents();
     loadEntities('');
     initEntitiesChart();
+  }
+  if (page === 'ops') {
+    loadAlerts();
+    loadStories('');
   }
 }
 
@@ -1015,7 +1073,7 @@ async function loadPapers(page) {
   document.getElementById('papers-openai').textContent = sources['openai_blog'] || 0;
   const sel = document.getElementById('paper-filter-source');
   if (sel.options.length <= 1) {
-    sel.innerHTML = '<option value="">All Sources</option>' +
+    sel.innerHTML = '<option value="">全部来源</option>' +
       Object.keys(sources).map(s => `<option value="${s}">${s}</option>`).join('');
   }
 
@@ -1273,15 +1331,15 @@ function loadSiteHealth() {
       const status = h.last_run_status || 'never';
       let cls, dotCls, label;
       if (h.circuit_open) {
-        cls = 'warn'; dotCls = 'warn'; label = 'Circuit Open';
+        cls = 'warn'; dotCls = 'warn'; label = '熔断';
       } else if (status === 'success') {
-        cls = 'ok'; dotCls = 'ok'; label = 'Healthy';
+        cls = 'ok'; dotCls = 'ok'; label = '正常';
       } else if (status === 'error') {
-        cls = 'error'; dotCls = 'error'; label = 'Error';
+        cls = 'error'; dotCls = 'error'; label = '错误';
       } else if (status === 'skipped_no_change') {
-        cls = 'ok'; dotCls = 'ok'; label = 'No Change';
+        cls = 'ok'; dotCls = 'ok'; label = '无变更';
       } else {
-        cls = 'idle'; dotCls = 'idle'; label = 'Pending';
+        cls = 'idle'; dotCls = 'idle'; label = '等待中';
       }
       const runTime = h.last_run_time ? h.last_run_time.slice(0, 19) : '--';
       const snapTime = h.last_snapshot_time ? h.last_snapshot_time.slice(0, 19) : '--';
@@ -1296,7 +1354,7 @@ function loadSiteHealth() {
           <span class="status">${label}</span>
         </div>
         <div class="health-metrics">
-          <div class="health-metric">Last run: <span>${runTime}</span></div>
+          <div class="health-metric">最近运行: <span>${runTime}</span></div>
           <div class="health-metric">Items found: <span>${items}</span></div>
           <div class="health-metric">Snapshot: <span>${snapTime}</span></div>
           <div class="health-metric">Snap items: <span>${snapItems}</span></div>
@@ -1319,6 +1377,136 @@ loadTags();
 loadItems(0);
 loadRuns();
 loadTargets();
+
+// ── 运营管理：告警管理 ─────────────────────────────────────────────────
+
+async function loadAlerts() {
+  try {
+    const res = await fetch('/api/alerts');
+    const data = await res.json();
+    const keywords = data.keywords || [];
+    const config = data.config || {};
+
+    document.getElementById('alerts-keywords-body').innerHTML = keywords.length
+      ? keywords.map(k => `<tr>
+          <td><span class="tag">${k.keyword}</span></td>
+          <td style="color:var(--muted);font-size:12px">${(k.created_at||'').slice(0,19)}</td>
+          <td><button onclick="removeAlertKeyword('${k.keyword.replace(/'/g,"\\'")}')"
+            style="background:var(--bg);border:1px solid rgba(248,113,113,0.3);color:var(--red);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:500">删除</button></td>
+        </tr>`).join('')
+      : '<tr><td colspan="3" style="color:var(--muted)">暂无告警关键词，请在上方添加。</td></tr>';
+
+    const cfgEl = document.getElementById('alerts-config');
+    cfgEl.innerHTML = keywords.length
+      ? `<strong>配置:</strong> 关键词冷却 ${config.keyword_cooldown_hours || 24}h | 异常检测 ${config.anomaly_enabled ? '已启用 (z-score ' + (config.anomaly_zscore || 2.5) + ')' : '已禁用'} | 情感检测 ${config.sentiment_enabled ? '已启用' : '已禁用'}`
+      : '';
+  } catch(e) {}
+}
+
+async function addAlertKeyword() {
+  const input = document.getElementById('alert-keyword-input');
+  const kw = input.value.trim();
+  if (!kw) return;
+  input.value = '';
+  input.disabled = true;
+  try {
+    const res = await fetch('/api/alerts', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({keyword: kw}),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || data.msg || '添加失败'); }
+    loadAlerts();
+  } catch(e) {
+    alert('请求失败: ' + e.message);
+  }
+  input.disabled = false;
+  input.focus();
+}
+
+async function removeAlertKeyword(keyword) {
+  if (!confirm('确认删除告警关键词 "' + keyword + '"？')) return;
+  try {
+    const res = await fetch('/api/alerts?keyword=' + encodeURIComponent(keyword), {method:'DELETE'});
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || '删除失败');
+    }
+    loadAlerts();
+  } catch(e) {
+    alert('请求失败: ' + e.message);
+  }
+}
+
+// ── 运营管理：故事追踪 ─────────────────────────────────────────────────
+
+let storiesFilter = '';
+
+async function loadStories(status) {
+  storiesFilter = status;
+  const labelMap = {'': '全部', 'active': '活跃', 'completed': '已完成', 'dormant': '休眠'};
+  const targetLabel = labelMap[status || ''] || status;
+  document.querySelectorAll('#story-status-tabs .tab').forEach(t => {
+    t.classList.toggle('active', t.textContent === targetLabel);
+  });
+  try {
+    const url = status ? '/api/stories?status=' + encodeURIComponent(status) : '/api/stories';
+    const res = await fetch(url);
+    const data = await res.json();
+    const stories = data.stories || [];
+    const config = data.config || {};
+
+    document.getElementById('stories-body').innerHTML = stories.length
+      ? stories.map(s => {
+          const statusColors = {active: 'var(--green)', completed: 'var(--muted)', dormant: 'var(--orange)'};
+          const statusLabels = {active: '活跃', completed: '已完成', dormant: '休眠'};
+          const color = statusColors[s.status] || 'var(--muted)';
+          const label = statusLabels[s.status] || s.status;
+          let actions = '';
+          if (s.status === 'active') {
+            actions = '<button onclick="completeStory(\'' + s.id + '\')" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:500;margin-right:4px">完成</button>';
+          } else if (s.status === 'dormant') {
+            actions = '<button onclick="reactivateStory(\'' + s.id + '\')" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:500;margin-right:4px">重激活</button>';
+          }
+          actions += '<button onclick="removeStory(\'' + s.id + '\',\'' + (s.title||'').replace(/'/g,"\\'") + '\')" style="background:var(--bg);border:1px solid rgba(248,113,113,0.3);color:var(--red);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:500">删除</button>';
+          return '<tr><td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + s.title + '</td><td><span class="tag">' + (s.source_site||'-') + '</span></td><td><span style="color:' + color + ';font-weight:500;font-size:12px">' + label + '</span></td><td style="color:var(--accent)">' + (s.match_count||0) + '</td><td style="color:var(--muted);font-size:12px">' + (s.created_at||'').slice(0,10) + '</td><td style="color:var(--muted);font-size:12px">' + (s.last_match_at||'--').slice(0,16) + '</td><td style="white-space:nowrap">' + actions + '</td></tr>';
+        }).join('')
+      : '<tr><td colspan="7" style="color:var(--muted)">暂无追踪故事。</td></tr>';
+
+    document.getElementById('stories-config').innerHTML = stories.length
+      ? '<strong>配置:</strong> 相似度阈值 ' + (config.similarity_threshold || 0.7) + ' | 匹配冷却 ' + (config.match_cooldown_hours || 12) + 'h | 休眠阈值 ' + (config.dormant_after_days || 30) + '天 | 自动清理 ' + (config.remove_dormant_after_days || 90) + '天'
+      : '';
+  } catch(e) {}
+}
+
+async function completeStory(id) {
+  if (!confirm('确认将此故事标记为已完成？')) return;
+  try {
+    const res = await fetch('/api/stories/' + encodeURIComponent(id) + '/complete', {method:'POST'});
+    if (!res.ok) { const data = await res.json(); alert(data.error || '操作失败'); }
+    loadStories(storiesFilter);
+  } catch(e) { alert('请求失败: ' + e.message); }
+}
+
+async function reactivateStory(id) {
+  if (!confirm('确认重新激活此休眠故事？')) return;
+  try {
+    const res = await fetch('/api/stories/' + encodeURIComponent(id) + '/reactivate', {method:'POST'});
+    if (!res.ok) { const data = await res.json(); alert(data.error || '操作失败'); }
+    loadStories(storiesFilter);
+  } catch(e) { alert('请求失败: ' + e.message); }
+}
+
+async function removeStory(id, title) {
+  if (!confirm('确认删除故事 "' + title.slice(0,50) + '"？')) return;
+  try {
+    const res = await fetch('/api/stories/' + encodeURIComponent(id), {method:'DELETE'});
+    if (!res.ok) { const data = await res.json(); alert(data.error || '删除失败'); }
+    loadStories(storiesFilter);
+  } catch(e) { alert('请求失败: ' + e.message); }
+}
+
 setInterval(() => { loadStats(); loadSiteHealth(); loadCharts(); loadItems(itemsPage); loadRuns(); }, 60000);
 
 // ── Deep Analysis ──────────────────────────────────────────────────
@@ -1356,24 +1544,24 @@ function renderEntitiesChart(entities) {
   const values = top.map(e => e.mentions);
   const typeColors = {
     PER: '#38bdf8', ORG: '#4ade80', LOC: '#f59e0b',
-    PROD: '#a78bfa', EVENT: '#f87171', '': '#94a3b8'
+    PROD: '#a78bfa', EVENT: '#f87171', '': '#64748b'
   };
   entitiesBar.setOption({
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
       formatter: p => `${p[0].name}<br/>Mentions: ${p[0].value}` },
     grid: { left: '3%', right: '4%', bottom: '10%', containLabel: true },
-    xAxis: { type: 'value', axisLabel: { color: '#94a3b8' } },
+    xAxis: { type: 'value', axisLabel: { color: '#64748b' } },
     yAxis: { type: 'category', data: names.reverse(),
-      axisLabel: { color: '#e2e8f0', fontSize: 11, width: 120, overflow: 'truncate' },
+      axisLabel: { color: '#1e293b', fontSize: 11, width: 120, overflow: 'truncate' },
       inverse: true },
     series: [{
       type: 'bar', data: values.reverse().map((v, i) => ({
         value: v,
-        itemStyle: { color: typeColors[top[top.length-1-i].type] || '#94a3b8',
+        itemStyle: { color: typeColors[top[top.length-1-i].type] || '#64748b',
           borderRadius: [0, 4, 4, 0] }
       })),
       barWidth: '60%',
-      label: { show: true, position: 'right', color: '#e2e8f0', fontSize: 10 }
+      label: { show: true, position: 'right', color: '#1e293b', fontSize: 10 }
     }],
   }, true);
 
@@ -1419,8 +1607,8 @@ async function loadEvents() {
           <span class="status" style="color:var(--accent)">${evt.item_count} items</span>
         </div>
         <div class="health-metrics">
-          <div class="health-metric">Sites: <span>${(evt.sites||[]).join(', ')}</span></div>
-          <div class="health-metric">Tags: <span>${(evt.tags||[]).join(', ')}</span></div>
+          <div class="health-metric">站点: <span>${(evt.sites||[]).join(', ')}</span></div>
+          <div class="health-metric">标签: <span>${(evt.tags||[]).join(', ')}</span></div>
           <div class="health-metric" style="grid-column:1/-1">Time: <span>${(evt.created_at||'').slice(0,19)}</span></div>
         </div>
       </div>
@@ -1435,7 +1623,7 @@ async function loadTimeline(eventId) {
     const res = await fetch(`/api/events/${encodeURIComponent(eventId)}`);
     const evt = await res.json();
     document.getElementById('timeline-section').style.display = '';
-    document.getElementById('timeline-title').textContent = evt.event_name || 'Event';
+    document.getElementById('timeline-title').textContent = evt.event_name || '事件';
     document.getElementById('timeline-summary').textContent =
       `Cross-site event spanning ${(evt.sites||[]).join(', ')}. ${evt.item_count} related articles.`;
     const items = evt.items || [];

@@ -77,9 +77,19 @@ _shared_vector_store = None
 def _get_vector_store():
     global _shared_vector_store
     if _shared_vector_store is None:
-        from data.vector_store import VectorStore
+        import logging
 
-        _shared_vector_store = VectorStore(str(VECTOR_DB_DIR))
+        try:
+            from data.vector_store import VectorStore
+
+            _shared_vector_store = VectorStore(str(VECTOR_DB_DIR))
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "VectorStore init failed (model download/network): %s. "
+                "Semantic search and deep analysis will be unavailable.",
+                e,
+            )
+            _shared_vector_store = None
     return _shared_vector_store
 
 
@@ -143,6 +153,28 @@ def _get_data_store():
         history_dir=str(PROJECT_ROOT / "data" / "history"),
         db_path=str(DB_PATH),
     )
+
+
+_alert_store = None
+_story_watch_store = None
+
+
+def _get_alert_store():
+    global _alert_store
+    if _alert_store is None:
+        from data.alert_store import AlertStore
+
+        _alert_store = AlertStore()
+    return _alert_store
+
+
+def _get_story_watch_store():
+    global _story_watch_store
+    if _story_watch_store is None:
+        from data.story_watch import StoryWatchStore
+
+        _story_watch_store = StoryWatchStore()
+    return _story_watch_store
 
 
 def _is_similar_title(a: str, b: str, threshold: float = 0.85) -> bool:
@@ -904,6 +936,7 @@ def _get_chat_agent():
             story_watch=StoryWatchStore(),
             hybrid_searcher=_get_hybrid_searcher(),
             coordinator=_coordinator,
+            evolution=_coordinator.evolution if _coordinator else None,
         )
     return _chat_agent
 
@@ -1034,6 +1067,86 @@ async def api_report_schedule():
 async def api_chat_sessions():
     """List active chat sessions."""
     return {"sessions": _get_chat_agent().list_sessions()}
+
+
+# ── Alert Management API ───────────────────────────────────────────
+
+
+@app.get("/api/alerts")
+async def api_alerts():
+    """List all keyword alerts and alert config."""
+    store = _get_alert_store()
+    return {
+        "keywords": store.get_keywords(),
+        "config": store.get_config(),
+    }
+
+
+@app.post("/api/alerts")
+async def api_alerts_add(request: Request):
+    """Add a keyword alert."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+    keyword = (body.get("keyword") or "").strip()
+    if not keyword:
+        return JSONResponse({"error": "keyword is required"}, status_code=400)
+    store = _get_alert_store()
+    result = store.add_keyword(keyword)
+    return result
+
+
+@app.delete("/api/alerts")
+async def api_alerts_remove(keyword: str = Query(..., min_length=1)):
+    """Remove a keyword alert."""
+    store = _get_alert_store()
+    result = store.remove_keyword(keyword)
+    if not result["ok"]:
+        return JSONResponse({"error": result["msg"]}, status_code=404)
+    return result
+
+
+# ── Story Management API ───────────────────────────────────────────
+
+
+@app.get("/api/stories")
+async def api_stories(status: str | None = Query(None)):
+    """List tracked stories, optionally filtered by status."""
+    store = _get_story_watch_store()
+    stories = store.list_stories(status=status if status else None)
+    config = store.get_config()
+    return {"stories": stories, "count": len(stories), "config": config}
+
+
+@app.post("/api/stories/{story_id}/complete")
+async def api_story_complete(story_id: str):
+    """Mark a story as completed."""
+    store = _get_story_watch_store()
+    result = store.complete_story(story_id)
+    if not result["ok"]:
+        return JSONResponse({"error": result["msg"]}, status_code=404)
+    return result
+
+
+@app.post("/api/stories/{story_id}/reactivate")
+async def api_story_reactivate(story_id: str):
+    """Reactivate a dormant story."""
+    store = _get_story_watch_store()
+    result = store.reactivate_story(story_id)
+    if not result["ok"]:
+        return JSONResponse({"error": result["msg"]}, status_code=404)
+    return result
+
+
+@app.delete("/api/stories/{story_id}")
+async def api_story_remove(story_id: str):
+    """Remove a tracked story."""
+    store = _get_story_watch_store()
+    result = store.remove_story(story_id=story_id)
+    if not result["ok"]:
+        return JSONResponse({"error": result["msg"]}, status_code=404)
+    return result
 
 
 # ── Deep Analysis API ──────────────────────────────────────────────

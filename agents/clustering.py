@@ -95,6 +95,8 @@ def _cosine_sim(a: list[float], b: list[float]) -> float:
 
 def _get_embeddings(titles: list[str], vector_store) -> list[list[float] | None]:
     """Get embeddings for a list of titles from the VectorStore's embedding function."""
+    if vector_store is None:
+        return [None] * len(titles)
     try:
         ef = vector_store._ef
         embeddings = ef(titles)
