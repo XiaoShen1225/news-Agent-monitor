@@ -160,93 +160,24 @@ def _rrf_fusion(
     return results
 
 
-# ── Reranker ────────────────────────────────────────────────────────
-
-_DEFAULT_RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
-
-
-class Reranker:
-    """Cross-Encoder reranker for precision refinement after coarse retrieval.
-
-    Loads lazily on first use. Falls back gracefully if model is unavailable.
-    """
-
-    def __init__(self, model_name: str | None = None):
-        self._model_name = model_name or _DEFAULT_RERANK_MODEL
-        self._model = None
-        self._available = None  # tri-state: None=unknown, True=loaded, False=failed
-
-    def _ensure_model(self) -> bool:
-        if self._available is not None:
-            return self._available
-        try:
-            from sentence_transformers import CrossEncoder
-
-            self._model = CrossEncoder(self._model_name, trust_remote_code=True)
-            self._available = True
-            logger.info("[Reranker] Loaded model: %s", self._model_name)
-        except Exception as e:
-            logger.warning("[Reranker] Model unavailable (%s), skipping rerank", e)
-            self._available = False
-        return self._available
-
-    def rerank(
-        self,
-        query: str,
-        candidates: list[dict],
-        top_k: int = 20,
-    ) -> list[dict]:
-        """Rerank candidates using Cross-Encoder relevance scores.
-
-        Returns candidates sorted by rerank_score descending, limited to top_k.
-        If the model is unavailable, returns candidates unchanged.
-        """
-        if not self._ensure_model() or len(candidates) <= 1:
-            return candidates[:top_k]
-
-        pairs = [(query, c.get("title", "")) for c in candidates]
-        try:
-            scores = self._model.predict(
-                pairs,
-                show_progress_bar=False,
-                batch_size=32,
-            )
-        except Exception as e:
-            logger.warning("[Reranker] Prediction failed: %s", e)
-            return candidates[:top_k]
-
-        for item, score in zip(candidates, scores):
-            item["rerank_score"] = round(float(score), 4)
-
-        candidates.sort(key=lambda x: x.get("rerank_score", 0.0), reverse=True)
-        return candidates[:top_k]
-
-
 # ── Hybrid Searcher ─────────────────────────────────────────────────
 
 
 class HybridSearcher:
-    """Combines BM25 keyword search with ChromaDB vector semantic search.
-
-    Optional reranker post-processes RRF results with Cross-Encoder precision.
-    """
+    """Combines BM25 keyword search with ChromaDB vector semantic search."""
 
     def __init__(
         self,
         bm25_index: BM25Index,
         vector_store,
         config: dict | None = None,
-        reranker: Reranker | None = None,
     ):
         self._bm25 = bm25_index
         self._vector = vector_store
-        self._reranker = reranker
         cfg = config or {}
         self._rrf_k = cfg.get("rrf_k", 60)
         self._bm25_top_k = cfg.get("bm25_top_k", 50)
         self._vector_top_k = cfg.get("vector_top_k", 50)
-        self._rerank_enabled = cfg.get("rerank_enabled", True)
-        self._rerank_top_k = cfg.get("rerank_top_k", 20)
 
     def search(
         self,
@@ -287,10 +218,6 @@ class HybridSearcher:
         fused = _rrf_fusion(
             bm25_items, vector_items, k=self._rrf_k, limit=max(limit * 3, 60)
         )
-
-        # ── Rerank (Cross-Encoder) ────────────────────────────────
-        if self._reranker and self._rerank_enabled and len(fused) > 1:
-            fused = self._reranker.rerank(query, fused, top_k=self._rerank_top_k)
 
         logger.info(
             "[HybridSearch] query='%s' → bm25=%d, vector=%d, fused=%d",

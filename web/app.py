@@ -95,7 +95,7 @@ def _get_vector_store():
 
 def _get_hybrid_searcher():
     if ctx.hybrid_searcher is None:
-        from data.hybrid_search import BM25Index, HybridSearcher, Reranker
+        from data.hybrid_search import BM25Index, HybridSearcher
         from data.store import DataStore
 
         vs = _get_vector_store()
@@ -108,8 +108,7 @@ def _get_hybrid_searcher():
         if bm25_index.doc_count == 0:
             store.rebuild_bm25_index()
         cfg = ctx.config.get("search", {}) if ctx.config else {}
-        reranker = Reranker(model_name=cfg.get("rerank_model"))
-        ctx.hybrid_searcher = HybridSearcher(bm25_index, vs, cfg, reranker=reranker)
+        ctx.hybrid_searcher = HybridSearcher(bm25_index, vs, cfg)
     return ctx.hybrid_searcher
 
 
