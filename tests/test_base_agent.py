@@ -54,7 +54,7 @@ class TestJsonParsing:
 
 class TestBaseAgentInit:
     def test_client_lazy_init(self, agent):
-        assert agent._provider is None
+        assert agent._model is None
 
     def test_name_and_config(self, agent):
         assert agent.name == "TestAgent"

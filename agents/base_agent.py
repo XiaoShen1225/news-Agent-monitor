@@ -1,4 +1,4 @@
-"""Base agent with pluggable LLM provider — sync + async."""
+"""Base agent with LangChain chat model — sync + async."""
 
 import asyncio
 import json
@@ -6,7 +6,6 @@ import logging
 import re
 
 from .provider_factory import create_provider
-from .llm_provider import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -18,23 +17,22 @@ class BaseAgent:
         self.llm_config = config.get("llm", {})
         self.max_retries = self.llm_config.get("max_retries", 3)
         self._last_tokens = 0
-        self._provider: LLMProvider | None = None
+        self._model = None
 
-    # ── provider (lazy init) ────────────────────────────────────────────
+    # ── model (lazy init) ───────────────────────────────────────────────
 
     @property
-    def provider(self) -> LLMProvider:
-        if self._provider is None:
-            self._provider = create_provider(self.config)
-        return self._provider
+    def model(self):
+        """Return the LangChain BaseChatModel (lazy-init)."""
+        if self._model is None:
+            self._model = create_provider(self.config)
+        return self._model
 
     def get_last_tokens(self) -> int:
         return self._last_tokens
 
     async def aclose(self):
-        if self._provider is not None:
-            await self._provider.close()
-            self._provider = None
+        self._model = None
 
     # ── sync LLM (wraps async) ──────────────────────────────────────────
 
@@ -68,7 +66,7 @@ class BaseAgent:
         max_tokens: int = None,
         fallback: str = ...,
     ) -> str:
-        """Generic async LLM call. Retries handled by provider."""
+        """Generic async LLM call. Retries handled by model."""
         if temperature is None:
             temperature = self.llm_config.get("temperature", 0.1)
         if max_tokens is None:
@@ -80,15 +78,16 @@ class BaseAgent:
         ]
 
         try:
-            result = await self.provider.chat(
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                timeout=30.0,
-            )
-            self._last_tokens = result.total_tokens
+            model = self.model
+            if temperature != self.llm_config.get(
+                "temperature", 0.1
+            ) or max_tokens != self.llm_config.get("max_tokens", 2048):
+                model = model.bind(temperature=temperature, max_tokens=max_tokens)
+            result = await model.ainvoke(messages)
+            usage = getattr(result, "usage_metadata", {}) or {}
+            self._last_tokens = usage.get("total_tokens", 0)
             logger.info(
-                "[%s] LLM call successful, tokens: %d", self.name, result.total_tokens
+                "[%s] LLM call successful, tokens: %d", self.name, self._last_tokens
             )
             return result.content
 
@@ -122,16 +121,19 @@ class BaseAgent:
             {"role": "user", "content": user_prompt},
         ]
 
-        async for event in self.provider.chat_stream(
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=60.0,
-        ):
-            if event.type == "content":
-                yield event.content
-            elif event.type == "done":
-                self._last_tokens = event.total_tokens
+        model = self.model
+        if temperature != self.llm_config.get(
+            "temperature", 0.3
+        ) or max_tokens != self.llm_config.get("max_tokens", 1024):
+            model = model.bind(temperature=temperature, max_tokens=max_tokens)
+
+        async for chunk in model.astream(messages):
+            if chunk.content:
+                yield chunk.content
+
+        # usage_metadata on last chunk (if provider supports it)
+        usage = getattr(chunk, "usage_metadata", {}) or {}
+        self._last_tokens = usage.get("total_tokens", 0)
 
     # ── JSON parsing ────────────────────────────────────────────────────
 

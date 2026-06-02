@@ -37,7 +37,7 @@ class TestDeepAnalyzerInit:
         assert agent._deep_cfg["entity_batch_size"] == 50
 
     def test_provider_lazy_init(self, agent):
-        assert agent._provider is None
+        assert agent._model is None
 
     def test_default_config(self):
         agent = DeepAnalyzer({})

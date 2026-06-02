@@ -12,7 +12,7 @@
 - **变更分析**：SHA256 内容哈希快速跳过无变化页面；标题级 Diff 识别新增/移除/修改
 - **AI 更新摘要**：LLM 自动生成每次更新的中文摘要，突出新增内容和变化趋势
 - **智能告警**：关键词自动匹配推送通知、Z-score 异常检测（量级突增/骤降）、中文情感偏移检测，冷却去重
-- **多 Provider LLM 抽象**：可插拔 LLM 提供商（智谱/OpenAI/Claude/本地模型），改配置一键切换，Claude 工具格式自动转换
+- **LangChain 架构**：基于 LangChain ChatOpenAI/ChatAnthropic 的统一 LLM 调用层，`@tool` 装饰器定义 18 个原子化工具（工厂模式 + 依赖注入），`model.bind_tools()` 原生工具调用
 - **深度内容分析**：跨站点事件聚合（向量聚类 + LLM 命名）、命名实体识别（PER/ORG/LOC/PROD/EVENT）、事件时间线构建
 - **故事追踪**：用户添加追踪 → 自动匹配后续报道 → 通知推送；完整生命周期管理（活跃/休眠/完结自动清理）
 - **文章摘要**：点击任意条目可即时获取文章内容摘要
@@ -21,8 +21,8 @@
 - **Web 仪表盘**：FastAPI + ECharts 5.5 实时交互图表 + 暗色主题 + 毛玻璃效果，WebSocket 实时推送
 - **分页加载**：News Items 支持分页浏览（30 条/页），避免一次性加载全部数据
 - **仪表盘操作**：Refresh All（一键刷新全部）、Run Now（手动触发抓取）、Reset（重置站点历史）集成到前端
-- **AI 对话助手**：基于 Tool Calling 的智能助手，多 Session 隔离（独立上下文/偏好），配置外置（config.yaml 可控），结构化 System Prompt（身份/工具策略/拒绝规则/输出格式），思考过程实时可见（ReAct 风格）
-- **上下文管理**：Token 预算滑动窗口 + Exchange 边界裁剪，参考 ChatGPT/Claude 的混合策略；主动压缩旧对话摘要，工具结果自动清理
+- **AI 对话助手**：基于 LangChain Tool Calling 的智能助手，18 个 `@tool` 原子化工具（工厂模式依赖注入），多 Session 隔离（独立上下文/偏好），配置外置（config.yaml 可控），结构化 System Prompt（身份/工具策略/拒绝规则/输出格式），思考过程实时可见（ReAct 风格），SSE 流式输出
+- **上下文管理**：Token 预算滑动窗口 + Exchange 边界裁剪（代理至 ContextManager 模块），参考 ChatGPT/Claude 的混合策略；主动压缩旧对话摘要，工具结果自动清理
 - **Webhook 通知**：钉钉 / 企业微信 / 邮件（SMTP），管道完成后自动推送
 - **自动可视化**：matplotlib 生成 10 种 PNG 图表，6 组时间轮替留存
 - **新闻/论文分离存储**：新闻与论文使用独立 SQLite 数据库 + JSON 快照目录 + CSV 文件，自动清理旧快照
@@ -48,7 +48,7 @@
 - **安全护栏**：输入校验（越权拦截 + Prompt 注入防护）+ 工具参数校验（URL 格式/站点名合法性），结构化错误分类
 - **结构化工具输出**：查询结果带前缀标记（[查询结果]/[站点统计]等），空结果附操作建议
 - **用户偏好学习**：时间衰减信号 + 双反馈（隐式行为采集 + 显式喜欢/不喜欢纠正）+ 置信度评分 + 偏好排序增强
-- **分析型工具**：站点对比（`compare_sites`）、热点趋势总结（`summarize_trends`）、关键词告警（`set_alert`），Chat 助手支持 8 种工具
+- **18 个原子化工具**：search / get_item / list_tags / get_snapshot / get_run_log / fetch_article / get_events / get_entities / get_timeline / preferences / system_info / set_alert / watch_story / get_cost / get_circuit_status / get_evolution_log / get_deep_summary / trigger_run，支持并行组合调用
 - **现代化 UI**：渐变色标题、毛玻璃顶栏、卡片悬浮阴影、自定义滚动条、页面切换动画、气泡式聊天界面
 
 ## 快速开始

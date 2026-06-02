@@ -1,11 +1,12 @@
 """Tests for ChatAgent: context management, compression, tool result cleanup."""
 
 import pytest
-from agents.chat_agent import (
-    ChatAgent,
+from agents.chat_agent import ChatAgent
+from agents.context_manager import (
     MAX_TOOL_RESULTS,
-    _count_tokens,
-    _messages_tokens,
+    count_tokens,
+    messages_tokens,
+    get_exchanges,
 )
 
 
@@ -57,36 +58,38 @@ class FakeStore:
 @pytest.fixture
 def agent():
     config = {"llm": {"api_key": "test", "model": "glm-4-flash"}}
-    return ChatAgent(config, news_store=FakeStore())
+    agent = ChatAgent(config, news_store=FakeStore())
+    agent._default_session["history"] = []
+    return agent
 
 
 class TestTokenEstimation:
     def test_chinese_text(self):
-        tokens = _count_tokens("你好世界")
+        tokens = count_tokens("你好世界")
         assert tokens > 0
 
     def test_english_text(self):
-        tokens = _count_tokens("Hello World")
+        tokens = count_tokens("Hello World")
         assert tokens > 0
 
-    def test_messages_tokens(self):
+    def testmessages_tokens(self):
         msgs = [
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi there"},
         ]
-        assert _messages_tokens(msgs) > 0
+        assert messages_tokens(msgs) > 0
 
 
 class TestGetExchanges:
     def test_empty_history(self, agent):
-        assert agent._get_exchanges() == []
+        assert get_exchanges(agent._history) == []
 
     def test_single_exchange(self, agent):
         agent._history = [
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi"},
         ]
-        exchanges = agent._get_exchanges()
+        exchanges = get_exchanges(agent._history)
         assert len(exchanges) == 1
         assert len(exchanges[0]) == 2
 
@@ -97,7 +100,7 @@ class TestGetExchanges:
             {"role": "user", "content": "Q2"},
             {"role": "assistant", "content": "A2"},
         ]
-        exchanges = agent._get_exchanges()
+        exchanges = get_exchanges(agent._history)
         assert len(exchanges) == 2
 
     def test_exchange_with_tool_calls(self, agent):
@@ -116,7 +119,7 @@ class TestGetExchanges:
             {"role": "tool", "tool_call_id": "tc1", "content": "Result here"},
             {"role": "assistant", "content": "Here are the results"},
         ]
-        exchanges = agent._get_exchanges()
+        exchanges = get_exchanges(agent._history)
         assert len(exchanges) == 1
         assert len(exchanges[0]) == 4  # user + tool_call + tool_result + reply
 
