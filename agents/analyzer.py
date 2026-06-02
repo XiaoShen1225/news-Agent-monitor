@@ -46,7 +46,7 @@ class AnalyzerAgent(BaseAgent):
 
         total_changes = len(new_items) + len(removed_items) + len(modified_items)
 
-        snapshots = _store.get_all_snapshots(site_name) if _store else []
+        snapshots = _store.get_snapshot_meta_list(site_name) if _store else []
 
         trends = self._compute_trends(current_items, snapshots)
 

@@ -226,17 +226,18 @@ class DataStore:
             if len(rows) <= keep_count:
                 return
             to_delete = rows[keep_count:]  # oldest beyond keep_count
+            # Delete DB rows first (transactional), then JSON files (best-effort)
             for row in to_delete:
-                snap_id, snap_path = row[0], row[1]
-                # Delete JSON file
-                try:
-                    Path(snap_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
-                # Delete associated news_items and snapshot row
+                snap_id = row[0]
                 conn.execute("DELETE FROM news_items WHERE snapshot_id = ?", (snap_id,))
                 conn.execute("DELETE FROM snapshots WHERE id = ?", (snap_id,))
             conn.commit()
+            # Delete JSON files after DB commit — orphaned files are harmless
+            for row in to_delete:
+                try:
+                    Path(row[1]).unlink(missing_ok=True)
+                except Exception:
+                    pass
 
     def update_metadata(
         self,
@@ -546,32 +547,40 @@ class DataStore:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(snapshot, f, ensure_ascii=False, indent=2)
 
-        with self._get_conn() as conn:
-            cursor = conn.execute(
-                "INSERT INTO snapshots (site_name, url, content_hash, items_count, snapshot_path) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (site_name, url, content_hash, len(items), str(filepath)),
-            )
-            snapshot_id = cursor.lastrowid
-
-            # Insert individual news items into SQLite
-            for item in items:
-                conn.execute(
-                    "INSERT INTO news_items (snapshot_id, site_name, title, url, tag, sentiment, summary, published, snapshot_time) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        snapshot_id,
-                        site_name,
-                        item.get("title", ""),
-                        item.get("url", ""),
-                        item.get("tag", ""),
-                        item.get("sentiment", ""),
-                        item.get("summary", ""),
-                        item.get("published", ""),
-                        now_iso,
-                    ),
+        try:
+            with self._get_conn() as conn:
+                cursor = conn.execute(
+                    "INSERT INTO snapshots (site_name, url, content_hash, items_count, snapshot_path) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (site_name, url, content_hash, len(items), str(filepath)),
                 )
-            conn.commit()
+                snapshot_id = cursor.lastrowid
+
+                # Insert individual news items into SQLite
+                for item in items:
+                    conn.execute(
+                        "INSERT INTO news_items (snapshot_id, site_name, title, url, tag, sentiment, summary, published, snapshot_time) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            snapshot_id,
+                            site_name,
+                            item.get("title", ""),
+                            item.get("url", ""),
+                            item.get("tag", ""),
+                            item.get("sentiment", ""),
+                            item.get("summary", ""),
+                            item.get("published", ""),
+                            now_iso,
+                        ),
+                    )
+                conn.commit()
+        except Exception:
+            # SQLite write failed — clean up orphaned JSON file
+            try:
+                filepath.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise
 
         # Append to CSV
         self._append_csv(site_name, now_iso, items)
@@ -810,6 +819,34 @@ class DataStore:
                 with open(path, "r", encoding="utf-8") as f:
                     snapshots.append(json.load(f))
         return snapshots
+
+    def get_snapshot_meta_list(self, site_name: str) -> list[dict]:
+        """Return lightweight metadata for all snapshots — no items loaded."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT snapshot_path, created_at FROM snapshots WHERE site_name = ? ORDER BY id ASC",
+                (site_name,),
+            ).fetchall()
+
+        results = []
+        for row in rows:
+            path = Path(row[0])
+            if not path.exists():
+                continue
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    results.append(
+                        {
+                            "items_count": data.get(
+                                "items_count", len(data.get("items", []))
+                            ),
+                            "timestamp": data.get("timestamp", ""),
+                        }
+                    )
+            except (json.JSONDecodeError, OSError):
+                continue
+        return results
 
     # ── events ────────────────────────────────────────────────────────
 

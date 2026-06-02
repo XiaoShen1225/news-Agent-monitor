@@ -290,9 +290,9 @@ def _build_chart_data(site_name: str, store) -> dict:
         for k, v in sorted(tag_dist.items(), key=lambda x: x[1], reverse=True)
     ]
 
-    all_snaps = store.get_all_snapshots(site_name)
-    counts = [s.get("items_count", 0) for s in all_snaps]
-    times = [s.get("timestamp", "") for s in all_snaps]
+    all_snaps = store.get_snapshot_meta_list(site_name)
+    counts = [s["items_count"] for s in all_snaps]
+    times = [s["timestamp"] for s in all_snaps]
 
     direction = "stable"
     recent_avg = 0
