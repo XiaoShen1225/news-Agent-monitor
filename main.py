@@ -309,17 +309,12 @@ async def _cmd_serve_async(config: dict, port: int):
         logger.error("No targets configured in config.yaml")
         return
 
-    # Patch coordinator to broadcast after each run
-    original_run = coordinator.run_async
-
-    async def run_with_broadcast(
-        url, site_name="default", use_browser=False, profile=None
-    ):
-        result = await original_run(url, site_name, use_browser, profile)
+    # Register WebSocket broadcast as post-run callback (event-driven, not monkey-patch)
+    async def _broadcast_on_run(result):
         try:
+            site_name = result.get("site_name", "")
             report = result.get("report", {}) or {}
             trends = report.get("trends", {}) or {}
-            # Build chart payload from live report for instant frontend update
             chart_payload = {
                 "site_name": site_name,
                 "tag_distribution": [
@@ -365,28 +360,8 @@ async def _cmd_serve_async(config: dict, port: int):
             )
         except Exception:
             pass
-        return result
 
-    coordinator.run_async = run_with_broadcast
-
-    async def run_all_with_broadcast():
-        results = await asyncio.gather(
-            *[
-                run_with_broadcast(t["url"], t["name"], t.get("use_browser", False))
-                for t in targets
-            ],
-            return_exceptions=True,
-        )
-        # Deep cross-site analysis after all targets complete
-        deep_cfg = config.get("deep_analysis", {}) or {}
-        if deep_cfg.get("enabled", True):
-            try:
-                await coordinator._run_deep_analysis(results)
-            except Exception as e:
-                logger.warning("Deep analysis failed: %s", e)
-        return results
-
-    coordinator.run_all_targets_async = run_all_with_broadcast
+    coordinator.add_run_callback(_broadcast_on_run)
 
     # Start scheduler in background task
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -415,7 +390,7 @@ async def _cmd_serve_async(config: dict, port: int):
             "interval_minutes", default_interval
         )
         scheduler.add_job(
-            run_with_broadcast,
+            coordinator.run_async,
             "interval",
             minutes=interval,
             kwargs={

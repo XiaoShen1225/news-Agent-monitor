@@ -83,6 +83,19 @@
       "anomaly_type": "volume_spike",
       "message": "volume_spike: current=241, baseline=52.6",
       "time": "2026-06-02T23:23:08"
+    },
+    {
+      "type": "keyword",
+      "keyword": "芯片",
+      "title": "英特尔新CEO陈立武将全面改革芯片设计制造业务",
+      "time": "2026-06-03T00:16:03"
+    },
+    {
+      "type": "anomaly",
+      "site": "sina_news",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=341, baseline=121.2",
+      "time": "2026-06-03T00:16:03"
     }
   ],
   "keywords": [

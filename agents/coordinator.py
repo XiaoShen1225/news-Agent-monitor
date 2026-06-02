@@ -61,6 +61,15 @@ class CoordinatorAgent(BaseAgent):
         self.story_watch = StoryWatchStore()
         self.story_watch.load_config(config)
         self.max_snapshots = config.get("storage", {}).get("max_snapshots_per_site", 0)
+        self._run_callbacks: list = []
+
+    def add_run_callback(self, callback):
+        """Register an async callback invoked after each run_async completes."""
+        self._run_callbacks.append(callback)
+
+    def remove_run_callback(self, callback):
+        """Remove a previously registered callback."""
+        self._run_callbacks = [c for c in self._run_callbacks if c is not callback]
 
     # ── sync (wraps async) ──────────────────────────────────────────
 
@@ -359,9 +368,12 @@ class CoordinatorAgent(BaseAgent):
 
             await notify_all(self.notifiers, build_event(result))
 
+        for cb in self._run_callbacks:
+            try:
+                await cb(result)
+            except Exception:
+                pass
         return result
-
-    # ── Article time enrichment via Playwright ─────────────────────────
 
     # ── async multi-target (concurrent) ─────────────────────────────
 

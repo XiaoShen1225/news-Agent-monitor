@@ -1205,6 +1205,12 @@ async def api_entity_detail(
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    token = _get_effective_token()
+    if token is not None:
+        cookie_val = websocket.cookies.get("dashboard_token", "")
+        if cookie_val != token:
+            await websocket.close(code=4001, reason="unauthorized")
+            return
     await ws_manager.connect(websocket)
     try:
         while True:
