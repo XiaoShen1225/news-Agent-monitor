@@ -24,6 +24,11 @@ VECTOR_DB_DIR = PROJECT_ROOT / "data" / "vector_db"
 app = FastAPI(title="News Agent Monitor", version="0.6.0")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+# Mount static assets (CSS, JS)
+STATIC_DIR = PROJECT_ROOT / "web" / "static"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
 # Mount chart directories as static
 for chart_set in [
     "today",
@@ -994,8 +999,11 @@ async def api_chat_stream(request: Request):
 async def api_chat_history(session_id: str | None = None):
     """Get current conversation history for a session."""
     agent = _get_chat_agent()
-    agent._activate_session(session_id)
-    return {"messages": list(agent._history), "session_id": session_id}
+    if session_id:
+        sid = agent._activate_session(session_id)
+        return {"messages": list(agent._history), "session_id": sid}
+    # No session_id provided — don't create a new one, return nothing
+    return {"messages": [], "session_id": None}
 
 
 @app.delete("/api/chat")
@@ -1221,7 +1229,7 @@ async def broadcast_pipeline_update(data: dict):
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    return templates.TemplateResponse(request, "dashboard.html")
+    return templates.TemplateResponse(request, "index.html")
 
 
 @app.get("/favicon.ico")

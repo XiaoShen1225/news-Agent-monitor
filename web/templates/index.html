@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>News Agent Monitor</title>
+<link rel="stylesheet" href="/static/css/main.css">
+<link rel="stylesheet" href="/static/css/dark.css">
+<script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.0/echarts.min.js"
+        onerror="this.onerror=null;this.src='https://unpkg.zhimg.com/echarts@5.5.0/dist/echarts.min.js'"></script>
+<script src="https://cdn.bootcdn.net/ajax/libs/marked/12.0.0/marked.min.js"></script>
+</head>
+<body>
+<header>
+  <h1>News Agent Monitor</h1>
+  <div class="header-actions">
+    <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="切换主题">☾</button>
+    <div class="status">
+      <span id="ws-dot" class="dot"></span>
+      <span id="ws-text">Connecting...</span>
+      <span style="color:var(--muted)" id="clock"></span>
+    </div>
+  </div>
+</header>
+
+<div class="app-layout">
+  <!-- Sidebar -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-nav">
+      <button class="sidebar-item active" data-drawer="chat" onclick="focusChat()">
+        <span class="icon">💬</span> AI 助手
+      </button>
+      <button class="sidebar-item" data-drawer="monitor" onclick="openDrawer('monitor')">
+        <span class="icon">📊</span> 新闻监控
+      </button>
+      <button class="sidebar-item" data-drawer="papers" onclick="openDrawer('papers')">
+        <span class="icon">📚</span> 论文追踪
+      </button>
+      <button class="sidebar-item" data-drawer="deep" onclick="openDrawer('deep')">
+        <span class="icon">🔍</span> 深度分析
+      </button>
+      <button class="sidebar-item" data-drawer="ops" onclick="openDrawer('ops')">
+        <span class="icon">⚙</span> 运营管理
+      </button>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-footer">
+      <div style="font-size:11px;color:var(--muted);padding:4px 12px;margin-bottom:4px;font-weight:600">历史会话</div>
+      <button class="sidebar-item" onclick="newChatSession()" style="font-size:12px;color:var(--accent)">
+        <span class="icon">+</span> 新建会话
+      </button>
+      <div class="session-list" id="session-list"></div>
+    </div>
+  </nav>
+
+  <!-- Main Panel -->
+  <main class="main-panel">
+    <!-- Chat Area (always visible) -->
+    <div class="chat-container">
+      <div class="chat-header">
+        <h2>AI 助手</h2>
+        <button class="btn-secondary" onclick="clearChat()">清空对话</button>
+      </div>
+      <div id="chat-messages" class="chat-messages">
+        <div class="chat-welcome">
+          <div class="chat-welcome-icon">💬</div>
+          <div style="font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:6px">AI 监控数据助手</div>
+          <div style="font-size:13px;line-height:1.7">可以查询新闻、统计、搜索文章<br>试试问："有哪些监控站点？" 或 "最近有哪些科技新闻？"</div>
+        </div>
+        <div class="chat-chips">
+          <button onclick="askExample('今天有什么科技新闻？')" class="chat-chip">今天有什么科技新闻？</button>
+          <button onclick="askExample('最近一周有什么热点趋势？')" class="chat-chip">最近一周有什么热点趋势？</button>
+          <button onclick="askExample('百度新闻运行正常吗？')" class="chat-chip">百度新闻运行正常吗？</button>
+          <button onclick="askExample('帮我设置一个AI相关的告警')" class="chat-chip">帮我设置一个AI相关告警</button>
+        </div>
+      </div>
+      <div id="chat-tool-trace" class="chat-tool-trace"></div>
+      <div id="chat-context-bar" class="chat-context-bar">
+        <div class="context-fill-bar"><div id="chat-context-fill" class="context-fill"></div></div>
+        <span id="chat-context-text" style="font-size:10px;color:var(--muted);white-space:nowrap"></span>
+      </div>
+      <div class="chat-input-row">
+        <input id="chat-input" type="text" placeholder="输入消息..." onkeydown="if(event.key==='Enter')sendChat()"
+          style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:11px 16px;border-radius:var(--radius);font-size:14px;outline:none;transition:all var(--transition)">
+        <button onclick="sendChat()" id="chat-send-btn" class="btn-primary">发送</button>
+      </div>
+    </div>
+
+    <!-- Drawer overlay + panel -->
+    <div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+    <div class="drawer" id="drawer">
+      <div class="drawer-header">
+        <h2 id="drawer-title"></h2>
+        <button class="drawer-close" onclick="closeDrawer()">&times; 关闭</button>
+      </div>
+      <div class="drawer-body" id="drawer-body"></div>
+    </div>
+  </main>
+</div>
+
+<!-- Image Modal -->
+<div id="modal" onclick="this.classList.remove('show')">
+  <img id="modal-img" src="">
+</div>
+
+<!-- Login Overlay -->
+<div id="login-overlay" class="login-overlay">
+  <div class="login-box">
+    <div style="font-size:32px;margin-bottom:8px">💬</div>
+    <h2>News Agent Monitor</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:20px">请输入访问密钥</p>
+    <input id="login-token" type="password" placeholder="访问密钥" onkeydown="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()" class="btn-primary" style="width:100%;margin-top:4px">确认</button>
+    <div id="login-error" style="color:var(--red);font-size:12px;margin-top:10px;display:none">密钥错误，请重试</div>
+  </div>
+</div>
+
+<script src="/static/js/utils.js"></script>
+<script src="/static/js/chat.js"></script>
+<script src="/static/js/monitor.js"></script>
+<script src="/static/js/papers.js"></script>
+<script src="/static/js/deep.js"></script>
+<script src="/static/js/ops.js"></script>
+<script>
+// Periodic background refresh
+setInterval(function(){
+  loadStats();loadSiteHealth();loadCharts();loadItems(itemsPage);loadRuns();
+}, 60000);
+
+// Init
+checkAuth();
+loadChatHistory();
+loadSessions();
+document.getElementById('chat-input').focus();
+</script>
+</body>
+</html>

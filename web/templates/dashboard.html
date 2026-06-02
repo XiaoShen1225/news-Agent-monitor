@@ -1039,6 +1039,7 @@ function switchPage(page) {
   }
   if (page === 'chat') {
     document.getElementById('chat-input').focus();
+    loadChatHistory();
   }
   if (page === 'deep') {
     loadEvents();
@@ -1128,18 +1129,35 @@ function renderPaperActions() {
 // ── Chat ─────────────────────────────────────────────────────────────
 let chatAbortController = null;
 
-// Session ID management — persist across page reloads via sessionStorage
+// Session ID management — persist via localStorage (survives browser restart)
 function getSessionId() {
-  let sid = sessionStorage.getItem('chat_session_id');
+  let sid = localStorage.getItem('chat_session_id');
   if (!sid) {
     sid = crypto.randomUUID ? crypto.randomUUID() : 's_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-    sessionStorage.setItem('chat_session_id', sid);
+    localStorage.setItem('chat_session_id', sid);
   }
   return sid;
 }
 
 function setSessionId(sid) {
-  if (sid) sessionStorage.setItem('chat_session_id', sid);
+  if (sid) localStorage.setItem('chat_session_id', sid);
+}
+
+async function loadChatHistory() {
+  const sid = getSessionId();
+  try {
+    const res = await fetch(`/api/chat/history?session_id=${encodeURIComponent(sid)}`);
+    const data = await res.json();
+    if (!data.messages || data.messages.length === 0) return;
+    // Only render if chat messages area is empty (placeholder present)
+    const container = document.getElementById('chat-messages');
+    if (container.children.length > 1) return; // already has messages
+    // Clear welcome placeholder and render history
+    container.innerHTML = '';
+    for (const m of data.messages) {
+      appendChatMessage(m.role, m.content || '');
+    }
+  } catch(e) { /* silently ignore network errors */ }
 }
 
 function askExample(question) {
