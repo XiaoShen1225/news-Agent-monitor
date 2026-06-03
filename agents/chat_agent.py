@@ -351,7 +351,14 @@ class ChatAgent(BaseAgent):
     @staticmethod
     def _msg_to_dict(msg: BaseMessage) -> dict:
         """Convert a LangChain message to a JSON-serializable dict."""
-        d: dict = {"role": msg.type, "content": msg.content or ""}
+        role_map = {
+            "human": "user",
+            "ai": "assistant",
+            "tool": "tool",
+            "system": "system",
+        }
+        role = role_map.get(msg.type, msg.type)
+        d: dict = {"role": role, "content": msg.content or ""}
         if hasattr(msg, "tool_calls") and msg.tool_calls:
             d["tool_calls"] = [
                 {
@@ -373,9 +380,9 @@ class ChatAgent(BaseAgent):
         """Convert a JSON dict to a LangChain message."""
         role = d.get("role", "")
         content = d.get("content", "") or ""
-        if role == "user":
+        if role in ("user", "human"):
             return HumanMessage(content=content)
-        if role == "assistant":
+        if role in ("assistant", "ai"):
             tc = d.get("tool_calls")
             if tc:
                 from langchain_core.messages import ToolCall
