@@ -11,7 +11,7 @@ var drawerDeepHTML = [
   '<div class="echart-card"><h3>Top Entities</h3><div id="chart-entities-bar" style="height:360px"></div></div>',
   '<div class="echart-card" style="max-height:420px;overflow-y:auto"><h3>Entity Details</h3>',
   '<div id="entity-detail-list" style="color:var(--muted);font-size:13px;padding-top:10px">Click a bar to view articles.</div></div></div></section>',
-  '<section class="card" style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><h2 style="margin:0">Cross-site Events</h2><button onclick="loadEvents()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:500">Refresh</button></div>',
+  '<section class="card" style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><h2 style="margin:0">Cross-site Events</h2><div style="display:flex;gap:8px"><button onclick="runDeepAnalysis()" id="btn-deep-run" style="background:var(--accent);color:#fff;border:none;padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:500">Run Analysis</button><button onclick="loadEvents()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:500">Refresh</button></div></div>',
   '<div id="events-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;margin-top:12px"><div style="color:var(--muted);padding:20px">Loading events...</div></div></section>',
   '<section class="card" id="timeline-section" style="display:none"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h2 style="margin:0">Event Timeline</h2><button onclick="closeTimeline()" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px">Close</button></div>',
   '<div id="timeline-title" style="font-size:16px;font-weight:600;color:var(--accent);margin-bottom:6px"></div>',
@@ -75,3 +75,23 @@ async function loadTimeline(eventId){
 }
 
 function closeTimeline(){document.getElementById('timeline-section').style.display='none';}
+
+async function runDeepAnalysis(){
+  var btn=document.getElementById('btn-deep-run');
+  btn.disabled=true;btn.textContent='Running...';
+  try{
+    var r=await fetch('/api/deep-analysis/run',{method:'POST'});
+    var d=await r.json();
+    if(d.ok){
+      btn.textContent='Done! ('+d.event_count+' events, '+d.entity_count+' entities)';
+      setTimeout(function(){btn.textContent='Run Analysis';btn.disabled=false;},3000);
+      loadEvents();loadEntities('');
+    }else{
+      btn.textContent='Failed: '+(d.msg||'unknown');
+      setTimeout(function(){btn.textContent='Run Analysis';btn.disabled=false;},4000);
+    }
+  }catch(e){
+    btn.textContent='Error: '+e.message;
+    setTimeout(function(){btn.textContent='Run Analysis';btn.disabled=false;},4000);
+  }
+}

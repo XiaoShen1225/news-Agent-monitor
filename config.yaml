@@ -130,6 +130,7 @@ chat:
 # Deep content analysis — cross-site event aggregation & entity recognition
 deep_analysis:
   enabled: true
+  auto_run: false                        # auto-run after each batch fetch; false = manual trigger only
   cluster_similarity_threshold: 0.75   # cosine similarity threshold for event clustering
   min_event_items: 2                   # minimum items per event cluster
   entity_batch_size: 50                # titles per LLM batch for entity extraction

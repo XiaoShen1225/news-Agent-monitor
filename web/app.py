@@ -1136,6 +1136,23 @@ async def api_story_remove(story_id: str):
 # ── Deep Analysis API ──────────────────────────────────────────────
 
 
+@app.post("/api/deep-analysis/run")
+async def api_run_deep_analysis():
+    """Manually trigger deep cross-site analysis (event clustering + entity extraction)."""
+    coordinator = ctx.coordinator
+    if coordinator is None:
+        return JSONResponse(
+            {"ok": False, "msg": "Coordinator not initialized"}, status_code=503
+        )
+    try:
+        result = await coordinator.run_deep_analysis_manual()
+    except Exception as e:
+        return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
+    if not result.get("ok"):
+        return JSONResponse(result, status_code=400)
+    return result
+
+
 @app.get("/api/events")
 async def api_events(limit: int = Query(20, ge=1, le=100)):
     """Get recent cross-site event clusters."""

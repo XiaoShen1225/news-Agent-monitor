@@ -398,9 +398,13 @@ class CoordinatorAgent(BaseAgent):
         logger.info("[Coordinator] Running %d targets concurrently", len(tasks))
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Phase 3: Deep cross-site analysis
+        # Phase 3: Deep cross-site analysis (only when auto_run enabled)
         deep_cfg = self.config.get("deep_analysis", {}) or {}
-        if deep_cfg.get("enabled", True) and len(targets) >= 1:
+        if (
+            deep_cfg.get("enabled", True)
+            and deep_cfg.get("auto_run", False)
+            and len(targets) >= 1
+        ):
             try:
                 await self._run_deep_analysis(results)
             except Exception as e:
@@ -455,5 +459,67 @@ class CoordinatorAgent(BaseAgent):
                 deep_result.get("event_count", 0),
                 deep_result.get("entity_count", 0),
             )
+        finally:
+            await deep.aclose()
+
+    async def run_deep_analysis_manual(self) -> dict:
+        """Manually trigger deep analysis on recent items from the store.
+
+        Queries the store for items across all sites, then runs event
+        clustering and entity extraction.  Returns a summary dict.
+        """
+        deep_cfg = self.config.get("deep_analysis", {}) or {}
+        if not deep_cfg.get("enabled", True):
+            return {"ok": False, "msg": "Deep analysis is disabled in config"}
+
+        if self.vector_store is None:
+            return {
+                "ok": False,
+                "msg": "VectorStore not available — embedding model may be downloading",
+            }
+
+        if self.store is None:
+            return {"ok": False, "msg": "DataStore not available"}
+
+        # Collect recent items across all sites
+        targets = self.config.get("targets", [])
+        all_items = []
+        for t in targets:
+            items = self.store.query_items(site_name=t["name"], limit=200, offset=0)
+            for it in items:
+                if "site_name" not in it:
+                    it["site_name"] = t["name"]
+            all_items.extend(items)
+
+        if len(all_items) < 2:
+            return {
+                "ok": False,
+                "msg": f"Not enough items for analysis ({len(all_items)} across {len(targets)} sites)",
+            }
+
+        logger.info(
+            "[Coordinator] Manual deep analysis on %d items across %d sites",
+            len(all_items),
+            len(targets),
+        )
+
+        DeepAnalyzerCls = _get_deep_analyzer()
+        deep = DeepAnalyzerCls(self.config)
+        try:
+            result = await deep.run_async(all_items, self.vector_store, self.store)
+            logger.info(
+                "[Coordinator] Manual deep analysis complete: %d events, %d entities",
+                result.get("event_count", 0),
+                result.get("entity_count", 0),
+            )
+            return {
+                "ok": True,
+                "event_count": result.get("event_count", 0),
+                "entity_count": result.get("entity_count", 0),
+                "items_analyzed": len(all_items),
+            }
+        except Exception as e:
+            logger.error("[Coordinator] Manual deep analysis failed: %s", e)
+            return {"ok": False, "msg": str(e)}
         finally:
             await deep.aclose()
