@@ -99,13 +99,6 @@ alerts:
 #       smtp_password: "${SMTP_PASSWORD}"
 #       to_addrs: ["alerts@example.com"]
 
-# Evolution settings
-evolution:
-  enabled: true
-  min_runs_before_optimize: 5
-  prompt_tuning: true
-  schedule_tuning: true
-
 # Dashboard auth (optional — skip if token is empty or unset)
 dashboard:
   token: "${DASHBOARD_TOKEN}"
@@ -118,14 +111,18 @@ chat:
   compression_threshold: 0.6  # compress when history exceeds 60% of budget
   compression_target: 0.4     # compress the oldest ~40% of exchanges
   max_tool_results: 5         # keep N recent tool results; older ones truncated
-  preference_lite_interval: 2   # run lightweight inference every N exchanges
-  preference_full_interval: 5   # run full inference every N exchanges
-  signal_halflife_days: 14      # preference signal weight halves after N days
   auto_report:
     enabled: false            # set true to enable daily push reports
     schedule_hour: 9          # push report at this hour (24h format)
     schedule_minute: 0        # push report at this minute
     include_sites: []         # empty = all sites; e.g. ["baidu_news"]
+
+# Three-layer preference memory system — L0 episodic → L1 pattern → L2 profile
+memory:
+  cycle_minutes: 30            # MemoryManager analysis interval
+  l1_min_events: 10            # L1 triggers when L0 events >= this
+  l1_cooldown_hours: 2         # minimum hours between L1 runs
+  l2_cooldown_hours: 24        # minimum hours between L2 profile updates
 
 # Deep content analysis — cross-site event aggregation & entity recognition
 deep_analysis:

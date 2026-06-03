@@ -41,7 +41,6 @@ class CoordinatorAgent(BaseAgent):
         config: dict,
         data_store=None,
         paper_store=None,
-        evolution=None,
         notifiers=None,
         vector_store=None,
     ):
@@ -53,7 +52,6 @@ class CoordinatorAgent(BaseAgent):
         self.visualizer = VisualizationAgent(config)
         self.store = data_store
         self.paper_store = paper_store or data_store
-        self.evolution = evolution
         self.notifiers = notifiers or []
         self.vector_store = vector_store
         self.alert_store = AlertStore()
@@ -234,19 +232,6 @@ class CoordinatorAgent(BaseAgent):
             else:
                 chart_result = await asyncio.to_thread(
                     self.visualizer.run, report, snapshots
-                )
-
-            # Step 8: Record evolution
-            if self.evolution:
-                total_tokens_evo = (
-                    self.parser.get_last_tokens() + self.analyzer.get_last_tokens()
-                )
-                self.evolution.record_run(
-                    site_name,
-                    report,
-                    confidence,
-                    (time.time() - start_time) * 1000,
-                    total_tokens=total_tokens_evo,
                 )
 
             result["status"] = "success"

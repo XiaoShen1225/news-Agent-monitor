@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .app_context import ctx
+from data.track_store import TrackStore
 
 logger = logging.getLogger(__name__)
 
@@ -902,6 +903,36 @@ async def api_reset(site: str = Query(..., min_length=1)):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+# ── User behavior tracking ───────────────────────────────────────────
+
+
+def _get_track_store():
+    if ctx.track_store is None:
+        ctx.track_store = TrackStore()
+    return ctx.track_store
+
+
+@app.post("/api/track")
+async def api_track(request: Request):
+    """Record a user behavior event (click, search, filter, etc.)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+    event_type = (body.get("event_type") or "").strip()
+    if not event_type:
+        return JSONResponse({"error": "event_type is required"}, status_code=400)
+
+    ts = _get_track_store()
+    rid = ts.record(
+        event_type=event_type,
+        target_value=body.get("target_value", ""),
+        metadata=body.get("metadata"),
+    )
+    return {"ok": True, "id": rid}
+
+
 # ── Chat assistant ──────────────────────────────────────────────────
 
 
@@ -913,19 +944,23 @@ def _get_chat_agent():
         from data.episodic_memory import EpisodicMemory
 
         from agents.chat_agent import ChatAgent
+        from agents.preference_engine import PreferenceEngine
 
         ctx.chat_agent = ChatAgent(
             ctx.config or {},
             news_store=DataStore(source_type="news"),
             paper_store=DataStore(source_type="paper"),
-            vector_store=None,  # lazy init to avoid huggingface download on first chat
+            vector_store=None,
             alert_store=AlertStore(),
             story_watch=StoryWatchStore(),
             hybrid_searcher=_get_hybrid_searcher(),
             coordinator=ctx.coordinator,
-            evolution=ctx.coordinator.evolution if ctx.coordinator else None,
             episodic_memory=EpisodicMemory(),
         )
+        # Wire up PreferenceEngine with TrackStore
+        engine = PreferenceEngine(track_store=_get_track_store())
+        ctx.chat_agent._preference_engine = engine
+        ctx.chat_agent._track_store = _get_track_store()
     return ctx.chat_agent
 
 

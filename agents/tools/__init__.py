@@ -19,15 +19,15 @@ from .set_alert import make_set_alert_tool
 from .watch_story import make_watch_story_tool
 from .get_cost import make_get_cost_tool
 from .get_circuit_status import make_get_circuit_status_tool
-from .get_evolution_log import make_get_evolution_log_tool
 from .get_deep_summary import make_get_deep_summary_tool
 from .trigger_run import make_trigger_run_tool
 from .dashboard_summary import make_dashboard_summary_tool
 from .run_deep_analysis import make_run_deep_analysis_tool
+from .memory_audit import make_memory_audit_tool
 
 
 def build_all_tools(agent) -> list:
-    """Create all 20 tools, injecting shared dependencies from the agent."""
+    """Create all 21 tools, injecting shared dependencies from the agent."""
     return [
         # ── Query ──
         make_search_tool(
@@ -55,6 +55,6 @@ def build_all_tools(agent) -> list:
         make_watch_story_tool(agent.story_watch, agent.vector_store, agent.config),
         make_get_cost_tool(agent),
         make_get_circuit_status_tool(agent.news_store, agent.paper_store),
-        make_get_evolution_log_tool(agent._evolution),
         make_trigger_run_tool(agent._coordinator),
+        make_memory_audit_tool(agent),
     ]

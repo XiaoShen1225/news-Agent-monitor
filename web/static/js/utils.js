@@ -49,3 +49,18 @@ case'papers':body.innerHTML=drawerPapersHTML;initPapersDrawer();break;
 case'deep':body.innerHTML=drawerDeepHTML;initDeepDrawer();break;
 case'ops':body.innerHTML=drawerOpsHTML;initOpsDrawer();break;
 }}
+
+// ── User behavior tracking (fire-and-forget) ─────────────────────
+
+function trackEvent(type, value, meta) {
+  meta = meta || {};
+  fetch('/api/track', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({event_type: type, target_value: value || '', metadata: meta}),
+  }).catch(function(){});
+}
+
+function trackClick(type, url, title, site, tag) {
+  trackEvent(type, url, {title: title, site_name: site, tag: tag});
+}

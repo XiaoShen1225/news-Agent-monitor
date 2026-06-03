@@ -25,6 +25,8 @@ class AppContext:
         self.alert_store: Any = None
         self.story_watch_store: Any = None
         self.chat_agent: Any = None
+        self.track_store: Any = None
+        self.memory_manager: Any = None
 
         # Dashboard state
         self.dashboard_token: str | None = None

@@ -457,56 +457,6 @@ class TestResolveKey:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Evolution: memory stats
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-class TestEvolutionMemory:
-    def test_empty_stats(self, tmp_path):
-        from evolution.memory import EvolutionMemory
-
-        m = EvolutionMemory(filepath=str(tmp_path / "memory.json"))
-        assert m.get_stats("site") == {"runs": 0}
-
-    def test_add_record(self, tmp_path):
-        from evolution.memory import EvolutionMemory
-
-        m = EvolutionMemory(filepath=str(tmp_path / "memory.json"))
-        report = {
-            "current_count": 10,
-            "total_changes": 3,
-            "has_changes": True,
-            "tag_distribution": {"科技": 10},
-        }
-        m.add_record("site", report, confidence=0.9, elapsed_ms=500, total_tokens=1000)
-        s = m.get_stats("site")
-        assert s["runs"] == 1
-        assert s["avg_confidence"] == 0.9
-
-    def test_avg_aggregates(self, tmp_path):
-        from evolution.memory import EvolutionMemory
-
-        m = EvolutionMemory(filepath=str(tmp_path / "memory.json"))
-        r1 = {
-            "current_count": 5,
-            "total_changes": 1,
-            "has_changes": True,
-            "tag_distribution": {},
-        }
-        r2 = {
-            "current_count": 8,
-            "total_changes": 3,
-            "has_changes": True,
-            "tag_distribution": {},
-        }
-        m.add_record("site", r1, confidence=0.8, elapsed_ms=100, total_tokens=100)
-        m.add_record("site", r2, confidence=0.6, elapsed_ms=300, total_tokens=200)
-        s = m.get_stats("site")
-        assert s["runs"] == 2
-        assert s["avg_confidence"] == pytest.approx(0.7)
-        assert s["avg_time_ms"] == pytest.approx(200)
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Web API: endpoint smoke tests (all mocked — no VectorStore init)
 # ═══════════════════════════════════════════════════════════════════════════

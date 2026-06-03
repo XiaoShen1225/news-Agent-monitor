@@ -43,8 +43,6 @@ def _load_dotenv():
 _load_dotenv()
 
 from data.store import DataStore  # noqa: E402
-from evolution.memory import EvolutionMemory  # noqa: E402
-from evolution.optimizer import EvolutionOptimizer  # noqa: E402
 from agents.coordinator import CoordinatorAgent  # noqa: E402
 from notifications.dispatcher import create_notifiers  # noqa: E402
 
@@ -169,28 +167,21 @@ def _create_coordinator(config: dict):
         db_path=storage.get("db_path", "data/monitor.db"),
     )
     paper_store = DataStore(source_type="paper")
-    memory = EvolutionMemory()
-    optimizer = (
-        EvolutionOptimizer(config, memory)
-        if config.get("evolution", {}).get("enabled")
-        else None
-    )
     notifiers = create_notifiers(config)
     vector_store = _safe_vector_store(config)
     coordinator = CoordinatorAgent(
         config,
         data_store=news_store,
         paper_store=paper_store,
-        evolution=optimizer,
         notifiers=notifiers,
         vector_store=vector_store,
     )
-    return coordinator, notifiers, vector_store, memory
+    return coordinator, notifiers, vector_store
 
 
 def cmd_once(config: dict, url: str, name: str):
     """Run a single monitoring pass."""
-    coordinator, _, __, ___ = _create_coordinator(config)
+    coordinator, _, __ = _create_coordinator(config)
 
     # Look up target config for use_browser etc.
     use_browser = False
@@ -213,7 +204,7 @@ def cmd_schedule(config: dict):
 async def _cmd_schedule_async(config: dict):
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-    coordinator, notifiers, __, memory = _create_coordinator(config)
+    coordinator, notifiers, __ = _create_coordinator(config)
 
     scheduler = AsyncIOScheduler()
     targets = config.get("targets", [])
@@ -241,9 +232,7 @@ async def _cmd_schedule_async(config: dict):
 
     for target in targets:
         name = target["name"]
-        interval = memory.get_optimized_interval(name) or target.get(
-            "interval_minutes", default_interval
-        )
+        interval = target.get("interval_minutes", default_interval)
         scheduler.add_job(
             coordinator.run_async,
             "interval",
@@ -301,7 +290,7 @@ async def _cmd_serve_async(config: dict, port: int):
     from web.app import app, ws_manager
     from web.app_context import ctx
 
-    coordinator, notifiers, __, memory = _create_coordinator(config)
+    coordinator, notifiers, __ = _create_coordinator(config)
     ctx.coordinator = coordinator
     ctx.config = config
     ctx.notifiers = notifiers or []
@@ -369,6 +358,17 @@ async def _cmd_serve_async(config: dict, port: int):
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
     scheduler = AsyncIOScheduler()
+
+    # Create TrackStore + MemoryManager for preference learning
+    from data.track_store import TrackStore
+    from agents.memory_manager import MemoryManager
+
+    track_store = TrackStore()
+    ctx.track_store = track_store
+    memory_interval = config.get("memory", {}).get("cycle_minutes", 30)
+    memory_manager = MemoryManager(track_store, config.get("llm", {}))
+    ctx.memory_manager = memory_manager
+
     default_interval = config.get("scheduler", {}).get("default_interval_minutes", 60)
 
     # Defer initial fetch to background so the server starts immediately.
@@ -388,9 +388,7 @@ async def _cmd_serve_async(config: dict, port: int):
 
     for target in targets:
         name = target["name"]
-        interval = memory.get_optimized_interval(name) or target.get(
-            "interval_minutes", default_interval
-        )
+        interval = target.get("interval_minutes", default_interval)
         scheduler.add_job(
             coordinator.run_async,
             "interval",
@@ -445,6 +443,16 @@ async def _cmd_serve_async(config: dict, port: int):
         )
         logger.info("Daily report scheduled at %02d:%02d", hour, minute)
 
+    # Register MemoryManager cycle job
+    scheduler.add_job(
+        memory_manager.run_cycle,
+        "interval",
+        minutes=memory_interval,
+        id="memory_cycle",
+        name="Memory Cycle",
+    )
+    logger.info("Memory cycle scheduled every %d minutes", memory_interval)
+
     scheduler.start()
     ctx.scheduler = scheduler
 
@@ -473,20 +481,10 @@ def cmd_stats(config: dict, name: str):
         db_path=storage.get("db_path"),
         source_type="news",
     )
-    memory = EvolutionMemory()
 
     print("\n" + "=" * 60)
     print(f"  Statistics for: {name}")
     print("=" * 60)
-
-    # Evolution stats
-    stats = memory.get_stats(name)
-    print(f"  Total runs: {stats.get('runs', 0)}")
-    if stats.get("runs", 0) > 0:
-        print(f"  Avg extraction confidence: {stats.get('avg_confidence', 0)}")
-        print(f"  Avg processing time: {stats.get('avg_time_ms', 0):.0f} ms")
-        print(f"  Avg changes per run: {stats.get('avg_changes_per_run', 0)}")
-        print(f"  Change frequency: {stats.get('change_frequency', 0):.0%}")
 
     # DB run logs
     runs = store.get_run_history(name, limit=10)

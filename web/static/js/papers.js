@@ -29,6 +29,7 @@ async function loadPapers(page){
   if(page!==undefined)papersPage=page;
   var source=document.getElementById('paper-filter-source').value;
   var search=document.getElementById('paper-filter-search').value;
+  if(search) trackEvent('search', search, {page: 'papers'});
   var url='/api/papers?limit='+papersPageSize+'&offset='+(papersPage*papersPageSize);
   if(source)url+='&site='+encodeURIComponent(source);
   try{var r=await fetch(url);var d=await r.json();var items=d.items||[];papersTotal=d.total||items.length;
@@ -40,11 +41,12 @@ async function loadPapers(page){
     var sel=document.getElementById('paper-filter-source');
     if(sel.options.length<=1){sel.innerHTML='<option value="">All sources</option>'+Object.keys(sources).map(function(s){return '<option value="'+s+'">'+s+'</option>';}).join('');}
     document.getElementById('papers-body').innerHTML=items.length?items.map(function(it){
-      return '<tr><td><a href="'+(it.url||'#')+'" target="_blank" style="color:var(--accent)">'+(it.title||'').slice(0,80)+'</a></td>'+
-        '<td><span class="tag">'+(it.site_name||'-')+'</span></td>'+
+      var es=it.site_name||'-';var eu=(it.url||'').replace(/'/g,"\\'");var et=(it.title||'').replace(/'/g,"\\'");
+      return '<tr><td><a href="'+(it.url||'#')+'" target="_blank" style="color:var(--accent)" onclick="trackClick(\'click_link\',\''+eu+'\',\''+et+'\',\''+es+'\')">'+(it.title||'').slice(0,80)+'</a></td>'+
+        '<td><span class="tag">'+es+'</span></td>'+
         '<td style="color:var(--muted);font-size:12px;max-width:360px">'+(it.summary||'').slice(0,150)+'</td>'+
         '<td style="color:var(--muted);font-size:12px">'+(it.snapshot_time||'').slice(0,10)+'</td>'+
-        '<td><button onclick="fetchSummary(this,\x27'+(it.url||'').replace(/'/g,"\'")+'\x27,\x27'+(it.title||'').replace(/'/g,"\'")+'\x27)" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:500">Summary</button></td></tr>';
+        '<td><button onclick="trackClick(\'click_summary\',\''+eu+'\',\''+et+'\',\''+es+'\');fetchSummary(this,\''+eu+'\',\''+et+'\')" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:500">Summary</button></td></tr>';
     }).join(''):'<tr><td colspan="5" style="color:var(--muted)">No papers found.</td></tr>';
     renderPapersPagination();}catch(e){}
 }
@@ -66,6 +68,6 @@ async function loadSchedule(){
 function renderPaperActions(){
   if(!scheduleData)return;var el=document.getElementById('paper-action-buttons');var targets=scheduleData.targets||[];
   el.innerHTML=targets.filter(function(t){return t.is_article;}).map(function(t){
-    return '<button onclick="triggerRun(\x27'+t.name+'\x27,\x27'+t.url+'\x27,false)" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:500">Fetch: '+t.name+'</button>';
+    return '<button onclick="triggerRun(\''+t.name+'\',\''+t.url+'\',false)" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:500">Fetch: '+t.name+'</button>';
   }).join('');
 }

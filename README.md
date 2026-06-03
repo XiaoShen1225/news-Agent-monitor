@@ -28,7 +28,6 @@
 - **新闻/论文分离存储**：新闻与论文使用独立 SQLite 数据库 + JSON 快照目录 + CSV 文件，自动清理旧快照
 - **元数据预聚合**：site_metadata 表存储预计算的标签分布、历史计数、变更摘要，仪表盘查询 O(1) 无需扫描全量快照
 - **Docker 部署**：一键 `docker compose up -d`，含中文字体 + Chromium
-- **自进化**：运行指标追踪 + 调度频率自适应（持久化，重启不丢失）+ 提示词调优
 - **每日简报**：定时自动生成 LLM 新闻摘要并推送通知（钉钉/企微/邮件），支持手动触发
 - **变更检测优化**：SHA256 内容哈希跳过无变化页面；difflib 模糊标题匹配识别截断/标点差异，减少虚假增删
 - **相似度去重**：近重复标题（>70% 相似度）自动过滤，避免同一新闻不同来源的冗余数据
@@ -36,7 +35,7 @@
 - **结构化日志**：Pipeline 级别 trace_id + JSON 事件日志（pipeline_start/skip/done/error），支持根因分析
 - **健康检查**：`/api/health` 端点，返回服务状态、scheduler 运行状态、最后一次 pipeline 执行时间
 - **Windows 兼容**：信号处理兼容 Windows 平台，schedule 模式可正常 Ctrl+C 退出
-- **68 个精简测试**：pytest + pre-commit + ruff lint + GitHub Actions CI（~1.9s 执行）
+- **149 个测试**：pytest + pre-commit + ruff lint + GitHub Actions CI
 - **成本追踪**：Token 用量按站点聚合入库，`/api/cost` 端点查询，支持按天数筛选
 - **LLM 输出评估**：离线评估工具 `eval/judge.py`，faithfulness/relevance 双维度评分
 - **流式输出**：Chat 助手 SSE 流式输出，逐字显示回复，工具调用过程实时可见
@@ -47,8 +46,8 @@
 - **Agent 思考可见**：Chat 助手 ReAct 式思考过程展示——工具调用前显示思考卡片，步骤标签 + 完成标记 + Token 用量进度条
 - **安全护栏**：输入校验（越权拦截 + Prompt 注入防护）+ 工具参数校验（URL 格式/站点名合法性），结构化错误分类
 - **结构化工具输出**：查询结果带前缀标记（[查询结果]/[站点统计]等），空结果附操作建议
-- **用户偏好学习**：时间衰减信号 + 双反馈（隐式行为采集 + 显式喜欢/不喜欢纠正）+ 置信度评分 + 偏好排序增强
-- **18 个原子化工具**：search / get_item / list_tags / get_snapshot / get_run_log / fetch_article / get_events / get_entities / get_timeline / preferences / system_info / set_alert / watch_story / get_cost / get_circuit_status / get_evolution_log / get_deep_summary / trigger_run，支持并行组合调用
+- **三层偏好记忆系统**：L0 短期事件（7 天 TTL，访问延长）→ L1 中期模式聚合（≥10 事件 + ≥2h 冷却）→ L2 长期用户画像（≥24h 冷却，加权融合），独立 LLM 定时蒸馏（MemoryManager + APScheduler 30 分钟周期），显式偏好永久保留，前端埋点（点击/搜索/过滤）+ 对话追踪（chat_message 事件）双通道信号采集，自动化质量检测（矛盾扫描 + 过期清理 + 覆盖率检查 + 审计报告）
+- **21 个原子化工具**：search / get_item / list_tags / get_snapshot / get_run_log / fetch_article / get_events / get_entities / get_timeline / preferences / system_info / set_alert / watch_story / get_cost / get_circuit_status / get_deep_summary / trigger_run / dashboard_summary / run_deep_analysis / memory_audit，支持并行组合调用
 - **现代化 UI**：Chat 中心化布局（侧边栏导航 + 右侧滑出抽屉面板）、渐变色标题、毛玻璃顶栏、marked.js Markdown 渲染、暗色/亮色主题切换（localStorage 持久化）、CSS 变量主题系统、自定义滚动条、会话历史管理
 
 ## 快速开始
@@ -134,7 +133,7 @@ Visualization/
 │   │   ├── get_run_log.py, fetch_article.py, get_events.py
 │   │   ├── get_entities.py, get_timeline.py, preferences.py
 │   │   ├── system_info.py, set_alert.py, watch_story.py
-│   │   ├── get_cost.py, get_circuit_status.py, get_evolution_log.py
+│   │   ├── get_cost.py, get_circuit_status.py
 │   │   ├── get_deep_summary.py, trigger_run.py
 │   ├── fetcher.py                 # 网站抓取（httpx + Playwright）+ SHA256 变更检测
 │   ├── parser.py                  # section_walk / css_selector / LLM / RSS 四种提取策略
@@ -177,9 +176,6 @@ Visualization/
 │   ├── dingtalk.py                # 钉钉群机器人
 │   ├── wecom.py                   # 企业微信群机器人
 │   └── email.py                   # SMTP 邮件通知
-├── evolution/
-│   ├── memory.py                  # 运行指标记录
-│   └── optimizer.py               # 自进化：Prompt 调优 + 调度频率自适应
 ├── tests/                         # 68 个精简测试
 │   └── test_core.py               # 纯逻辑测试（JSON/情感/Hash/余弦/聚类/链接校验/协调器/输入校验/上下文管理/Key解析/进化记忆/Web API）
 ├── outputs/
@@ -262,8 +258,7 @@ Visualization/
 9. **Visualizer** 生成图表，today/total 每次更新
 10. **通知** → 钉钉/企微/邮件推送（含告警段落）
 11. **DeepAnalyzer** 所有站点完成后 → 跨站事件聚类（Vector Embedding + 余弦相似度）→ LLM 命名 → 实体识别 → 时间线构建
-12. **Evolution** 指标记录 → 调度频率自适应
-13. **ChatAgent** 通过 LangGraph `create_react_agent` 驱动对话，18 个工具并行组合调用，`astream_events` SSE 流式输出，上下文管理（Token 预算 + Exchange 裁剪）
+12. **ChatAgent** 通过 LangGraph `create_react_agent` 驱动对话，19 个工具并行组合调用，`astream_events` SSE 流式输出，上下文管理（Token 预算 + Exchange 裁剪）
 
 ## API 文档
 

@@ -562,51 +562,78 @@ class TestHybridSearchFilters:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestPreferenceSystem:
-    def test_decay_weight_simple(self, chat_agent):
-        w = chat_agent._decay_weight({"count": 10, "last_ts": "2026-01-01T00:00:00"})
+class TestPreferenceUtils:
+    """Test pure functions extracted to agents/preference_utils.py."""
+
+    def test_decay_weight_simple(self):
+        from agents.preference_utils import decay_weight
+
+        w = decay_weight({"count": 10, "last_ts": "2026-01-01T00:00:00"})
         assert w < 10  # decayed
 
-    def test_confidence_label(self, chat_agent):
-        assert chat_agent._confidence_label(0.9) == "高"
-        assert chat_agent._confidence_label(0.6) == "中"
-        assert chat_agent._confidence_label(0.3) == "低"
+    def test_confidence_label(self):
+        from agents.preference_utils import confidence_label
 
-    def test_bump_signal(self, chat_agent):
+        assert confidence_label(0.9) == "高"
+        assert confidence_label(0.6) == "中"
+        assert confidence_label(0.3) == "低"
+
+    def test_bump_signal(self):
+        from agents.preference_utils import bump_signal
+
         signals = {}
-        chat_agent._bump_signal(signals, "baidu_news")
-        chat_agent._bump_signal(signals, "baidu_news")
+        bump_signal(signals, "baidu_news")
+        bump_signal(signals, "baidu_news")
         entry = signals["baidu_news"]
         assert entry["count"] == 2
         assert "last_ts" in entry
 
-    def test_load_preferences_empty(self, chat_agent, tmp_data_dir):
-        # Create a fresh agent in a clean directory
-        from agents.chat_agent import ChatAgent
 
-        cfg = {
-            "llm": {
-                "api_key": "test",
-                "model": "test-model",
-                "base_url": "http://localhost",
-            },
-            "chat": {"max_history_tokens": 500, "min_exchanges": 1},
-        }
-        agent = ChatAgent(cfg)
-        assert agent._preferences == {}
+class TestPreferenceEngine:
+    """Test PreferenceEngine initialization and display formatting."""
 
-    def test_format_preferences_empty(self, chat_agent):
-        chat_agent._preferences = {}
-        result = chat_agent._format_preferences()
+    def test_init_empty(self, tmp_data_dir):
+        from agents.preference_engine import PreferenceEngine
+
+        engine = PreferenceEngine(track_store=MagicMock())
+        assert engine.get_overrides() == {}
+        current = engine.get_current()
+        assert "l1" in current
+        assert "l2" in current
+
+    def test_format_display_empty(self, tmp_data_dir):
+        from agents.preference_engine import PreferenceEngine
+
+        engine = PreferenceEngine(track_store=MagicMock())
+        result = engine.format_for_display()
         assert "暂无偏好数据" in result
 
-    def test_format_preferences_with_data(self, chat_agent):
-        chat_agent._preferences = {
-            "signals": {"total_exchanges": 3, "queried_sites": {}, "queried_tags": {}},
-            "inferences": {"top_interests": ["科技", "财经"]},
-        }
-        result = chat_agent._format_preferences()
+    def test_format_display_with_overrides(self, tmp_data_dir):
+        from agents.preference_engine import PreferenceEngine
+
+        engine = PreferenceEngine(track_store=MagicMock())
+        engine.set_override("科技", "like", 0.9)
+        engine.set_override("财经", "dislike", 0.8)
+        result = engine.format_for_display()
         assert "科技" in result
+        assert "财经" in result
+
+    def test_format_for_prompt_empty(self, tmp_data_dir):
+        from agents.preference_engine import PreferenceEngine
+
+        engine = PreferenceEngine(track_store=MagicMock())
+        result = engine.format_for_prompt()
+        assert result == ""
+
+    def test_set_override(self, tmp_data_dir):
+        from agents.preference_engine import PreferenceEngine
+
+        engine = PreferenceEngine(track_store=MagicMock())
+        engine.set_override("AI", "like", 0.95)
+        overrides = engine.get_overrides()
+        assert "AI" in overrides
+        assert overrides["AI"]["action"] == "like"
+        assert overrides["AI"]["confidence"] == 0.95
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -702,20 +729,16 @@ class TestSystemPrompt:
         assert len(prompt) > 50  # real prompts are substantial
 
     def test_prompt_with_preferences(self, chat_agent):
-        chat_agent._preferences = {
-            "inferences": {
-                "summary": "用户关注科技新闻",
-                "top_interests": ["科技"],
-            }
-        }
+        mock_engine = MagicMock()
+        mock_engine.format_for_prompt.return_value = "用户关注科技新闻"
+        chat_agent._preference_engine = mock_engine
         prompt = chat_agent._build_system_prompt()
         assert "用户关注科技新闻" in prompt
 
     def test_prompt_with_overrides(self, chat_agent):
-        chat_agent._preferences = {
-            "explicit_overrides": {"AI": {"action": "like"}},
-            "inferences": {},
-        }
+        mock_engine = MagicMock()
+        mock_engine.format_for_prompt.return_value = "用户明确喜欢: AI"
+        chat_agent._preference_engine = mock_engine
         prompt = chat_agent._build_system_prompt()
         assert "AI" in prompt
 

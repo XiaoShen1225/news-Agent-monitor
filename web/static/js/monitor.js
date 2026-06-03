@@ -159,7 +159,7 @@ async function loadTags(){
 
 function quickFilter(tag,clear){
   if(clear){document.getElementById('filter-tag').value='';document.getElementById('filter-search').value='';}
-  else{document.getElementById('filter-tag').value=tag;}
+  else{document.getElementById('filter-tag').value=tag;trackEvent('filter_tag', tag, {page: 'monitor'});}
   document.querySelectorAll('#drawer .tag-chip').forEach(function(c){c.classList.remove('active');
     if(!clear&&tag&&c.textContent===tag)c.classList.add('active');});
   loadItems(0);
@@ -170,14 +170,14 @@ async function loadItems(page){
   var tag=document.getElementById('filter-tag').value;var search=document.getElementById('filter-search').value;
   var url='/api/query?limit='+itemsPageSize+'&offset='+(itemsPage*itemsPageSize);
   if(site)url+='&site='+encodeURIComponent(site);if(tag)url+='&tag='+encodeURIComponent(tag);
-  if(search)url+='&keyword='+encodeURIComponent(search);
+  if(search){url+='&keyword='+encodeURIComponent(search);trackEvent('search', search, {page: 'monitor'});}
   try{var r=await fetch(url);var d=await r.json();var items=d.items||[];itemsTotal=d.total||items.length;
     document.getElementById('items-body').innerHTML=items.length?items.map(function(it){
-      var eu=(it.url||'').replace(/'/g,"\'");var et=(it.title||'').replace(/'/g,"\'");
-      return '<tr><td><a href="'+(it.url||'#')+'" target="_blank" style="color:var(--accent)">'+(it.title||'').slice(0,60)+'</a></td>'+
-        '<td><span class="tag">'+(it.tag||'-')+'</span></td><td style="color:var(--muted)">'+(it.site_name||'-')+'</td>'+
+      var eu=(it.url||'').replace(/'/g,"\'");var et=(it.title||'').replace(/'/g,"\'");var es=it.site_name||'-';var eg=it.tag||'-';
+      return '<tr><td><a href="'+(it.url||'#')+'" target="_blank" style="color:var(--accent)" onclick="trackClick(\x27click_link\x27,\x27'+eu+'\x27,\x27'+et+'\x27,\x27'+es+'\x27,\x27'+eg+'\x27)">'+(it.title||'').slice(0,60)+'</a></td>'+
+        '<td><span class="tag">'+eg+'</span></td><td style="color:var(--muted)">'+es+'</td>'+
         '<td style="color:var(--muted)">'+(it.snapshot_time||'').slice(0,19)+'</td>'+
-        '<td><button onclick="fetchSummary(this,\x27'+eu+'\x27,\x27'+et+'\x27)" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:500">Summary</button></td></tr>';
+        '<td><button onclick="trackClick(\x27click_summary\x27,\x27'+eu+'\x27,\x27'+et+'\x27,\x27'+es+'\x27,\x27'+eg+'\x27);fetchSummary(this,\x27'+eu+'\x27,\x27'+et+'\x27)" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:500">Summary</button></td></tr>';
     }).join(''):'<tr><td colspan="5" style="color:var(--muted)">No items found.</td></tr>';
     renderPagination();}catch(e){}
 }
