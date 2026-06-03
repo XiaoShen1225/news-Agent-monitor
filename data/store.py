@@ -630,6 +630,7 @@ class DataStore:
         site_name: str = None,
         tag: str = None,
         keyword: str = None,
+        sentiment: str = None,
         date_from: str = None,
         date_to: str = None,
         limit: int = 500,
@@ -646,6 +647,9 @@ class DataStore:
         if keyword:
             conditions.append("title LIKE ?")
             params.append(f"%{keyword}%")
+        if sentiment:
+            conditions.append("sentiment = ?")
+            params.append(sentiment)
         if date_from:
             conditions.append("snapshot_time >= ?")
             params.append(date_from)
@@ -654,7 +658,7 @@ class DataStore:
             params.append(date_to)
 
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        query = f"SELECT title, url, tag, summary, snapshot_time, published, site_name FROM news_items {where} ORDER BY snapshot_time DESC LIMIT ?"
+        query = f"SELECT title, url, tag, sentiment, summary, snapshot_time, published, site_name FROM news_items {where} ORDER BY snapshot_time DESC LIMIT ?"
         params.append(limit)
 
         with self._get_conn() as conn:
@@ -664,10 +668,11 @@ class DataStore:
                 "title": r[0],
                 "url": r[1],
                 "tag": r[2],
-                "summary": r[3],
-                "snapshot_time": r[4],
-                "published": r[5] or r[4],
-                "site_name": r[6],
+                "sentiment": r[3] or "",
+                "summary": r[4],
+                "snapshot_time": r[5],
+                "published": r[6] or r[5],
+                "site_name": r[7],
             }
             for r in rows
         ]

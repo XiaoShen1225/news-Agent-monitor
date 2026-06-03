@@ -184,6 +184,7 @@ class HybridSearcher:
         query: str,
         site_name: str | None = None,
         tag: str | None = None,
+        sentiment: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
         limit: int = 20,
@@ -200,7 +201,9 @@ class HybridSearcher:
         # ── BM25 channel ──────────────────────────────────────────
         bm25_hits = self._bm25.search(query, top_k=self._bm25_top_k)
         bm25_items = [self._bm25._documents[idx] for idx, _ in bm25_hits]
-        bm25_items = self._apply_filters(bm25_items, site_name, tag, date_from, date_to)
+        bm25_items = self._apply_filters(
+            bm25_items, site_name, tag, sentiment, date_from, date_to
+        )
 
         # ── Vector channel ────────────────────────────────────────
         try:
@@ -211,7 +214,7 @@ class HybridSearcher:
             logger.warning("[HybridSearch] Vector search failed, using BM25 only")
             vector_raw = []
         vector_items = self._apply_filters(
-            vector_raw, site_name, tag, date_from, date_to
+            vector_raw, site_name, tag, sentiment, date_from, date_to
         )
 
         # ── RRF fusion ────────────────────────────────────────────
@@ -233,6 +236,7 @@ class HybridSearcher:
         items: list[dict],
         site_name: str | None,
         tag: str | None,
+        sentiment: str | None,
         date_from: str | None,
         date_to: str | None,
     ) -> list[dict]:
@@ -242,6 +246,8 @@ class HybridSearcher:
             if site_name and item.get("site_name", "") != site_name:
                 continue
             if tag and item.get("tag", "") != tag:
+                continue
+            if sentiment and item.get("sentiment", "") != sentiment:
                 continue
             if date_from or date_to:
                 ts = item.get("snapshot_time", "")

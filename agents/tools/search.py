@@ -11,6 +11,7 @@ def make_search_tool(hybrid_searcher, vector_store, news_store, paper_store):
         query: str,
         site_name: str = "",
         tag: str = "",
+        sentiment: str = "",
         days: int = 0,
         limit: int = 15,
     ) -> str:
@@ -18,13 +19,14 @@ def make_search_tool(hybrid_searcher, vector_store, news_store, paper_store):
 
         使用场景：用户查新闻/找文章时使用，是所有搜索类意图的唯一入口。
         query为必填；site_name限定站点（baidu_news/sina_news/deepmind_blog/openai_blog）；
-        tag标签筛选；days回溯天数（0=今天）；limit返回数量，默认15。
+        tag标签筛选；sentiment情感筛选（positive/negative/neutral）；days回溯天数（0=今天）；limit返回数量，默认15。
         """
         if not query.strip():
             return "[参数错误] 请提供搜索关键词（query 参数）。"
 
         site = site_name or None
         tag_val = tag or None
+        sentiment_val = sentiment or None
         limit = min(max(limit, 1), 30)
 
         date_from = None
@@ -37,6 +39,7 @@ def make_search_tool(hybrid_searcher, vector_store, news_store, paper_store):
                 query=query.strip(),
                 site_name=site,
                 tag=tag_val,
+                sentiment=sentiment_val,
                 date_from=date_from,
                 limit=max(limit, 50),
             )
@@ -65,6 +68,7 @@ def make_search_tool(hybrid_searcher, vector_store, news_store, paper_store):
                 site_name=site,
                 tag=tag_val,
                 keyword=query.strip(),
+                sentiment=sentiment_val,
                 date_from=date_from,
                 limit=limit,
             )

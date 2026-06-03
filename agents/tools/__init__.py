@@ -22,11 +22,14 @@ from .get_circuit_status import make_get_circuit_status_tool
 from .get_evolution_log import make_get_evolution_log_tool
 from .get_deep_summary import make_get_deep_summary_tool
 from .trigger_run import make_trigger_run_tool
+from .dashboard_summary import make_dashboard_summary_tool
+from .run_deep_analysis import make_run_deep_analysis_tool
 
 
 def build_all_tools(agent) -> list:
-    """Create all 18 tools, injecting shared dependencies from the agent."""
+    """Create all 20 tools, injecting shared dependencies from the agent."""
     return [
+        # ── Query ──
         make_search_tool(
             agent.hybrid_searcher,
             agent.vector_store,
@@ -38,9 +41,14 @@ def build_all_tools(agent) -> list:
         make_get_snapshot_tool(agent.news_store, agent.paper_store),
         make_get_run_log_tool(agent.news_store, agent.paper_store),
         make_fetch_article_tool(agent),
+        make_get_timeline_tool(agent.news_store, agent.paper_store),
+        # ── Analysis ──
         make_get_events_tool(agent.news_store, agent.paper_store),
         make_get_entities_tool(agent.news_store, agent.paper_store),
-        make_get_timeline_tool(agent.news_store, agent.paper_store),
+        make_get_deep_summary_tool(agent.news_store, agent.paper_store),
+        make_run_deep_analysis_tool(agent._coordinator),
+        make_dashboard_summary_tool(agent.news_store, agent.paper_store),
+        # ── Management ──
         make_preferences_tool(agent),
         make_system_info_tool(agent.config),
         make_set_alert_tool(agent.alert_store),
@@ -48,6 +56,5 @@ def build_all_tools(agent) -> list:
         make_get_cost_tool(agent),
         make_get_circuit_status_tool(agent.news_store, agent.paper_store),
         make_get_evolution_log_tool(agent._evolution),
-        make_get_deep_summary_tool(agent.news_store, agent.paper_store),
         make_trigger_run_tool(agent._coordinator),
     ]

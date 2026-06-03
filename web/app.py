@@ -511,6 +511,7 @@ async def api_query(
     site: str | None = Query(None),
     tag: str | None = Query(None),
     keyword: str | None = Query(None),
+    sentiment: str | None = Query(None),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
@@ -527,6 +528,9 @@ async def api_query(
     if keyword:
         conditions.append("title LIKE ?")
         params.append(f"%{keyword}%")
+    if sentiment:
+        conditions.append("sentiment = ?")
+        params.append(sentiment)
     if date_from:
         conditions.append("snapshot_time >= ?")
         params.append(date_from)
@@ -544,7 +548,7 @@ async def api_query(
         total = total_row[0] if total_row else 0
 
         query = (
-            f"SELECT title, url, tag, summary, snapshot_time, site_name FROM news_items "
+            f"SELECT title, url, tag, sentiment, summary, snapshot_time, site_name FROM news_items "
             f"{where} ORDER BY snapshot_time DESC LIMIT ? OFFSET ?"
         )
         params.extend([limit, offset])

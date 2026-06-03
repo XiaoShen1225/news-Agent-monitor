@@ -10,15 +10,18 @@ def make_get_timeline_tool(news_store, paper_store):
     async def get_timeline(
         days: int = 7,
         site_name: str = "",
+        sentiment: str = "",
         limit: int = 15,
     ) -> str:
         """获取按时间排序的新闻条目列表，用于了解最近动态时间线。
 
         使用场景：用户问"最近发生了什么""时间线""这几天有什么新消息"时使用。
         可用 list_tags 了解标签分布、get_events 了解聚集事件作为补充。
+        sentiment可筛选情感（positive/negative/neutral），不传则返回全部。
         """
         days = min(max(days, 1), 30)
         limit = min(max(limit, 1), 30)
+        sentiment_val = sentiment or None
 
         items = []
         if site_name:
@@ -30,7 +33,9 @@ def make_get_timeline_tool(news_store, paper_store):
                 else news_store
             )
             if store:
-                items = store.query_items(site_name=site_name, limit=limit)
+                items = store.query_items(
+                    site_name=site_name, sentiment=sentiment_val, limit=limit
+                )
         else:
             for name, store in [
                 ("baidu_news", news_store),
@@ -39,7 +44,11 @@ def make_get_timeline_tool(news_store, paper_store):
                 ("openai_blog", paper_store),
             ]:
                 if store:
-                    items.extend(store.query_items(site_name=name, limit=limit))
+                    items.extend(
+                        store.query_items(
+                            site_name=name, sentiment=sentiment_val, limit=limit
+                        )
+                    )
 
         if not items:
             label = f"站点 {site_name}" if site_name else "全部站点"
