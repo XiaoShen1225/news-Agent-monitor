@@ -170,8 +170,8 @@ async function loadItems(page){
   var tag=document.getElementById('filter-tag').value;var search=document.getElementById('filter-search').value;
   var url='/api/query?limit='+itemsPageSize+'&offset='+(itemsPage*itemsPageSize);
   if(site)url+='&site='+encodeURIComponent(site);if(tag)url+='&tag='+encodeURIComponent(tag);
+  if(search)url+='&keyword='+encodeURIComponent(search);
   try{var r=await fetch(url);var d=await r.json();var items=d.items||[];itemsTotal=d.total||items.length;
-    if(search)items=items.filter(function(it){return it.title.toLowerCase().includes(search.toLowerCase());});
     document.getElementById('items-body').innerHTML=items.length?items.map(function(it){
       var eu=(it.url||'').replace(/'/g,"\'");var et=(it.title||'').replace(/'/g,"\'");
       return '<tr><td><a href="'+(it.url||'#')+'" target="_blank" style="color:var(--accent)">'+(it.title||'').slice(0,60)+'</a></td>'+

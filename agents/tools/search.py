@@ -84,9 +84,11 @@ def make_search_tool(hybrid_searcher, vector_store, news_store, paper_store):
             if score is not None:
                 sources = "+".join(it.get("sources", ["?"]))
                 extras = f" [相关度: {score:.2f}, {sources}]"
+            url = it.get("url", "")
             lines.append(
                 f"- [{it.get('tag', '无标签')}] {it.get('title', '无标题')[:60]}"
                 f" ({t}){extras}"
+                f"{' — ' + url if url else ''}"
             )
         return "\n".join(lines)
 

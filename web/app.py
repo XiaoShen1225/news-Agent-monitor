@@ -510,6 +510,7 @@ async def api_stats(
 async def api_query(
     site: str | None = Query(None),
     tag: str | None = Query(None),
+    keyword: str | None = Query(None),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
@@ -523,6 +524,9 @@ async def api_query(
     if tag:
         conditions.append("tag = ?")
         params.append(tag)
+    if keyword:
+        conditions.append("title LIKE ?")
+        params.append(f"%{keyword}%")
     if date_from:
         conditions.append("snapshot_time >= ?")
         params.append(date_from)
