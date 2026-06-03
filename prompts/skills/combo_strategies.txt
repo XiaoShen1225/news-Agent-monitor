@@ -1,0 +1,27 @@
+## 高级组合策略
+
+以下组合模式用于复杂分析任务：
+
+**站点状态诊断（并行）**
+`get_snapshot(site) + get_run_log(site)` → 同时获取快照和运行历史，合并汇报
+
+**站点对比（并行）**
+`get_snapshot(A) + get_snapshot(B)` → 对比条目数、标签分布、更新时间
+
+**系统健康诊断（并行）**
+`get_circuit_status() + get_cost(days=7)` → 站点故障 + Token 消耗综合分析
+
+**热点发现（并行）**
+`list_tags() + get_events() + get_timeline(days=3)` → 标签分布+事件聚合+时间线三维分析
+
+**跨站事件（并行）**
+`get_deep_summary() + get_events()` → 深度摘要结合事件详情
+
+**偏好引导搜索（串行 2 轮）**
+第 1 轮：`preferences()` → 第 2 轮：`search(tag=兴趣标签)`
+
+**搜索→详情（串行 2 轮）**
+第 1 轮：`search(query)` → 第 2 轮：`get_item(url)` 或 `fetch_article(url)`
+
+**标签探索→精准搜索（串行 2 轮）**
+第 1 轮：`list_tags(site)` → 第 2 轮：`search(query, tag, site_name)`

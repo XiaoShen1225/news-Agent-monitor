@@ -332,7 +332,13 @@ class ChatAgent(BaseAgent):
 
     async def _agent_node(self, state: AgentState) -> dict:
         """LLM call node — bind tools and invoke."""
-        system_msg = SystemMessage(content=self._build_system_prompt())
+        # Extract last user message for skill loading
+        user_msg = ""
+        for m in reversed(state.get("messages", [])):
+            if hasattr(m, "type") and m.type in ("human", "user"):
+                user_msg = m.content if hasattr(m, "content") else ""
+                break
+        system_msg = SystemMessage(content=self._build_system_prompt(user_msg))
         model = self.model.bind_tools(self._tools)
         messages = [system_msg] + list(state["messages"])
         response = await model.ainvoke(messages)
@@ -676,12 +682,62 @@ class ChatAgent(BaseAgent):
                 "[ChatAgent] Consolidated session %s → episodic memory", sid[:8]
             )
 
-    def _build_system_prompt(self) -> str:
+    @staticmethod
+    def _load_skill(filename: str) -> str:
+        """Load a skill prompt fragment from prompts/skills/."""
+        path = Path("prompts/skills") / filename
+        if path.exists():
+            return path.read_text(encoding="utf-8").strip()
+        return ""
+
+    def _build_system_prompt(self, user_message: str = "") -> str:
         prompt_path = Path("prompts/chat_system.txt")
         if prompt_path.exists():
             content = prompt_path.read_text(encoding="utf-8")
         else:
             content = "你是 News Agent Monitor 的智能对话助手。"
+
+        # ── Skill loading: keyword-triggered progressive disclosure ──
+        msg_lower = user_message.lower() if user_message else ""
+        domain_keywords = [
+            "怎么工作",
+            "架构",
+            "流程",
+            "pipeline",
+            "数据库",
+            "存储",
+            "表结构",
+            "sql",
+            "监控哪些",
+            "抓取频率",
+            "为什么失败",
+            "gfw",
+            "断路器",
+            "数据存",
+            "怎么抓",
+        ]
+        combo_keywords = [
+            "怎么组合",
+            "多工具",
+            "先查再",
+            "对比",
+            "综合分析",
+            "并行",
+            "串行",
+            "同时查",
+            "一站式",
+            "先搜再",
+            "先看再",
+            "怎么查",
+        ]
+        if any(kw in msg_lower for kw in domain_keywords):
+            skill = self._load_skill("domain_knowledge.txt")
+            if skill:
+                content += "\n\n" + skill
+        if any(kw in msg_lower for kw in combo_keywords):
+            skill = self._load_skill("combo_strategies.txt")
+            if skill:
+                content += "\n\n" + skill
 
         # ── Episodic memory context ──────────────────────────────────
         if self.episodic_memory is not None:

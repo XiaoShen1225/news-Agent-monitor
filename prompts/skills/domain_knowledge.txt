@@ -1,0 +1,19 @@
+## 数据存储
+- SQLite：`data/monitor.db`（新闻）+ `data/papers.db`（论文）
+- snapshots 表：title, url, tag, sentiment, site_name, content_hash, snapshot_time
+- run_logs 表：status, items_found, changes_detected, processing_time_ms, error_message
+- site_metadata 表：标签分布, 更新时间, 连续失败次数, 断路器状态
+
+## Pipeline
+Fetch(httpx/Playwright) → Parse(LLM提取+分类+情感) → Analyze(对比快照计算diff+LLM摘要) → Visualize(matplotlib+ECharts) → Notify(钉钉/企微/邮件)
+
+## 监控站点
+| 站点 | 类型 | 频率 | 标签 |
+|------|------|------|------|
+| baidu_news | 新闻 | 60min | 科技,要闻,财经,军事,娱乐,国内,国际,体育 |
+| sina_news | 新闻 | 120min | 国际,体育,社会,财经,国内,军事,汽车,其他 |
+| deepmind_blog | 论文 | 360min | AI研究 |
+| openai_blog | 论文 | 360min | AI研究 |
+
+deepmind.google 在国内被 GFW 阻断（TLS层），大概率抓取失败，非系统故障。
+新闻站点的标签+情感由 LLM 自动分类；论文站点标签固定为 "AI研究"。
