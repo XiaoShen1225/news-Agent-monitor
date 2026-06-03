@@ -94,6 +94,7 @@ class ChatAgent(BaseAgent):
         coordinator=None,
         evolution=None,
         max_history_tokens: int | None = None,
+        episodic_memory=None,
     ):
         super().__init__("Chat", config)
         self.news_store = news_store
@@ -104,6 +105,7 @@ class ChatAgent(BaseAgent):
         self.hybrid_searcher = hybrid_searcher
         self._coordinator = coordinator
         self._evolution = evolution
+        self.episodic_memory = episodic_memory
 
         chat_cfg = config.get("chat", {})
         self.max_history_tokens = max_history_tokens or chat_cfg.get(
@@ -493,6 +495,8 @@ class ChatAgent(BaseAgent):
         elif level == "lite":
             await self._infer_preferences("lite")
 
+        await self._maybe_consolidate()
+
         return {
             "reply": reply,
             "tool_calls": tool_calls_log,
@@ -584,6 +588,8 @@ class ChatAgent(BaseAgent):
         elif level == "lite":
             await self._infer_preferences("lite")
 
+        await self._maybe_consolidate()
+
         ctx = self.context_stats()
         yield self._sse("tool_calls", tool_calls_log)
         yield self._sse(
@@ -600,12 +606,84 @@ class ChatAgent(BaseAgent):
         payload = json.dumps(data, ensure_ascii=False)
         return f"event: {event}\ndata: {payload}\n\n"
 
+    # ── episodic memory ────────────────────────────────────────────────
+
+    async def _maybe_consolidate(self):
+        """Generate a cross-session summary of the current conversation if enough
+        exchanges have accumulated, and store it as an episodic memory."""
+        if self.episodic_memory is None:
+            return
+        exchanges = sum(1 for m in self._history if m.get("role") == "user")
+        threshold = 3
+        if exchanges < threshold:
+            return
+
+        # Extract recent exchange content (last ~3 exchanges)
+        recent = []
+        user_count = 0
+        for m in reversed(self._history):
+            recent.append(m)
+            if m.get("role") == "user":
+                user_count += 1
+                if user_count >= threshold:
+                    break
+        recent.reverse()
+
+        topics = self.episodic_memory._extract_topics_from_messages(recent)
+        preview_lines = []
+        for m in recent:
+            role = m.get("role", "")
+            content = (m.get("content") or "")[:120]
+            if role == "user":
+                preview_lines.append(f"用户: {content}")
+            elif role == "assistant" and "tool_calls" in m:
+                names = [tc["function"]["name"] for tc in m["tool_calls"]]
+                preview_lines.append(f"助手调用: {', '.join(names)}")
+            elif role == "assistant" and content:
+                preview_lines.append(f"助手: {content}")
+        preview = "\n".join(preview_lines[-12:])
+
+        prompt = f"用1-2句中文总结以下对话片段中用户关注的主题和信息需求，不要包含无关细节:\n\n{preview}"
+        try:
+            resp = await self.call_llm_async(
+                system_prompt="你是对话摘要专家。只输出1-2句简洁的中文摘要。",
+                user_prompt=prompt,
+                temperature=0.1,
+                max_tokens=120,
+            )
+            summary = resp.strip() if resp else ""
+        except Exception as e:
+            logger.warning("[ChatAgent] Consolidation summary failed: %s", e)
+            summary = f"用户讨论了 {', '.join(topics[:3])}" if topics else ""
+
+        if summary:
+            sid = self._current_session_id or "default"
+            self.episodic_memory.add(
+                session_id=sid,
+                summary=summary,
+                topics=topics,
+                entities=[],
+                exchange_count=exchanges,
+            )
+            logger.info(
+                "[ChatAgent] Consolidated session %s → episodic memory", sid[:8]
+            )
+
     def _build_system_prompt(self) -> str:
         prompt_path = Path("prompts/chat_system.txt")
         if prompt_path.exists():
             content = prompt_path.read_text(encoding="utf-8")
         else:
             content = "你是 News Agent Monitor 的智能对话助手。"
+
+        # ── Episodic memory context ──────────────────────────────────
+        if self.episodic_memory is not None:
+            recent_eps = self.episodic_memory.get_recent(3)
+            if recent_eps:
+                lines = ["\n\n历史会话摘要（跨会话记忆，仅供参考）:"]
+                for ep in recent_eps:
+                    lines.append(f"- {ep['summary']}")
+                content += "\n".join(lines)
 
         inferences = self._preferences.get("inferences", {})
         overrides = self._preferences.get("explicit_overrides", {})

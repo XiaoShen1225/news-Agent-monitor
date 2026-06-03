@@ -910,6 +910,7 @@ def _get_chat_agent():
         from data.store import DataStore
         from data.alert_store import AlertStore
         from data.story_watch import StoryWatchStore
+        from data.episodic_memory import EpisodicMemory
 
         from agents.chat_agent import ChatAgent
 
@@ -923,6 +924,7 @@ def _get_chat_agent():
             hybrid_searcher=_get_hybrid_searcher(),
             coordinator=ctx.coordinator,
             evolution=ctx.coordinator.evolution if ctx.coordinator else None,
+            episodic_memory=EpisodicMemory(),
         )
     return ctx.chat_agent
 
