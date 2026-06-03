@@ -1,19 +1,30 @@
 """ChatAgent: conversational assistant with tool-calling for the monitoring dashboard.
 
-Uses LangChain for tool definitions (@tool decorator), model management
-(ChatOpenAI/ChatAnthropic), and streaming.  Context management (compress ->
-clean -> trim) is handled by ContextManager; session management, input
-validation, and preference inference remain custom.
+Uses LangGraph StateGraph for agent orchestration with automatic checkpointing,
+ToolNode for parallel tool execution, and astream_events for SSE streaming.
+Context management, session management, input validation, and preference
+inference remain custom.
 """
 
-import asyncio
 import json
 import logging
 import re
 import uuid
 from pathlib import Path
+from typing import Annotated, TypedDict
 
 import httpx
+from langgraph.graph import END, StateGraph
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 
 from .base_agent import BaseAgent
 from .context_manager import (
@@ -25,6 +36,11 @@ from .context_manager import (
     MAX_TOOL_RESULTS,
 )
 from .tools import build_all_tools
+
+
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +147,7 @@ class ChatAgent(BaseAgent):
         self._default_session = self._new_session_data()
         self._load_history()
         self._load_preferences()
+        self._build_graph()
 
     @staticmethod
     def _new_session_data() -> dict:
@@ -292,6 +309,128 @@ class ChatAgent(BaseAgent):
 
         return None
 
+    # ── LangGraph graph construction ───────────────────────────────────
+
+    def _build_graph(self):
+        """Build the StateGraph: agent ←→ tools loop with checkpointing."""
+        self._tool_node = ToolNode(self._tools)
+        self._memory = MemorySaver()
+
+        builder = StateGraph(AgentState)
+        builder.add_node("agent", self._agent_node)
+        builder.add_node("tools", self._tool_node)
+        builder.set_entry_point("agent")
+        builder.add_conditional_edges(
+            "agent",
+            self._should_continue,
+            {"tools": "tools", "__end__": END},
+        )
+        builder.add_edge("tools", "agent")
+        self._graph = builder.compile(checkpointer=self._memory)
+
+    async def _agent_node(self, state: AgentState) -> dict:
+        """LLM call node — bind tools and invoke."""
+        system_msg = SystemMessage(content=self._build_system_prompt())
+        model = self.model.bind_tools(self._tools)
+        messages = [system_msg] + list(state["messages"])
+        response = await model.ainvoke(messages)
+        return {"messages": [response]}
+
+    @staticmethod
+    def _should_continue(state: AgentState) -> str:
+        """Route to tools if the last AI message has tool_calls, else end."""
+        last_msg = state["messages"][-1]
+        if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
+            return "tools"
+        return "__end__"
+
+    # ── message format conversion ─────────────────────────────────────
+
+    @staticmethod
+    def _msg_to_dict(msg: BaseMessage) -> dict:
+        """Convert a LangChain message to a JSON-serializable dict."""
+        d: dict = {"role": msg.type, "content": msg.content or ""}
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            d["tool_calls"] = [
+                {
+                    "id": tc.get("id", ""),
+                    "type": "function",
+                    "function": {
+                        "name": tc.get("name", ""),
+                        "arguments": json.dumps(tc.get("args", {}), ensure_ascii=False),
+                    },
+                }
+                for tc in msg.tool_calls
+            ]
+        if hasattr(msg, "tool_call_id") and msg.tool_call_id:
+            d["tool_call_id"] = msg.tool_call_id
+        return d
+
+    @staticmethod
+    def _dict_to_msg(d: dict) -> BaseMessage:
+        """Convert a JSON dict to a LangChain message."""
+        role = d.get("role", "")
+        content = d.get("content", "") or ""
+        if role == "user":
+            return HumanMessage(content=content)
+        if role == "assistant":
+            tc = d.get("tool_calls")
+            if tc:
+                from langchain_core.messages import ToolCall
+
+                parsed = []
+                for t in tc:
+                    fn = t.get("function", {})
+                    args_raw = fn.get("arguments", "{}")
+                    try:
+                        args = (
+                            json.loads(args_raw)
+                            if isinstance(args_raw, str)
+                            else args_raw
+                        )
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
+                    parsed.append(
+                        ToolCall(id=t.get("id", ""), name=fn.get("name", ""), args=args)
+                    )
+                return AIMessage(content=content, tool_calls=parsed)
+            return AIMessage(content=content)
+        if role == "tool":
+            return ToolMessage(
+                content=content,
+                tool_call_id=d.get("tool_call_id", ""),
+            )
+        if role == "system":
+            return SystemMessage(content=content)
+        return AIMessage(content=content)
+
+    def _seed_graph_state(self, config: dict):
+        """Inject JSON history into LangGraph state if checkpoint is empty (e.g. after restart)."""
+        try:
+            state = self._graph.get_state(config)
+            if state.values and state.values.get("messages"):
+                return  # graph already has state for this thread
+        except Exception:
+            pass
+        if not self._history:
+            return
+        history_msgs = [self._dict_to_msg(m) for m in self._history]
+        if history_msgs:
+            self._graph.update_state(config, {"messages": history_msgs})
+
+    def _sync_history_from_graph(self, config: dict):
+        """Extract messages from LangGraph state → JSON-persistent _history."""
+        try:
+            state = self._graph.get_state(config)
+            if state.values:
+                messages = state.values.get("messages", [])
+                # Keep only user/assistant/tool (skip system — rebuilt each call)
+                self._history = [
+                    self._msg_to_dict(m) for m in messages if m.type != "system"
+                ]
+        except Exception:
+            pass
+
     # ── chat ──────────────────────────────────────────────────────────
 
     async def chat(self, user_message: str, session_id: str | None = None) -> dict:
@@ -312,118 +451,53 @@ class ChatAgent(BaseAgent):
         self._history.append({"role": "user", "content": user_message})
         self._save_history()
 
-        system_msg = {"role": "system", "content": self._build_system_prompt()}
-        messages = [system_msg] + list(self._history)
+        input_msgs: list = [HumanMessage(content=user_message)]
+        config = {"configurable": {"thread_id": sid}}
 
-        tool_calls_log: list[dict] = []
-        model = self.model.bind_tools(self._tools)
+        self._seed_graph_state(config)
+        result = await self._graph.ainvoke({"messages": input_msgs}, config=config)
 
-        for _round in range(self.max_tool_rounds + 1):
-            result = await model.ainvoke(messages)
-
-            if result.tool_calls:
-                parsed = []
-                for tc in result.tool_calls:
-                    name = tc.get("name", "")
-                    args = tc.get("args", {})
-                    if not args:
-                        raw = tc.get("function", {}).get("arguments", "{}")
-                        try:
-                            args = (
-                                json.loads(raw) if isinstance(raw, str) else (raw or {})
-                            )
-                        except Exception:
-                            args = {}
-                    parsed.append((tc, name, args))
-
-                async def _exec_one(name, args):
-                    for t in self._tools:
-                        if t.name == name:
-                            try:
-                                r = await t.ainvoke(args)
-                                return str(r) if r else ""
-                            except Exception as e:
-                                return f"[{name} error] {e}"
-                    return f"[unknown tool] {name}"
-
-                tasks = [_exec_one(name, args) for _, name, args in parsed]
-                tool_results = await asyncio.gather(*tasks)
-
-                assistant_msg = {
-                    "role": "assistant",
-                    "content": result.content or "",
-                    "tool_calls": [
-                        {
-                            "id": tc["id"],
-                            "type": "function",
-                            "function": {
-                                "name": name,
-                                "arguments": json.dumps(args, ensure_ascii=False),
-                            },
-                        }
-                        for tc, name, args in parsed
-                    ],
-                }
-                messages.append(assistant_msg)
-                self._history.append(assistant_msg)
-
-                for i, (tc, name, args) in enumerate(parsed):
-                    tr = tool_results[i]
+        # Extract final reply and tool calls from the result
+        tool_calls_log = []
+        reply = ""
+        for msg in result.get("messages", []):
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                for tc in msg.tool_calls:
                     tool_calls_log.append(
                         {
-                            "tool": name,
-                            "args": args,
-                            "result": tr[:2000],
+                            "tool": tc.get("name", ""),
+                            "args": tc.get("args", {}),
+                            "result": "",
                         }
                     )
-                    tool_msg = {
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": tr,
-                    }
-                    messages.append(tool_msg)
-                    self._history.append(tool_msg)
-                continue
+            elif msg.type == "tool":
+                pass  # tool results are embedded, don't need to log separately
+            elif msg.type == "ai" and msg.content:
+                reply = msg.content
 
-            reply = result.content or ""
-            if not reply.strip():
-                # Fallback: retry without tool binding (some models return empty
-                # content when tool_calls are present but not executed)
-                try:
-                    fallback = await self.model.ainvoke(messages)
-                    reply = fallback.content or "抱歉，请换个方式提问。"
-                except Exception:
-                    reply = "抱歉，请换个方式提问。"
-            self._history.append({"role": "assistant", "content": reply})
+        if not reply.strip():
+            reply = "抱歉，请换个方式提问。"
 
-            await self._maybe_compress()
-            self._cleanup_old_tool_results()
-            trimmed = self._trim_context()
-            self._save_history()
-
-            level = self._collect_behavior_signals()
-            if level == "full":
-                await self._infer_preferences("full")
-            elif level == "lite":
-                await self._infer_preferences("lite")
-
-            return {
-                "reply": reply,
-                "tool_calls": tool_calls_log,
-                "context": self.context_stats(),
-                "context_trimmed": trimmed,
-                "session_id": sid,
-            }
-
-        reply = "抱歉，处理您的请求需要更多轮次，请简化提问。"
-        self._history.append({"role": "assistant", "content": reply})
+        # Sync LangGraph state → JSON history
+        self._sync_history_from_graph(config)
         self._save_history()
-        self._collect_behavior_signals()
+
+        await self._maybe_compress()
+        self._cleanup_old_tool_results()
+        trimmed = self._trim_context()
+        self._save_history()
+
+        level = self._collect_behavior_signals()
+        if level == "full":
+            await self._infer_preferences("full")
+        elif level == "lite":
+            await self._infer_preferences("lite")
+
         return {
             "reply": reply,
             "tool_calls": tool_calls_log,
             "context": self.context_stats(),
-            "context_trimmed": 0,
+            "context_trimmed": trimmed,
             "session_id": sid,
         }
 
@@ -442,143 +516,84 @@ class ChatAgent(BaseAgent):
         self._history.append({"role": "user", "content": user_message})
         self._save_history()
 
-        system_msg = {"role": "system", "content": self._build_system_prompt()}
-        messages = [system_msg] + list(self._history)
+        input_msgs: list = [HumanMessage(content=user_message)]
+        config = {"configurable": {"thread_id": sid}}
 
-        tool_calls_log: list[dict] = []
         yield self._sse("status", "正在分析...")
 
-        model = self.model.bind_tools(self._tools)
+        tool_calls_log: list[dict] = []
+        round_num = 0
 
-        for _round in range(self.max_tool_rounds + 1):
-            result = await model.ainvoke(messages)
+        self._seed_graph_state(config)
 
-            if result.tool_calls:
-                parsed = []
-                for tc in result.tool_calls:
-                    name = tc.get("name", "")
-                    args = tc.get("args", {})
-                    if not args:
-                        raw = tc.get("function", {}).get("arguments", "{}")
-                        try:
-                            args = (
-                                json.loads(raw) if isinstance(raw, str) else (raw or {})
-                            )
-                        except Exception:
-                            args = {}
-                    parsed.append((tc, name, args))
+        try:
+            async for event in self._graph.astream_events(
+                {"messages": input_msgs}, config, version="v2"
+            ):
+                kind = event.get("event", "")
 
-                thinking_text = result.content or ""
-                if not thinking_text:
-                    names = ", ".join(name for _, name, _ in parsed)
-                    thinking_text = f"正在调用: {names}"
-                yield self._sse(
-                    "thinking", {"text": thinking_text, "round": _round + 1}
-                )
+                if kind == "on_chat_model_stream":
+                    chunk = event.get("data", {}).get("chunk")
+                    if chunk and chunk.content:
+                        yield self._sse("token", chunk.content)
 
-                for tc, name, args in parsed:
+                elif kind == "on_tool_start":
+                    round_num += 1
+                    name = event.get("name", "")
+                    data = event.get("data", {})
+                    args = data.get("input", {})
+                    yield self._sse(
+                        "thinking",
+                        {"text": f"正在调用: {name}", "round": round_num},
+                    )
                     yield self._sse("tool_call", {"tool": name, "args": args})
 
-                async def _exec_one(name, args):
-                    for t in self._tools:
-                        if t.name == name:
-                            try:
-                                r = await t.ainvoke(args)
-                                return str(r) if r else ""
-                            except Exception as e:
-                                return f"[{name} error] {e}"
-                    return f"[unknown tool] {name}"
-
-                tasks = [_exec_one(name, args) for _, name, args in parsed]
-                tool_results = await asyncio.gather(*tasks)
-
-                for i, (tc, name, args) in enumerate(parsed):
-                    tr = tool_results[i]
-                    yield self._sse("tool_result", {"tool": name, "result": tr[:2000]})
-
-                assistant_msg = {
-                    "role": "assistant",
-                    "content": result.content or "",
-                    "tool_calls": [
-                        {
-                            "id": tc["id"],
-                            "type": "function",
-                            "function": {
-                                "name": name,
-                                "arguments": json.dumps(args, ensure_ascii=False),
-                            },
-                        }
-                        for tc, name, args in parsed
-                    ],
-                }
-                messages.append(assistant_msg)
-                self._history.append(assistant_msg)
-
-                for i, (tc, name, args) in enumerate(parsed):
-                    tr = tool_results[i]
+                elif kind == "on_tool_end":
+                    name = event.get("name", "")
+                    output = event.get("data", {}).get("output", "")
+                    result_str = str(output) if output else ""
+                    yield self._sse(
+                        "tool_result", {"tool": name, "result": result_str[:2000]}
+                    )
+                    args = event.get("data", {}).get("input", {})
                     tool_calls_log.append(
                         {
                             "tool": name,
                             "args": args,
-                            "result": tr[:2000],
+                            "result": result_str[:2000],
                         }
                     )
-                    tool_msg = {
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": tr,
-                    }
-                    messages.append(tool_msg)
-                    self._history.append(tool_msg)
-                continue
-
-            yield self._sse("status", "正在生成回复...")
-
-            reply_parts = []
-            async for chunk in self.model.astream(messages):
-                if chunk.content:
-                    reply_parts.append(chunk.content)
-                    yield self._sse("token", chunk.content)
-
-            reply = "".join(reply_parts)
-            if not reply.strip():
-                try:
-                    fallback = await self.model.ainvoke(messages)
-                    reply = fallback.content or "抱歉，请换个方式提问。"
-                except Exception:
-                    reply = "抱歉，请换个方式提问。"
-                yield self._sse("token", reply)
-            self._history.append({"role": "assistant", "content": reply})
-
-            await self._maybe_compress()
-            self._cleanup_old_tool_results()
-            trimmed = self._trim_context()
-            self._save_history()
-
-            level = self._collect_behavior_signals()
-            if level == "full":
-                await self._infer_preferences("full")
-            elif level == "lite":
-                await self._infer_preferences("lite")
-
-            ctx = self.context_stats()
-            yield self._sse("tool_calls", tool_calls_log)
-            yield self._sse(
-                "context",
-                {
-                    "history_tokens": ctx["history_tokens"],
-                    "exchanges": ctx["exchanges"],
-                },
-            )
-            yield self._sse("done", {"trimmed": trimmed, "session_id": sid})
+        except Exception as e:
+            logger.error("[ChatAgent] Stream error: %s", e, exc_info=True)
+            yield self._sse("token", f"抱歉，处理请求时出错：{e}")
+            yield self._sse("done", {"error": str(e), "session_id": sid})
             return
 
-        reply = "抱歉，处理您的请求需要更多轮次，请简化提问。"
-        self._history.append({"role": "assistant", "content": reply})
+        # Sync graph state → JSON history
+        self._sync_history_from_graph(config)
         self._save_history()
-        self._collect_behavior_signals()
-        yield self._sse("token", reply)
-        yield self._sse("done", {"session_id": sid})
+
+        await self._maybe_compress()
+        self._cleanup_old_tool_results()
+        trimmed = self._trim_context()
+        self._save_history()
+
+        level = self._collect_behavior_signals()
+        if level == "full":
+            await self._infer_preferences("full")
+        elif level == "lite":
+            await self._infer_preferences("lite")
+
+        ctx = self.context_stats()
+        yield self._sse("tool_calls", tool_calls_log)
+        yield self._sse(
+            "context",
+            {
+                "history_tokens": ctx["history_tokens"],
+                "exchanges": ctx["exchanges"],
+            },
+        )
+        yield self._sse("done", {"trimmed": trimmed, "session_id": sid})
 
     @staticmethod
     def _sse(event: str, data) -> str:
