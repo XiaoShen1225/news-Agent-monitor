@@ -16,8 +16,8 @@
 - **深度内容分析**：跨站点事件聚合（向量聚类 + LLM 命名）、命名实体识别（PER/ORG/LOC/PROD/EVENT）、事件时间线构建
 - **故事追踪**：用户添加追踪 → 自动匹配后续报道 → 通知推送；完整生命周期管理（活跃/休眠/完结自动清理）
 - **文章摘要**：点击任意条目可即时获取文章内容摘要
-- **向量语义搜索**：ChromaDB + text2vec-base-chinese 本地嵌入，`/api/search` 端点
-- **混合搜索引擎**：jieba 分词 + BM25 倒排索引 + 向量语义 + RRF 融合 + Cross-Encoder 精排，统一 `search_news` 工具 + `/api/search/hybrid` 端点
+- **向量语义搜索**：ChromaDB + stella-base-zh-v3-1792d 本地嵌入，`/api/search` 端点
+- **混合搜索引擎**：jieba 分词 + BM25 倒排索引 + 向量语义 + RRF 融合，统一 `search_news` 工具 + `/api/search/hybrid` 端点
 - **Web 仪表盘**：FastAPI + ECharts 5.5 实时交互图表 + 暗色主题 + 毛玻璃效果，WebSocket 实时推送
 - **分页加载**：News Items 支持分页浏览（30 条/页），避免一次性加载全部数据
 - **仪表盘操作**：Refresh All（一键刷新全部）、Run Now（手动触发抓取）、Reset（重置站点历史）集成到前端
@@ -308,7 +308,7 @@ Visualization/
 |------|------|
 | 语言 | Python 3.10+ |
 | LLM | 智谱 AI / OpenAI / Claude / 本地（Provider 可插拔，改配置切换） |
-| 嵌入模型 | shibing624/text2vec-base-chinese（本地，免费） |
+| 嵌入模型 | infgrad/stella-base-zh-v3-1792d（本地，免费，MTEB-zh 顶级） |
 | 浏览器渲染 | Playwright (Chromium headless) |
 | HTML 解析 | BeautifulSoup4 + lxml |
 | Web 框架 | FastAPI + Jinja2 + WebSocket |

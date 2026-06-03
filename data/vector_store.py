@@ -23,8 +23,8 @@ for _name in [
 
 logger = logging.getLogger(__name__)
 
-# Lightweight Chinese embedding model — no API key needed
-_EMBEDDING_MODEL = "shibing624/text2vec-base-chinese"
+# High-quality Chinese embedding model (1792-dim, MTEB-zh top-tier)
+_EMBEDDING_MODEL = "infgrad/stella-base-zh-v3-1792d"
 
 
 class VectorStore:
@@ -42,6 +42,27 @@ class VectorStore:
         )
         self._collection = None
         self._collection_count = None
+
+        # Auto-migrate when embedding model changes (dimensions differ)
+        self._model_id_file = self.persist_dir / ".model_id"
+        self._migrate_if_needed()
+
+    def _migrate_if_needed(self):
+        """Reset collection if embedding model changed (dimensions differ)."""
+        prev_model = ""
+        if self._model_id_file.exists():
+            prev_model = self._model_id_file.read_text().strip()
+        if prev_model and prev_model != _EMBEDDING_MODEL:
+            logger.info(
+                "Embedding model changed (%s → %s), rebuilding vector index",
+                prev_model,
+                _EMBEDDING_MODEL,
+            )
+            try:
+                self._client.delete_collection("news_items")
+            except Exception:
+                pass
+        self._model_id_file.write_text(_EMBEDDING_MODEL)
 
     @property
     def collection(self):
