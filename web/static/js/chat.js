@@ -30,7 +30,11 @@ function newChatSession(){
 function switchSession(sid){
   localStorage.setItem('chat_session_id',sid);
   document.getElementById('chat-messages').innerHTML='<div class="chat-welcome"><div class="chat-welcome-icon">&#x1f4ac;</div><div style="font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:6px">AI \u76d1\u63a7\u6570\u636e\u52a9\u624b</div><div style="font-size:13px;line-height:1.7">\u52a0\u8f7d\u5386\u53f2\u6d88\u606f\u4e2d...</div></div>';
-  loadChatHistory();loadSessions();
+  loadChatHistory().then(function(){
+    var c=document.getElementById('chat-messages');
+    if(!c.querySelector('.chat-bubble')){resetChatWelcome();}
+  });
+  loadSessions();
 }
 
 function resetChatWelcome(){
@@ -43,6 +47,7 @@ function resetChatWelcome(){
 async function loadChatHistory(){
   var sid=getSessionId();
   try{var r=await fetch('/api/chat/history?session_id='+encodeURIComponent(sid));var d=await r.json();
+    if(d.not_found){localStorage.removeItem('chat_session_id');resetChatWelcome();loadSessions();return;}
     if(!d.messages||d.messages.length===0)return;
     var c=document.getElementById('chat-messages');if(c.querySelector('.chat-bubble'))return;c.innerHTML='';
     d.messages.forEach(function(m){appendChatMessage(m.role,m.content||'');});c.scrollTop=c.scrollHeight;
@@ -58,6 +63,7 @@ async function sendChat(){
   var aiBubble=appendChatMessage('assistant','');
   var aiContent=aiBubble.querySelector('.chat-bubble-content');
   var traceEl=document.getElementById('chat-tool-trace');traceEl.textContent='';
+  var oldCards=document.querySelectorAll('.thinking-card');for(var oi=0;oi<oldCards.length;oi++)oldCards[oi].remove();
   if(chatAbortController)chatAbortController.abort();chatAbortController=new AbortController();
   var sid=getSessionId();
   try{
@@ -97,7 +103,7 @@ async function sendChat(){
             }
             else if(event==='status'){traceEl.innerHTML='<span style="font-size:11px;color:var(--muted)">'+parsed+'</span>';}
             else if(event==='context'){cb.style.display='flex';var mx=parsed.max_history_tokens||4000;var pct=Math.min(100,(parsed.history_tokens/mx)*100);cf.style.width=pct+'%';ct.textContent=parsed.history_tokens+'/'+mx+' tokens ('+(parsed.exchanges||0)+'\u8f6e)';if(pct>80)cf.style.background='#f59e0b';}
-            else if(event==='done'){if(parsed.session_id)setSessionId(parsed.session_id);traceEl.innerHTML='';if(tc){tc.style.opacity='0.3';tc.style.fontSize='11px';}loadSessions();}
+            else if(event==='done'){if(parsed.session_id)setSessionId(parsed.session_id);traceEl.innerHTML='';if(tc){tc.remove();tc=null;}loadSessions();}
           }catch(e){}event='';data='';}}
       }
     }

@@ -168,15 +168,14 @@ def _create_coordinator(config: dict):
     )
     paper_store = DataStore(source_type="paper")
     notifiers = create_notifiers(config)
-    vector_store = _safe_vector_store(config)
     coordinator = CoordinatorAgent(
         config,
         data_store=news_store,
         paper_store=paper_store,
         notifiers=notifiers,
-        vector_store=vector_store,
+        vector_store=_safe_vector_store(config),
     )
-    return coordinator, notifiers, vector_store
+    return coordinator, notifiers, None
 
 
 def cmd_once(config: dict, url: str, name: str):
@@ -280,12 +279,12 @@ async def _cmd_schedule_async(config: dict):
         logger.info("Scheduler stopped.")
 
 
-def cmd_serve(config: dict, port: int = 8080):
+def cmd_serve(config: dict, port: int = 8080, no_fetch: bool = False):
     """Start web dashboard + background scheduler."""
-    asyncio.run(_cmd_serve_async(config, port))
+    asyncio.run(_cmd_serve_async(config, port, no_fetch=no_fetch))
 
 
-async def _cmd_serve_async(config: dict, port: int):
+async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
     import uvicorn
     from web.app import app, ws_manager
     from web.app_context import ctx
@@ -374,17 +373,25 @@ async def _cmd_serve_async(config: dict, port: int):
     # Defer initial fetch to background so the server starts immediately.
     # Deep analysis (vector model download + LLM entity extraction) can take
     # 30-60s on first run — blocking startup creates a poor UX.
-    async def _initial_fetch():
-        await asyncio.sleep(2)  # let server bind port first
-        logger.info(
-            "Running initial fetch for %d targets (background)...", len(targets)
-        )
-        try:
-            await coordinator.run_all_targets_async()
-        except Exception as e:
-            logger.error("Initial batch fetch failed: %s", e)
+    # Use --no-fetch to skip entirely (useful during development restarts).
+    if not no_fetch:
 
-    asyncio.create_task(_initial_fetch())
+        async def _initial_fetch():
+            await asyncio.sleep(2)  # let server bind port first
+            logger.info(
+                "Running initial fetch for %d targets (background)...", len(targets)
+            )
+            try:
+                await coordinator.run_all_targets_async()
+            except Exception as e:
+                logger.error("Initial batch fetch failed: %s", e)
+
+        asyncio.create_task(_initial_fetch())
+    else:
+        logger.info(
+            "Skipping initial fetch (--no-fetch). "
+            "Scheduled jobs will fire at their regular intervals."
+        )
 
     for target in targets:
         name = target["name"]
@@ -597,6 +604,11 @@ def main():
         "--serve", action="store_true", help="Start web dashboard + scheduler"
     )
     parser.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="Skip initial fetch on startup (dev mode)",
+    )
+    parser.add_argument(
         "--port", type=int, default=8080, help="Dashboard port (default: 8080)"
     )
     parser.add_argument("--stats", action="store_true", help="Show statistics")
@@ -662,7 +674,7 @@ def main():
     elif args.schedule:
         cmd_schedule(config)
     elif args.serve:
-        cmd_serve(config, args.port)
+        cmd_serve(config, args.port, no_fetch=args.no_fetch)
     else:
         parser.print_help()
         print("\nExamples:")

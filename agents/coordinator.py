@@ -53,13 +53,21 @@ class CoordinatorAgent(BaseAgent):
         self.store = data_store
         self.paper_store = paper_store or data_store
         self.notifiers = notifiers or []
-        self.vector_store = vector_store
+        self._vector_store = vector_store
         self.alert_store = AlertStore()
         self.alert_store.load_config(config)
         self.story_watch = StoryWatchStore()
         self.story_watch.load_config(config)
         self.max_snapshots = config.get("storage", {}).get("max_snapshots_per_site", 0)
         self._run_callbacks: list = []
+
+    @property
+    def vector_store(self):
+        return self._vector_store
+
+    @vector_store.setter
+    def vector_store(self, value):
+        self._vector_store = value
 
     def add_run_callback(self, callback):
         """Register an async callback invoked after each run_async completes."""

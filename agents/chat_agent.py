@@ -6,6 +6,7 @@ Context management, session management, input validation, and preference
 inference remain custom.
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -108,6 +109,7 @@ class ChatAgent(BaseAgent):
             "max_history_tokens", MAX_HISTORY_TOKENS
         )
         self.max_tool_rounds = chat_cfg.get("max_tool_rounds", MAX_TOOL_ROUNDS)
+        self._llm_timeout = chat_cfg.get("llm_timeout", 120)  # graph invoke timeout
         self.min_exchanges = chat_cfg.get("min_exchanges", MIN_EXCHANGES)
         self.compression_threshold = chat_cfg.get(
             "compression_threshold", COMPRESSION_THRESHOLD
@@ -142,26 +144,33 @@ class ChatAgent(BaseAgent):
     def _new_session_data() -> dict:
         return {
             "history": [],
+            "title": "",
             "total_trimmed": 0,
             "total_compressed": 0,
             "total_cleaned": 0,
             "created_at": now_iso(),
         }
 
-    def _get_session(self, session_id: str | None) -> str:
-        """Resolve session_id; create if new. Returns the session id."""
+    def _get_session(self, session_id: str | None, create: bool = True) -> str | None:
+        """Resolve session_id; create if new and create=True.
+        Returns session id, or None if not found and create=False."""
         if session_id and session_id in self._sessions:
             return session_id
+        if not create:
+            return None
         sid = session_id or str(uuid.uuid4())
         if sid not in self._sessions:
             self._sessions[sid] = self._new_session_data()
             logger.info("[ChatAgent] New session: %s", sid[:8])
         return sid
 
-    def _activate_session(self, session_id: str | None) -> str:
-        """Set the given session as active; return its id."""
-        sid = self._get_session(session_id)
-        self._current_session_id = sid
+    def _activate_session(
+        self, session_id: str | None, create: bool = True
+    ) -> str | None:
+        """Set the given session as active; return its id, or None if not found."""
+        sid = self._get_session(session_id, create=create)
+        if sid is not None:
+            self._current_session_id = sid
         return sid
 
     def _active(self) -> dict:
@@ -328,7 +337,21 @@ class ChatAgent(BaseAgent):
         system_msg = SystemMessage(content=self._build_system_prompt(user_msg))
         model = self.model.bind_tools(self._tools)
         messages = [system_msg] + list(state["messages"])
-        response = await model.ainvoke(messages)
+        logger.info(
+            "[ChatAgent] LLM call: %d messages, %d tools",
+            len(messages),
+            len(self._tools),
+        )
+        try:
+            response = await model.ainvoke(messages)
+        except Exception as e:
+            logger.error(
+                "[ChatAgent] LLM call failed: %s (type=%s, model=%s)",
+                e,
+                type(e).__name__,
+                getattr(self.model, "model_name", "?"),
+            )
+            raise
         return {"messages": [response]}
 
     @staticmethod
@@ -457,7 +480,22 @@ class ChatAgent(BaseAgent):
         config = {"configurable": {"thread_id": sid}}
 
         self._seed_graph_state(config)
-        result = await self._graph.ainvoke({"messages": input_msgs}, config=config)
+        try:
+            result = await asyncio.wait_for(
+                self._graph.ainvoke({"messages": input_msgs}, config=config),
+                timeout=self._llm_timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "[ChatAgent] Graph invoke timed out after %ds", self._llm_timeout
+            )
+            return {
+                "reply": "抱歉，请求超时。请稍后重试或缩短问题。",
+                "tool_calls": [],
+                "context": self.context_stats(),
+                "context_trimmed": 0,
+                "session_id": sid,
+            }
 
         # Extract final reply and tool calls from the result
         tool_calls_log = []
@@ -517,6 +555,7 @@ class ChatAgent(BaseAgent):
         sid = self._activate_session(session_id)
         rejection = self._validate_input(user_message)
         if rejection:
+            self._history.append({"role": "user", "content": user_message})
             self._history.append({"role": "assistant", "content": rejection})
             self._save_history()
             yield self._sse("token", rejection)
@@ -573,15 +612,36 @@ class ChatAgent(BaseAgent):
                             "result": result_str[:2000],
                         }
                     )
+        except asyncio.TimeoutError:
+            logger.error("[ChatAgent] Stream timeout after %ds", self._llm_timeout)
+            self._history.append(
+                {"role": "assistant", "content": "抱歉，请求超时，请稍后重试。"}
+            )
+            self._save_history()
+            yield self._sse("token", "抱歉，请求超时，请稍后重试。")
+            yield self._sse("done", {"error": "timeout", "session_id": sid})
+            return
         except Exception as e:
-            logger.error("[ChatAgent] Stream error: %s", e, exc_info=True)
-            yield self._sse("token", f"抱歉，处理请求时出错：{e}")
+            logger.error(
+                "[ChatAgent] Stream error: %s (type=%s, model=%s)",
+                e,
+                type(e).__name__,
+                getattr(self.model, "model_name", "?"),
+            )
+            err_msg = f"抱歉，处理请求时出错：{e}"
+            self._history.append({"role": "assistant", "content": err_msg})
+            self._save_history()
+            yield self._sse("token", err_msg)
             yield self._sse("done", {"error": str(e), "session_id": sid})
             return
 
         # Sync graph state → JSON history
         self._sync_history_from_graph(config)
         self._save_history()
+
+        # Auto-generate title after first complete exchange
+        if len(self._history) == 2 and not self._active().get("title"):
+            asyncio.create_task(self._generate_title(sid))
 
         await self._maybe_compress()
         self._cleanup_old_tool_results()
@@ -787,6 +847,7 @@ class ChatAgent(BaseAgent):
                         CHAT_HISTORY_FILE,
                     )
                 self._repair_all_sessions()
+                self._purge_empty_sessions()
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("[ChatAgent] Failed to load chat history: %s", e)
 
@@ -796,6 +857,48 @@ class ChatAgent(BaseAgent):
             for msg in session.get("history", []):
                 if "content" not in msg:
                     msg["content"] = ""
+
+    async def _generate_title(self, session_id: str):
+        """Generate a short title (≤15 chars) from the first exchange."""
+        session = self._sessions.get(session_id)
+        if not session:
+            return
+        history = session.get("history", [])
+        user_msg = ""
+        assistant_msg = ""
+        for m in history:
+            if m.get("role") == "user":
+                user_msg = (m.get("content", "") or "")[:200]
+            elif m.get("role") == "assistant":
+                assistant_msg = (m.get("content", "") or "")[:200]
+        if not user_msg:
+            return
+
+        prompt = (
+            "根据以下对话生成一个简短标题（≤15字，直接输出标题不要引号不要解释）：\n\n"
+            f"用户：{user_msg}\n助手：{assistant_msg}\n\n标题："
+        )
+        try:
+            from langchain_core.messages import HumanMessage
+
+            response = await self.model.ainvoke([HumanMessage(content=prompt)])
+            title = str(response.content).strip().strip('""""《》「」"')[:30]
+            if title:
+                session["title"] = title
+                self._save_history()
+        except Exception as e:
+            logger.debug("[ChatAgent] Title generation failed: %s", e)
+
+    def _purge_empty_sessions(self):
+        """Remove sessions with fewer than 2 messages (empty or orphaned)."""
+        stale = [
+            sid for sid, s in self._sessions.items() if len(s.get("history", [])) < 2
+        ]
+        for sid in stale:
+            del self._sessions[sid]
+        if stale:
+            self._save_history()
+            logger.info("[ChatAgent] Purged %d empty/orphaned sessions", len(stale))
 
     def _save_history(self):
         """Persist all sessions to JSON file."""
@@ -896,16 +999,26 @@ class ChatAgent(BaseAgent):
         )
 
     def list_sessions(self) -> list[dict]:
-        """Return active session metadata."""
+        """Return active session metadata (excludes empty sessions)."""
         result = []
         for sid, data in self._sessions.items():
-            msg_count = len(data.get("history", []))
-            exchanges = sum(
-                1 for m in data.get("history", []) if m.get("role") == "user"
-            )
+            history = data.get("history", [])
+            if len(history) < 2:
+                continue  # skip empty/orphaned sessions
+            msg_count = len(history)
+            exchanges = sum(1 for m in history if m.get("role") == "user")
+            # Title: prefer stored title, fallback to first user message
+            title = data.get("title", "") or ""
+            if not title:
+                for m in history:
+                    if m.get("role") == "user":
+                        title = (m.get("content", "") or "")[:30]
+                        break
             result.append(
                 {
+                    "id": sid,  # frontend expects "id"
                     "session_id": sid,
+                    "title": title or sid[:8],
                     "messages": msg_count,
                     "exchanges": exchanges,
                     "created_at": data.get("created_at", ""),

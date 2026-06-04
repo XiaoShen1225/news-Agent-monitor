@@ -49,7 +49,14 @@ def create_provider(config: dict):
         api_key = os.environ.get("ZHIPU_API_KEY", "")
     base_url = specific.get("base_url") or llm_cfg.get("base_url") or None
 
-    logger.info("Creating LangChain provider: %s (model=%s)", provider_name, model)
+    request_timeout = llm_cfg.get("request_timeout", 120)  # 120s default
+
+    logger.info(
+        "Creating LangChain provider: %s (model=%s, timeout=%ds)",
+        provider_name,
+        model,
+        request_timeout,
+    )
 
     if provider_name == "claude":
         from langchain_anthropic import ChatAnthropic
@@ -60,6 +67,7 @@ def create_provider(config: dict):
             temperature=temperature,
             max_tokens=max_tokens,
             max_retries=max_retries,
+            timeout=request_timeout,
         )
 
     else:
@@ -71,6 +79,7 @@ def create_provider(config: dict):
             temperature=temperature,
             max_tokens=max_tokens,
             max_retries=max_retries,
+            request_timeout=request_timeout,
         )
         if base_url:
             kwargs["base_url"] = base_url

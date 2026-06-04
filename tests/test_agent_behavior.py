@@ -207,6 +207,8 @@ class TestSessionManagement:
     def test_session_list(self, chat_agent):
         chat_agent._sessions.clear()
         chat_agent._activate_session(None)
+        chat_agent._history.append({"role": "user", "content": "hi"})
+        chat_agent._history.append({"role": "assistant", "content": "hello"})
         sessions = chat_agent.list_sessions()
         assert len(sessions) >= 1
 
@@ -217,7 +219,10 @@ class TestSessionManagement:
         assert len(chat_agent._history) == 0
 
     def test_load_legacy_list_format(self, chat_agent, tmp_data_dir):
-        legacy = [{"role": "user", "content": "old message"}]
+        legacy = [
+            {"role": "user", "content": "old message"},
+            {"role": "assistant", "content": "old reply"},
+        ]
         history_file = tmp_data_dir / "data" / "chat_history.json"
         history_file.write_text(json.dumps(legacy), encoding="utf-8")
         chat_agent._sessions.clear()

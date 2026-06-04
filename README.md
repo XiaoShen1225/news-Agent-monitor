@@ -47,6 +47,8 @@
 - **安全护栏**：输入校验（越权拦截 + Prompt 注入防护）+ 工具参数校验（URL 格式/站点名合法性），结构化错误分类
 - **结构化工具输出**：查询结果带前缀标记（[查询结果]/[站点统计]等），空结果附操作建议
 - **三层偏好记忆系统**：L0 短期事件（7 天 TTL，访问延长）→ L1 中期模式聚合（≥10 事件 + ≥2h 冷却）→ L2 长期用户画像（≥24h 冷却，加权融合），独立 LLM 定时蒸馏（MemoryManager + APScheduler 30 分钟周期），显式偏好永久保留，前端埋点（点击/搜索/过滤）+ 对话追踪（chat_message 事件）双通道信号采集，自动化质量检测（矛盾扫描 + 过期清理 + 覆盖率检查 + 审计报告）
+- **会话管理**：多 Session 隔离 + 首轮对话自动 LLM 生成标题（≤15 字）+ 孤儿会话自动清理（拒绝/错误路径完整落盘，空会话过滤）
+- **向量引擎离线加载**：手动 SentenceTransformer + `local_files_only=True` 彻底阻断网络检查，冷启动从 ~40s 降至 ~10s
 - **21 个原子化工具**：search / get_item / list_tags / get_snapshot / get_run_log / fetch_article / get_events / get_entities / get_timeline / preferences / system_info / set_alert / watch_story / get_cost / get_circuit_status / get_deep_summary / trigger_run / dashboard_summary / run_deep_analysis / memory_audit，支持并行组合调用
 - **现代化 UI**：Chat 中心化布局（侧边栏导航 + 右侧滑出抽屉面板）、渐变色标题、毛玻璃顶栏、marked.js Markdown 渲染、暗色/亮色主题切换（localStorage 持久化）、CSS 变量主题系统、自定义滚动条、会话历史管理
 
@@ -90,6 +92,8 @@ python main.py --schedule
 
 # Web 仪表盘 + 后台调度
 python main.py --serve --port 8080
+# 开发模式（跳过首次抓取，加速重启）
+python main.py --serve --port 8080 --no-fetch
 # 浏览器打开 http://localhost:8080
 
 # 查看统计
@@ -176,7 +180,7 @@ Visualization/
 │   ├── dingtalk.py                # 钉钉群机器人
 │   ├── wecom.py                   # 企业微信群机器人
 │   └── email.py                   # SMTP 邮件通知
-├── tests/                         # 68 个精简测试
+├── tests/                         # 149 个测试
 │   └── test_core.py               # 纯逻辑测试（JSON/情感/Hash/余弦/聚类/链接校验/协调器/输入校验/上下文管理/Key解析/进化记忆/Web API）
 ├── outputs/
 │   ├── charts/                    # 生成的 PNG 图表（6 组目录）
@@ -312,6 +316,6 @@ Visualization/
 | 可视化 | matplotlib（SimHei 中文字体） |
 | 调度 | APScheduler (AsyncIOScheduler) |
 | 通知 | 钉钉 / 企业微信 / SMTP 邮件 |
-| 测试 | pytest（68 tests, ~1.9s）+ ruff + pre-commit |
+| 测试 | pytest（149 tests, ~10s）+ ruff + pre-commit |
 | CI/CD | GitHub Actions |
 | 部署 | Docker + Docker Compose |

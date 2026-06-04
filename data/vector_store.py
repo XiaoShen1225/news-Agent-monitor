@@ -4,27 +4,39 @@ import logging
 import os
 from pathlib import Path
 
-# Use HF mirror for China if no endpoint set
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
-
-# Suppress noisy connection errors when network is unavailable
-for _name in [
-    "huggingface_hub",
-    "huggingface_hub.utils._http",
-    "huggingface_hub.utils",
-    "sentence_transformers",
-    "filelock",
-    "chromadb",
-]:
-    _lg = logging.getLogger(_name)
-    _lg.handlers.clear()
-    _lg.setLevel(logging.CRITICAL)
-    _lg.propagate = False
 
 logger = logging.getLogger(__name__)
 
 # High-quality Chinese embedding model (1792-dim, MTEB-zh top-tier)
 _EMBEDDING_MODEL = "infgrad/stella-base-zh-v3-1792d"
+_CACHE_DIR = str(Path(Path.home(), ".cache", "torch", "sentence_transformers"))
+
+
+def _load_embedding_model():
+    """Load SentenceTransformer from local cache only, no network."""
+    # Must be set BEFORE importing sentence_transformers
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    os.environ["HF_HUB_OFFLINE"] = "1"
+
+    from sentence_transformers import SentenceTransformer
+
+    return SentenceTransformer(
+        _EMBEDDING_MODEL,
+        cache_folder=_CACHE_DIR,
+        local_files_only=True,
+    )
+
+
+def _make_embedding_fn(model):
+    """Build a chromadb-compatible embedding function from a loaded model."""
+    from chromadb.api.types import EmbeddingFunction
+
+    class _STEmbeddingFn(EmbeddingFunction):
+        def __call__(self, texts):
+            return model.encode(list(texts), normalize_embeddings=True).tolist()
+
+    return _STEmbeddingFn()
 
 
 class VectorStore:
@@ -32,18 +44,14 @@ class VectorStore:
 
     def __init__(self, persist_dir: str = "data/vector_db"):
         import chromadb
-        from chromadb.utils import embedding_functions
 
         self.persist_dir = Path(persist_dir)
         self.persist_dir.mkdir(parents=True, exist_ok=True)
         self._client = chromadb.PersistentClient(path=str(self.persist_dir))
-        self._ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=_EMBEDDING_MODEL,
-        )
+        self._ef = _make_embedding_fn(_load_embedding_model())
         self._collection = None
         self._collection_count = None
 
-        # Auto-migrate when embedding model changes (dimensions differ)
         self._model_id_file = self.persist_dir / ".model_id"
         self._migrate_if_needed()
 

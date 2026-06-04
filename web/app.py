@@ -1018,9 +1018,10 @@ async def api_chat_history(session_id: str | None = None):
     """Get current conversation history for a session."""
     agent = _get_chat_agent()
     if session_id:
-        sid = agent._activate_session(session_id)
+        sid = agent._activate_session(session_id, create=False)
+        if sid is None:
+            return {"messages": [], "session_id": None, "not_found": True}
         return {"messages": list(agent._history), "session_id": sid}
-    # No session_id provided — don't create a new one, return nothing
     return {"messages": [], "session_id": None}
 
 
@@ -1035,7 +1036,8 @@ async def api_chat_clear(session_id: str | None = None):
 async def api_chat_context(session_id: str | None = None):
     """Get current context usage stats for a session."""
     agent = _get_chat_agent()
-    agent._activate_session(session_id)
+    if session_id:
+        agent._activate_session(session_id, create=False)
     return agent.context_stats()
 
 

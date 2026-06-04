@@ -17,7 +17,7 @@ from .site_profiles import BAIDU_NEWS, SiteProfile, get_profile
 
 logger = logging.getLogger(__name__)
 
-SEARCH_LINK_PATTERN = re.compile(r"baidu\.com/s\?wd=")
+SEARCH_LINK_PATTERN = re.compile(r"baidu\.com/(?:s\?wd=|ns\?)")
 CHINESE_ONLY = re.compile(r"[^\u4e00-\u9fff]")
 
 # Fallback defaults (used when no site profile is provided)
