@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent.parent
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
-CHARTS_DIR = OUTPUTS_DIR / "charts"
 DB_PATH = PROJECT_ROOT / "data" / "monitor.db"
 PAPERS_DB_PATH = PROJECT_ROOT / "data" / "papers.db"
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -31,24 +30,6 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 STATIC_DIR = PROJECT_ROOT / "web" / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
-# Mount chart directories as static
-for chart_set in [
-    "today",
-    "yesterday",
-    "two_days_ago",
-    "one_week_ago",
-    "one_month_ago",
-    "total",
-]:
-    chart_dir = CHARTS_DIR / chart_set
-    chart_dir.mkdir(parents=True, exist_ok=True)
-    app.mount(
-        f"/charts/{chart_set}",
-        StaticFiles(directory=str(chart_dir)),
-        name=f"charts_{chart_set}",
-    )
-
 
 # ── WebSocket manager ──────────────────────────────────────────────
 
@@ -258,7 +239,6 @@ def _build_chart_data(site_name: str, store) -> dict:
                 "older_average": round(older_avg, 1),
             },
             "changes": changes,
-            "sentiment_distribution": [],
             "update_summary": update_summary,
             "summary": {
                 "site_name": site_name,
@@ -620,28 +600,6 @@ async def api_search_hybrid(
         "results": results,
         "count": len(results),
     }
-
-
-@app.get("/api/charts")
-async def api_charts():
-    chart_sets = {}
-    for cs in [
-        "today",
-        "yesterday",
-        "two_days_ago",
-        "one_week_ago",
-        "one_month_ago",
-        "total",
-    ]:
-        chart_dir = CHARTS_DIR / cs
-        if chart_dir.exists():
-            files = sorted(
-                [f.name for f in chart_dir.glob("*.png")],
-                key=lambda x: ("overview" in x, "trend" in x, "pie" in x, x),
-            )
-            if files:
-                chart_sets[cs] = files
-    return chart_sets
 
 
 @app.get("/api/chart-data")

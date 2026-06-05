@@ -10,7 +10,6 @@ from .base_agent import BaseAgent
 from .fetcher import FetcherAgent
 from .parser import ParserAgent
 from .analyzer import AnalyzerAgent
-from .visualizer import VisualizationAgent
 from .sentiment_analyzer import classify
 from .site_profiles import SiteProfile, get_profile
 from data.alert_store import AlertStore
@@ -49,7 +48,6 @@ class CoordinatorAgent(BaseAgent):
         self.fetcher = FetcherAgent(config)
         self.parser = ParserAgent(config)
         self.analyzer = AnalyzerAgent(config, data_store)
-        self.visualizer = VisualizationAgent(config)
         self.store = data_store
         self.paper_store = paper_store or data_store
         self.notifiers = notifiers or []
@@ -118,7 +116,6 @@ class CoordinatorAgent(BaseAgent):
             "status": "unknown",
             "error": None,
             "report": None,
-            "charts": None,
         }
 
         # Circuit breaker: skip sites that have failed too many times in a row
@@ -229,22 +226,8 @@ class CoordinatorAgent(BaseAgent):
                     except Exception as e:
                         logger.warning("Vector store indexing failed: %s", e)
 
-            # Step 6: Get snapshots for trends
-            snapshots = (
-                active_store.get_all_snapshots(site_name) if active_store else []
-            )
-
-            # Step 7: Visualize (skip for article sources)
-            if is_article:
-                chart_result = None
-            else:
-                chart_result = await asyncio.to_thread(
-                    self.visualizer.run, report, snapshots
-                )
-
             result["status"] = "success"
             result["report"] = report
-            result["charts"] = chart_result
 
             # ── Alert matching ────────────────────────────────────────
             alert_config = self.config.get("alerts", {}) or {}

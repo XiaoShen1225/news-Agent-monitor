@@ -24,7 +24,7 @@
 - **AI 对话助手**：基于 LangGraph `create_react_agent` 的智能助手，18 个 `@tool` 原子化工具（工厂模式依赖注入），多 Session 隔离（独立上下文/偏好），配置外置（config.yaml 可控），结构化 System Prompt（`prompts/chat_system.txt`），SSE 流式输出（token/thinking/tool_call/tool_result/context/done 事件）
 - **上下文管理**：Token 预算滑动窗口 + Exchange 边界裁剪（代理至 ContextManager 模块），参考 ChatGPT/Claude 的混合策略；主动压缩旧对话摘要，工具结果自动清理
 - **Webhook 通知**：钉钉 / 企业微信 / 邮件（SMTP），管道完成后自动推送
-- **自动可视化**：matplotlib 生成 10 种 PNG 图表，6 组时间轮替留存
+- **自动可视化**：ECharts 交互式图表，WebSocket 实时推送更新
 - **新闻/论文分离存储**：新闻与论文使用独立 SQLite 数据库 + JSON 快照目录 + CSV 文件，自动清理旧快照
 - **元数据预聚合**：site_metadata 表存储预计算的标签分布、历史计数、变更摘要，仪表盘查询 O(1) 无需扫描全量快照
 - **Docker 部署**：一键 `docker compose up -d`，含中文字体 + Chromium
@@ -143,7 +143,6 @@ Visualization/
 │   ├── parser.py                  # section_walk / css_selector / LLM / RSS 四种提取策略
 │   ├── analyzer.py                # 标题 Diff + 趋势计算 + 异常检测 + 情感偏移 + LLM 摘要
 │   ├── sentiment_analyzer.py      # 规则中文情感分析（~200 词词典，无 LLM 依赖）
-│   ├── visualizer.py              # matplotlib 10 种图表 + 六组留存策略
 │   ├── coordinator.py             # 流水线编排，集成告警匹配 + 通知 + 向量存储
 │   ├── chat_agent.py              # AI 对话助手（LangGraph create_react_agent + 偏好学习 + Guardrails）
 │   ├── deep_analyzer.py           # 深度分析：跨站事件聚合 + 实体识别 + 时间线构建
@@ -183,13 +182,6 @@ Visualization/
 ├── tests/                         # 149 个测试
 │   └── test_core.py               # 纯逻辑测试（JSON/情感/Hash/余弦/聚类/链接校验/协调器/输入校验/上下文管理/Key解析/进化记忆/Web API）
 ├── outputs/
-│   ├── charts/                    # 生成的 PNG 图表（6 组目录）
-│   │   ├── today/                 # 今日最新
-│   │   ├── yesterday/             # 昨日快照
-│   │   ├── two_days_ago/          # 前天快照
-│   │   ├── one_week_ago/          # 一周前快照
-│   │   ├── one_month_ago/         # 一月前快照
-│   │   └── total/                 # 累计历史趋势
 │   └── data/
 │       ├── news_items.csv         # 新闻条目 CSV
 │       └── papers.csv             # 论文条目 CSV
@@ -206,13 +198,13 @@ Visualization/
    │      │          │              │              │
    ▼      ▼          ▼              ▼              ▼
 ┌────────┐ ┌──────┐ ┌──────────┐ ┌────────────┐ ┌──────────────┐
-│Fetcher │ │Parser│ │ Analyzer │ │Visualizer  │ │ Notifications│
-│Agent   │ │Agent │ │ Agent    │ │Agent       │ │              │
-├────────┤ ├──────┤ ├──────────┤ ├────────────┤ │ DingTalk     │
-│Playwr. │ │DOM树 │ │ 标题Diff  │ │ 分类饼图    │ │ WeCom        │
-│httpx   │ │章节  │ │ 趋势分析  │ │ 趋势折线    │ │ Email        │
-│SHA256  │ │关键词│ │ 情感分析  │ │ 变更柱状    │ │              │
-│变更检测 │ │CSS选 │ │ LLM摘要  │ │ 摘要表+仪表 │ │              │
+│Fetcher │ │Parser│ │ Analyzer │ │ Notifications│
+│Agent   │ │Agent │ │ Agent    │ │              │
+├────────┤ ├──────┤ ├──────────┤ │ DingTalk     │
+│Playwr. │ │DOM树 │ │ 标题Diff  │ │ WeCom        │
+│httpx   │ │章节  │ │ 趋势分析  │ │ Email        │
+│SHA256  │ │关键词│ │ 情感分析  │ │              │
+│变更检测 │ │CSS选 │ │ LLM摘要  │ │              │
 └────────┘ └──────┘ └──────────┘ └────────────┘ └──────────────┘
    │          │          │              │
    └──────────┴──────────┴──────────────┘
@@ -259,10 +251,9 @@ Visualization/
 6. 数据存入 **JSON 快照** + **SQLite** + **CSV**，**Vector Store** 索引
 7. **Analyzer** 标题 Diff → 新增/移除/修改 + 趋势方向 + 异常检测（Z-score）+ 情感偏移 + **LLM 摘要**
 8. **AlertStore** 关键词匹配 → 冷却检查 → 注入 PipelineEvent
-9. **Visualizer** 生成图表，today/total 每次更新
-10. **通知** → 钉钉/企微/邮件推送（含告警段落）
-11. **DeepAnalyzer** 所有站点完成后 → 跨站事件聚类（Vector Embedding + 余弦相似度）→ LLM 命名 → 实体识别 → 时间线构建
-12. **ChatAgent** 通过 LangGraph `create_react_agent` 驱动对话，19 个工具并行组合调用，`astream_events` SSE 流式输出，上下文管理（Token 预算 + Exchange 裁剪）
+9. **通知** → 钉钉/企微/邮件推送（含告警段落）
+10. **DeepAnalyzer** 所有站点完成后 → 跨站事件聚类（Vector Embedding + 余弦相似度）→ LLM 命名 → 实体识别 → 时间线构建
+11. **ChatAgent** 通过 LangGraph `create_react_agent` 驱动对话
 
 ## API 文档
 
@@ -275,7 +266,6 @@ Visualization/
 | `GET /api/query?site=&tag=&date_from=&date_to=&limit=&offset=` | 新闻条目查询（分页） |
 | `GET /api/search?q=&site=&limit=` | 向量语义搜索 |
 | `GET /api/search/hybrid?q=&site=&tag=&days=&limit=` | 混合搜索（BM25+向量+RRF） |
-| `GET /api/charts` | PNG 图表文件列表 |
 | `GET /api/chart-data?site=` | ECharts 实时图表数据 |
 | `GET /api/summarize?url=&title=` | 文章内容即时摘要 |
 | `GET /api/papers?site=&limit=&offset=` | 论文/文章条目查询 |
@@ -313,7 +303,7 @@ Visualization/
 | Web 框架 | FastAPI + Jinja2 + WebSocket |
 | 向量数据库 | ChromaDB |
 | 数据存储 | JSON + SQLite + CSV |
-| 可视化 | matplotlib（SimHei 中文字体） |
+| 可视化 | ECharts 5.5（交互式图表）+ WebSocket 实时推送 |
 | 调度 | APScheduler (AsyncIOScheduler) |
 | 通知 | 钉钉 / 企业微信 / SMTP 邮件 |
 | 测试 | pytest（149 tests, ~10s）+ ruff + pre-commit |

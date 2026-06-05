@@ -114,7 +114,7 @@ def load_config(config_path: str = "config.yaml") -> dict:
     return _resolve_env(raw)
 
 
-def print_summary(result: dict, charts: dict = None):
+def print_summary(result: dict):
     """Print a formatted summary of the pipeline result."""
     report = result.get("report", {})
     status = result.get("status", "unknown")
@@ -144,13 +144,6 @@ def print_summary(result: dict, charts: dict = None):
         summary = report.get("update_summary")
         if summary:
             print(f"\n  [AI Summary] {summary}")
-
-    if charts:
-        chart_map = charts.get("charts", {})
-        if chart_map:
-            print(f"\n  Charts generated ({len(chart_map)}):")
-            for name, path in sorted(chart_map.items()):
-                print(f"    - {name}: {path}")
 
     print("=" * 60)
 
@@ -191,7 +184,7 @@ def cmd_once(config: dict, url: str, name: str):
 
     result = coordinator.run(url, name, use_browser=use_browser)
 
-    print_summary(result, result.get("charts"))
+    print_summary(result)
     return result
 
 
@@ -323,7 +316,6 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
                     "removed": len(report.get("removed_items", [])),
                     "modified": len(report.get("modified_items", [])),
                 },
-                "sentiment_distribution": [],
                 "update_summary": report.get("update_summary", ""),
                 "summary": {
                     "site_name": site_name,

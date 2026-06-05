@@ -57,14 +57,6 @@ scheduler:
   default_interval_minutes: 60
   max_concurrent_runs: 3
 
-# Visualization settings
-visualization:
-  font_family: "SimHei"  # Chinese font, fallback to DejaVu Sans
-  dpi: 150
-  figure_width: 12
-  figure_height: 8
-  output_dir: "outputs/charts"
-
 # Data storage
 storage:
   history_dir: "data/history"

@@ -99,11 +99,6 @@
   </main>
 </div>
 
-<!-- Image Modal -->
-<div id="modal" onclick="this.classList.remove('show')">
-  <img id="modal-img" src="">
-</div>
-
 <!-- Login Overlay -->
 <div id="login-overlay" class="login-overlay">
   <div class="login-box">
@@ -125,7 +120,7 @@
 <script>
 // Periodic background refresh
 setInterval(function(){
-  loadStats();loadSiteHealth();loadCharts();loadItems(itemsPage);loadRuns();
+  loadStats();loadSiteHealth();loadItems(itemsPage);loadRuns();
 }, 60000);
 
 // Init

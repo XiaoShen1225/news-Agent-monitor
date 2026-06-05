@@ -377,20 +377,6 @@ tr:hover td { background: var(--accent-soft); }
   font-weight: 600; }
 .echart-card.wide { grid-column: 1 / -1; }
 
-.chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 10px; }
-.chart-grid img { width: 100%; border-radius: var(--radius-sm); cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  border: 1px solid var(--border-light); }
-.chart-grid img:hover { transform: scale(1.02); box-shadow: var(--shadow-lg); }
-
-/* ── Modal ────────────────────────────────────────────────────── */
-#modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
-  backdrop-filter: blur(4px); z-index: 200; justify-content: center; align-items: center;
-  animation: fadeIn 0.2s ease; }
-#modal.show { display: flex; }
-#modal img { max-width: 90vw; max-height: 90vh; border-radius: var(--radius);
-  box-shadow: var(--shadow-lg); }
 
 /* ── Login Overlay ────────────────────────────────────────────── */
 .login-overlay { display: none; position: fixed; inset: 0;

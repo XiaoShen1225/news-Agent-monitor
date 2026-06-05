@@ -27,7 +27,7 @@ ENV HF_ENDPOINT=https://hf-mirror.com
 COPY . .
 
 # Create dirs for runtime data
-RUN mkdir -p data/history data/vector_db outputs/charts/{today,yesterday,two_days_ago,one_week_ago,one_month_ago,total} outputs/data
+RUN mkdir -p data/history data/vector_db outputs/data
 
 EXPOSE 8080
 

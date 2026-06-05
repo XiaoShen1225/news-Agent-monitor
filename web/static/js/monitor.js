@@ -27,9 +27,6 @@ var drawerMonitorHTML = [
   '<div class="echart-card"><h3>Update Summary</h3><div id="chart-update-summary" style="height:300px;overflow-y:auto;color:var(--text);font-size:13px;line-height:1.7;padding:4px 0">Select a site to view.</div></div>',
   '<div class="echart-card wide"><h3>Overview</h3><div id="chart-summary" style="min-height:100px;padding:8px 0;color:var(--muted)">Select a site.</div></div>',
   '</div></section>',
-  '<section class="card" style="margin-bottom:16px"><h2>Historical Charts</h2>',
-  '<div class="tabs" id="chart-tabs"></div><div class="chart-grid" id="chart-grid">',
-  '<div style="color:var(--muted)">Loading...</div></div></section>',
   '<section class="card" style="margin-bottom:16px"><h2>News Items</h2>',
   '<div class="filters">',
   '<select id="filter-site" onchange="onSiteFilterChange()"><option value="">All sites</option></select>',
@@ -56,7 +53,7 @@ var echartInstances={},echartSiteData={},echartCurrentSite=null;
 var itemsPage=0,itemsPageSize=30,itemsTotal=0,allTags={},targetsData=[];
 
 function initMonitorDrawer(){
-  initMonitorCharts();loadChartData();loadStats();loadSiteHealth();loadCharts();loadTags();loadItems(0);loadRuns();loadTargets();
+  initMonitorCharts();loadChartData();loadStats();loadSiteHealth();loadTags();loadItems(0);loadRuns();loadTargets();
 }
 
 function initMonitorCharts(){
@@ -116,8 +113,6 @@ function renderSummary(s){var el=document.getElementById('chart-summary');if(!el
     '<div style="font-size:11px;color:var(--muted);margin-top:6px">Last update: '+(s.timestamp||'').slice(0,19)+'</div>';
 }
 
-function showModal(src){document.getElementById('modal-img').src=src;document.getElementById('modal').classList.add('show');}
-
 async function loadChartData(){
   try{var r=await fetch('/api/chart-data');var d=await r.json();echartSiteData=d.chart_data||{};
     var sel=document.getElementById('echart-site');var sites=Object.keys(echartSiteData);
@@ -134,19 +129,6 @@ async function loadStats(){
     ['filter-site','run-site'].forEach(function(id){var sel=document.getElementById(id);if(!sel)return;var val=sel.value;
       sel.innerHTML='<option value="">All sites</option>'+(d.sites||[]).map(function(s){return '<option value="'+s+'">'+s+'</option>';}).join('');sel.value=val;});
   }catch(e){}
-}
-
-async function loadCharts(){
-  try{var r=await fetch('/api/charts');var d=await r.json();var tabs=document.getElementById('chart-tabs');
-    var grid=document.getElementById('chart-grid');var sets=Object.keys(d);
-    if(!sets.length){grid.innerHTML='<div style="color:var(--muted)">No charts yet.</div>';tabs.innerHTML='';return;}
-    tabs.innerHTML=sets.map(function(s,i){return '<span class="tab'+(i===0?' active':'')+'" onclick="showChartSet(\x27'+s+'\x27)">'+s+'</span>';}).join('');
-    showChartSet(sets[0]);window._chartData=d;}catch(e){}
-}
-
-function showChartSet(name){var d=window._chartData||{};var grid=document.getElementById('chart-grid');
-  var files=d[name]||[];document.querySelectorAll('#chart-tabs .tab').forEach(function(t){t.classList.toggle('active',t.textContent===name);});
-  grid.innerHTML=files.length?files.map(function(f){return '<img src="/charts/'+name+'/'+f+'" alt="'+f+'" onclick="showModal(this.src)" loading="lazy">';}).join(''):'<div style="color:var(--muted)">No charts.</div>';
 }
 
 async function onSiteFilterChange(){itemsPage=0;await loadTags();loadItems(0);}
@@ -224,11 +206,11 @@ async function triggerRun(name,url,useBrowser){
     if(d.status==='success'){alert('Run complete: '+name+' - '+d.items_found+' items');}
     else{alert('Run failed: '+name+' - '+(d.error||d.status||'Unknown'));}
   }catch(e){alert('Request failed: '+e.message);}
-  btns.forEach(function(b){b.disabled=false;});setTimeout(function(){loadStats();loadItems(itemsPage);loadRuns();loadChartData();loadCharts();},1000);}
+  btns.forEach(function(b){b.disabled=false;});setTimeout(function(){loadStats();loadItems(itemsPage);loadRuns();loadChartData();},1000);}
 
 async function resetSite(name){if(!confirm('Reset all history for '+name+'? This cannot be undone.'))return;
   try{var r=await fetch('/api/reset?site='+encodeURIComponent(name),{method:'POST'});var d=await r.json();alert(d.message||'Reset complete');
-    loadStats();loadItems(0);loadRuns();loadChartData();loadCharts();}catch(e){alert('Reset failed: '+e.message);}}
+    loadStats();loadItems(0);loadRuns();loadChartData();}catch(e){alert('Reset failed: '+e.message);}}
 
 async function fetchSummary(btn,url,title){
   if(!url)return;btn.textContent='Loading...';btn.disabled=true;
