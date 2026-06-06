@@ -69,7 +69,6 @@ class AnalyzerAgent(BaseAgent):
             "is_first_run": not previous,
             "tag_distribution": self._tag_distribution(current_items),
             "trends": trends,
-            "sentiment_distribution": sentiment_dist,
             "sentiment_shift": sentiment_shift,
             "anomalies": anomalies,
         }

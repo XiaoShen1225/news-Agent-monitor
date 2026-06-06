@@ -27,6 +27,7 @@ class AppContext:
         self.chat_agent: Any = None
         self.track_store: Any = None
         self.memory_manager: Any = None
+        self.data_store: Any = None
 
         # Dashboard state
         self.dashboard_token: str | None = None

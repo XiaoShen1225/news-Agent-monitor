@@ -270,7 +270,6 @@ def _mock_store(**overrides):
     s.log_run.return_value = None
     s.increment_failure.return_value = False
     s.reset_failure.return_value = None
-    s.get_all_snapshots.return_value = []
     for k, v in overrides.items():
         setattr(s, k, MagicMock(return_value=v))
     return s
@@ -297,11 +296,12 @@ class TestCoordinatorCircuitBreaker:
         store.increment_failure.assert_called_once()
 
     def test_empty_targets(self, coord_config):
+        import asyncio
         from agents.coordinator import CoordinatorAgent
 
         coord_config["targets"] = []
         c = CoordinatorAgent(coord_config, data_store=MagicMock())
-        result = c.run_all_targets()
+        result = asyncio.run(c.run_all_targets_async())
         assert result == []
 
 

@@ -17,6 +17,27 @@ def make_get_entities_tool(news_store, paper_store):
         type 可选 PER(人名)/ORG(组织)/LOC(地点)/PROD(产品)/EVENT(事件)，不传返回全部。
         """
         entity_type = type if type in ("PER", "ORG", "LOC", "PROD", "EVENT") else None
+
+        if entity_name:
+            for store in (news_store, paper_store):
+                if store is None:
+                    continue
+                try:
+                    items = store.get_entity_items(entity_name, limit=max(limit, 20))
+                    if items:
+                        lines = [
+                            f"[实体详情] {entity_name}",
+                            f"关联文章 ({len(items)} 篇):",
+                        ]
+                        for it in items[:10]:
+                            lines.append(
+                                f"  - [{it.get('site_name', '?')}] {it.get('title', '无标题')[:60]}"
+                            )
+                        return "\n".join(lines)
+                except Exception:
+                    pass
+            return f"[命名实体] 未找到与 '{entity_name}' 关联的文章。"
+
         entities = []
         for store in (news_store, paper_store):
             if store is None:
@@ -32,22 +53,6 @@ def make_get_entities_tool(news_store, paper_store):
 
         limit = min(max(limit, 1), 30)
 
-        if entity_name:
-            for ent in entities:
-                if ent.get("name") == entity_name:
-                    items = ent.get("items", [])
-                    lines = [
-                        f"[实体详情] {ent['name']}",
-                        f"类型: {ent.get('type', '未知')}",
-                        f"关联文章 ({len(items)} 篇):",
-                    ]
-                    for it in items[:10]:
-                        lines.append(
-                            f"  - [{it.get('site_name', '?')}] {it.get('title', '无标题')[:60]}"
-                        )
-                    return "\n".join(lines)
-            return f"[命名实体] 未找到实体: {entity_name}"
-
         type_label = {
             "PER": "人物",
             "ORG": "组织",
@@ -59,9 +64,10 @@ def make_get_entities_tool(news_store, paper_store):
             f"[命名实体] 实体列表{' (' + type_label.get(type, type) + ')' if type else ''}:"
         ]
         for ent in entities[:limit]:
+            t = ent.get("type", "?")
             lines.append(
-                f"  [{ent.get('type', '?')}] {ent.get('name', '未知')[:40]}"
-                f" — {ent.get('count', 0)} 篇"
+                f"  [{type_label.get(t, t)}] {ent.get('name', '未知')[:40]}"
+                f" — {ent.get('mentions', 0)} 篇"
             )
         return "\n".join(lines)
 

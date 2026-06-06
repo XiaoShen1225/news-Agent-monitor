@@ -71,10 +71,6 @@ class CoordinatorAgent(BaseAgent):
         """Register an async callback invoked after each run_async completes."""
         self._run_callbacks.append(callback)
 
-    def remove_run_callback(self, callback):
-        """Remove a previously registered callback."""
-        self._run_callbacks = [c for c in self._run_callbacks if c is not callback]
-
     # ── sync (wraps async) ──────────────────────────────────────────
 
     def run(
@@ -85,15 +81,6 @@ class CoordinatorAgent(BaseAgent):
         except RuntimeError:
             return asyncio.run(self.run_async(url, site_name, use_browser))
         raise RuntimeError("Coordinator.run() in async context — use run_async()")
-
-    def run_all_targets(self) -> list:
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(self.run_all_targets_async())
-        raise RuntimeError(
-            "Coordinator.run_all_targets() in async context — use run_all_targets_async()"
-        )
 
     # ── async single target ─────────────────────────────────────────
 

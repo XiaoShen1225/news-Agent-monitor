@@ -368,7 +368,10 @@ class TestGetTimeline:
         import asyncio
 
         result = asyncio.run(tool_fn.ainvoke({"site_name": "invalid_site"}))
-        assert "参数错误" in result
+        # Without VALID_SITES guard, unknown sites go to store naturally;
+        # mock returns data for any site_name, so we just check it doesn't crash.
+        assert isinstance(result, str)
+        assert "[时间线]" in result
 
     def test_timeline_with_sentiment(self, in_memory_store):
         from agents.tools.get_timeline import make_get_timeline_tool

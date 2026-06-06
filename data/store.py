@@ -810,21 +810,6 @@ class DataStore:
             "tag_distribution": tag_dist,
         }
 
-    def get_all_snapshots(self, site_name: str) -> list:
-        with self._get_conn() as conn:
-            rows = conn.execute(
-                "SELECT snapshot_path, created_at FROM snapshots WHERE site_name = ? ORDER BY id ASC",
-                (site_name,),
-            ).fetchall()
-
-        snapshots = []
-        for row in rows:
-            path = Path(row[0])
-            if path.exists():
-                with open(path, "r", encoding="utf-8") as f:
-                    snapshots.append(json.load(f))
-        return snapshots
-
     def get_snapshot_meta_list(self, site_name: str) -> list[dict]:
         """Return lightweight metadata for all snapshots — no items loaded."""
         with self._get_conn() as conn:

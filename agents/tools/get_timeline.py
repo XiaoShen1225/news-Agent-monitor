@@ -2,8 +2,6 @@
 
 from langchain_core.tools import tool
 
-VALID_SITES = ["baidu_news", "sina_news", "deepmind_blog", "openai_blog"]
-
 
 def make_get_timeline_tool(news_store, paper_store):
     @tool
@@ -25,8 +23,6 @@ def make_get_timeline_tool(news_store, paper_store):
 
         items = []
         if site_name:
-            if site_name not in VALID_SITES:
-                return f"[参数错误] 未知站点 '{site_name}'。有效站点: {', '.join(VALID_SITES)}"
             store = (
                 paper_store
                 if site_name in ("deepmind_blog", "openai_blog")
@@ -37,18 +33,15 @@ def make_get_timeline_tool(news_store, paper_store):
                     site_name=site_name, sentiment=sentiment_val, limit=limit
                 )
         else:
-            for name, store in [
-                ("baidu_news", news_store),
-                ("sina_news", news_store),
-                ("deepmind_blog", paper_store),
-                ("openai_blog", paper_store),
-            ]:
+            for store in (news_store, paper_store):
                 if store:
-                    items.extend(
-                        store.query_items(
-                            site_name=name, sentiment=sentiment_val, limit=limit
+                    try:
+                        store_items = store.query_items(
+                            sentiment=sentiment_val, limit=limit
                         )
-                    )
+                        items.extend(store_items or [])
+                    except Exception:
+                        pass
 
         if not items:
             label = f"站点 {site_name}" if site_name else "全部站点"

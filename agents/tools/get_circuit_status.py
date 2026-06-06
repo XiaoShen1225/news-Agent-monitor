@@ -2,8 +2,6 @@
 
 from langchain_core.tools import tool
 
-VALID_SITES = ["baidu_news", "sina_news", "deepmind_blog", "openai_blog"]
-
 
 def make_get_circuit_status_tool(news_store, paper_store):
     @tool
@@ -18,8 +16,6 @@ def make_get_circuit_status_tool(news_store, paper_store):
             return "[断路器状态] 暂无数据。"
 
         if site_name:
-            if site_name not in VALID_SITES:
-                return f"[参数错误] 未知站点 '{site_name}'。有效站点: {', '.join(VALID_SITES)}"
             result = store.get_circuit_status(site_name)
             r = result  # single dict
             cb = "【熔断中】" if r.get("circuit_open") else "正常"

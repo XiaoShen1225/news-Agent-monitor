@@ -2,8 +2,6 @@
 
 from langchain_core.tools import tool
 
-VALID_SITES = ["baidu_news", "sina_news", "deepmind_blog", "openai_blog"]
-
 
 def make_get_run_log_tool(news_store, paper_store):
     @tool
@@ -12,11 +10,6 @@ def make_get_run_log_tool(news_store, paper_store):
 
         使用场景：用户问"最近运行正常吗""抓取有没有报错""token消耗情况"时使用。
         """
-        if site_name not in VALID_SITES:
-            return (
-                f"[参数错误] 未知站点 '{site_name}'。有效站点: {', '.join(VALID_SITES)}"
-            )
-
         store = (
             paper_store if site_name in ("deepmind_blog", "openai_blog") else news_store
         )

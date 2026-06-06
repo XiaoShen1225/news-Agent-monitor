@@ -1,9 +1,10 @@
 """FastAPI web dashboard for the news monitoring system."""
 
+import asyncio
 import logging
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
@@ -122,13 +123,15 @@ def _get_sites() -> list:
 
 
 def _get_data_store():
-    """Create a DataStore instance pointing at the project data dirs."""
-    from data.store import DataStore
+    """Get or create a cached DataStore instance."""
+    if ctx.data_store is None:
+        from data.store import DataStore
 
-    return DataStore(
-        history_dir=str(PROJECT_ROOT / "data" / "history"),
-        db_path=str(DB_PATH),
-    )
+        ctx.data_store = DataStore(
+            history_dir=str(PROJECT_ROOT / "data" / "history"),
+            db_path=str(DB_PATH),
+        )
+    return ctx.data_store
 
 
 def _get_alert_store():
@@ -147,58 +150,13 @@ def _get_story_watch_store():
     return ctx.story_watch_store
 
 
-def _is_similar_title(a: str, b: str, threshold: float = 0.85) -> bool:
-    """Check if two title strings refer to the same underlying item."""
-    from data.utils import title_similar
-
-    return title_similar(a, b, threshold)
-
-
 def _diff_items(prev_items: list, curr_items: list) -> dict:
-    """Compare two item lists by title; return new/removed/modified counts.
+    """Count new/removed/modified by delegating to AnalyzerAgent._diff_items."""
+    from agents.analyzer import AnalyzerAgent
 
-    Uses fuzzy matching (difflib) as fallback to catch title variations
-    like truncation or minor edits that would otherwise register as
-    spurious new+removed pairs.
-    """
-    prev_titles = {it.get("title", ""): it for it in prev_items}
-    curr_titles = {it.get("title", ""): it for it in curr_items}
-    prev_keys = set(prev_titles)
-    curr_keys = set(curr_titles)
-
-    matched_prev: set[str] = set()
-    matched_curr: set[str] = set()
-    new = removed = modified = 0
-
-    # Fuzzy-match unmatched titles
-    unmatched_new = [t for t in curr_keys if t and t not in prev_keys]
-    unmatched_rem = [t for t in prev_keys if t and t not in curr_keys]
-    for ct in unmatched_new:
-        for pt in unmatched_rem:
-            if pt in matched_prev:
-                continue
-            if _is_similar_title(ct, pt):
-                matched_prev.add(pt)
-                matched_curr.add(ct)
-                break
-
-    new = sum(
-        1 for t in curr_keys if t and t not in prev_keys and t not in matched_curr
-    )
-    removed = sum(
-        1 for t in prev_keys if t and t not in curr_keys and t not in matched_prev
-    )
-
-    for t in curr_keys & prev_keys:
-        if t:
-            p, c = prev_titles[t], curr_titles[t]
-            if p.get("tag") != c.get("tag") or p.get("summary") != c.get("summary"):
-                modified += 1
-
-    # Fuzzy-matched items count as modified
-    modified += len(matched_curr)
-
-    return {"new": new, "removed": removed, "modified": modified}
+    analyzer = AnalyzerAgent({"llm": {"api_key": "unused"}})
+    new, removed, modified = analyzer._diff_items(prev_items, curr_items)
+    return {"new": len(new), "removed": len(removed), "modified": len(modified)}
 
 
 def _build_chart_data(site_name: str, store) -> dict:
@@ -455,8 +413,6 @@ async def api_stats(
         ).fetchall()
         meta_map = {r[0]: (r[1] or 0, r[2] or "") for r in meta_rows}
 
-        from datetime import datetime as dt
-
         for s in sites:
             last_run = None
             for r in runs:
@@ -464,7 +420,9 @@ async def api_stats(
                     last_run = r
                     break
             failures, circuit_until = meta_map.get(s, (0, ""))
-            circuit_open = bool(circuit_until and circuit_until > dt.now().isoformat())
+            circuit_open = bool(
+                circuit_until and circuit_until > datetime.now().isoformat()
+            )
             snap = snapshots.get(s, {})
             site_health[s] = {
                 "last_run_status": last_run["status"] if last_run else "never",
@@ -581,8 +539,6 @@ async def api_search_hybrid(
     limit: int = Query(15, ge=1, le=50),
 ):
     """Hybrid search: BM25 keyword + vector semantic + RRF fusion."""
-    from datetime import datetime, timezone, timedelta
-
     hs = _get_hybrid_searcher()
     date_from = None
     if days is not None:
@@ -816,17 +772,13 @@ async def api_refresh_all():
     if ctx.coordinator is None:
         return JSONResponse({"error": "Coordinator not initialized"}, status_code=503)
 
-    import asyncio as _asyncio
-
-    _asyncio.create_task(ctx.coordinator.run_all_targets_async())
+    asyncio.create_task(ctx.coordinator.run_all_targets_async())
     return {"status": "started", "message": "Refreshing all targets"}
 
 
 @app.post("/api/reset")
 async def api_reset(site: str = Query(..., min_length=1)):
     """Reset all history for a site (checks both news and papers DBs)."""
-    import sqlite3
-
     paper_sources = {"deepmind_blog", "openai_blog"}
     is_paper = site in paper_sources
 

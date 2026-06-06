@@ -33,18 +33,16 @@ def make_dashboard_summary_tool(news_store, paper_store):
                 lines.append(f"\n{name}: 暂无快照数据")
                 continue
 
-            count = meta.get("items_count", 0)
+            history = meta.get("count_history", []) or []
+            count = history[-1][1] if history else 0
             total_items += count
             updated = (meta.get("updated_at", "未知") or "未知")[:19]
-            changes = meta.get("changes", {}) or {}
+            changes = meta.get("latest_changes", {}) or {}
             new_c = changes.get("new", 0)
             removed_c = changes.get("removed", 0)
 
-            # Circuit breaker status
             circuit_open = store.is_circuit_open(name)
 
-            # Trend direction from count history
-            history = meta.get("count_history", []) or []
             trend = "—"
             if len(history) >= 2:
                 recent = [h[1] for h in history[-3:]]
@@ -62,7 +60,6 @@ def make_dashboard_summary_tool(news_store, paper_store):
                 else:
                     trend = "→"
 
-            # Status determination
             if circuit_open:
                 status = "🔴 熔断"
                 warning += 1
