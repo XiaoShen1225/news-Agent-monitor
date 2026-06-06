@@ -52,6 +52,11 @@ targets:
     interval_minutes: 360
     use_browser: false
 
+  - url: "https://www.gamersky.com/"
+    name: "gamersky"
+    interval_minutes: 120
+    use_browser: false
+
 # Scheduler settings
 scheduler:
   default_interval_minutes: 60

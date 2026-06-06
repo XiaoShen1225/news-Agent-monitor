@@ -25,6 +25,7 @@ class SiteProfile:
     article_selector: str = ""
     title_selector: str = "a"
     link_attr: str = "href"
+    url_pattern: str = ""  # regex to pre-filter URLs (e.g. r"/news/\d{6}/\d+\.shtml")
     tag_from: str = "fixed"  # "fixed" | "selector" | "url"
     fixed_tag: str = "新闻"
     tag_selector: str = ""
@@ -63,6 +64,7 @@ class SiteProfile:
             article_selector=data.get("article_selector", ""),
             title_selector=data.get("title_selector", "a"),
             link_attr=data.get("link_attr", "href"),
+            url_pattern=data.get("url_pattern", ""),
             tag_from=data.get("tag_from", "fixed"),
             fixed_tag=data.get("fixed_tag", "新闻"),
             tag_selector=data.get("tag_selector", ""),
@@ -200,6 +202,24 @@ SINA_NEWS = SiteProfile(
     ],
 )
 
+GAMERSKY = SiteProfile(
+    name="gamersky",
+    display_name="游民星空",
+    domain_patterns=["gamersky.com"],
+    use_browser=False,
+    strategy="css_selector",
+    article_selector="div.Mid1",
+    url_pattern=r"/news/\d{6}/\d+\.shtml",
+    fixed_tag="游戏",
+    min_title_len=4,
+    noise_patterns=[
+        r"^更多",
+        r"^今日要闻$",
+        r"^游戏资讯$",
+        r"^娱乐图赏$",
+    ],
+)
+
 # ── Article / Paper sources (RSS feeds) ─────────────────────────────
 
 DEEPMIND_BLOG = SiteProfile(
@@ -240,6 +260,7 @@ BUILTIN_PROFILES: dict[str, SiteProfile] = {
     "sina_news": SINA_NEWS,
     "deepmind_blog": DEEPMIND_BLOG,
     "openai_blog": OPENAI_BLOG,
+    "gamersky": GAMERSKY,
 }
 
 

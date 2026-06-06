@@ -4,9 +4,9 @@
 
 ## 功能特性
 
-- **多源监控**：新闻站点（百度、新浪）+ AI 论文 RSS 源（DeepMind / OpenAI / Google AI） + **动态新增目标**（Web UI 随时添加/移除监控站点，URL 自动嗅探策略，无需重启）
+- **多源监控**：新闻站点（百度、新浪、游民星空）+ AI 论文 RSS 源（DeepMind / OpenAI）+ **动态新增目标**（Web UI 随时添加/移除监控站点，URL 自动嗅探策略，无需重启）
 - **浏览器渲染**：Playwright 无头 Chromium 渲染 JS 页面 + 渐进式滚动触发懒加载
-- **四种提取策略**：section_walk / css_selector / LLM 智能过滤 / RSS/Atom XML 解析
+- **四种提取策略**：section_walk / css_selector（支持 URL 模式预过滤）/ LLM 智能过滤 / RSS/Atom XML 解析
 - **导航切换**：新闻监控 + 论文追踪双页面，论文页不含复杂数据分析
 - **异步管道**：httpx.AsyncClient + Playwright async API + AsyncOpenAI，多站点 asyncio.gather 并发
 - **变更分析**：SHA256 内容哈希快速跳过无变化页面；标题级 Diff 识别新增/移除/修改
@@ -140,14 +140,14 @@ Visualization/
 │   │   ├── get_cost.py, get_circuit_status.py
 │   │   ├── get_deep_summary.py, trigger_run.py
 │   ├── fetcher.py                 # 网站抓取（httpx + Playwright）+ SHA256 变更检测
-│   ├── parser.py                  # section_walk / css_selector / LLM / RSS 四种提取策略
+│   ├── parser.py                  # section_walk / css_selector(URL过滤) / LLM / RSS 四种提取策略
 │   ├── analyzer.py                # 标题 Diff + 趋势计算 + 异常检测 + 情感偏移 + LLM 摘要
 │   ├── sentiment_analyzer.py      # 规则中文情感分析（~200 词词典，无 LLM 依赖）
 │   ├── coordinator.py             # 流水线编排，集成告警匹配 + 通知 + 向量存储
 │   ├── chat_agent.py              # AI 对话助手（LangGraph create_react_agent + 偏好学习 + Guardrails）
 │   ├── deep_analyzer.py           # 深度分析：跨站事件聚合 + 实体识别 + 时间线构建
 │   ├── clustering.py              # 余弦相似度聚类（Union-Find + VectorStore Embedding）
-│   └── site_profiles.py           # SiteProfile 数据类 + 内置站点配置
+│   └── site_profiles.py           # SiteProfile 数据类 + 5 个内置站点配置（百度/新浪/游民星空/DeepMind/OpenAI）
 ├── data/
 │   ├── store.py                   # JSON + SQLite + CSV 存储（新闻/论文分离路径）
 │   ├── alert_store.py             # 统一告警存储（关键词 CRUD + 冷却/去重 + 匹配）

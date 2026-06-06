@@ -164,6 +164,8 @@ class ParserAgent(BaseAgent):
         re.compile(r"/(\d{4})/(\d{1,2})/(\d{1,2})/"),
         re.compile(r"/(\d{4})-(\d{1,2})-(\d{1,2})[/-]"),
         re.compile(r"/(\d{4})(\d{2})(\d{2})/"),
+        # /news/YYYYMM/article_id.shtml (no day, extract year-month)
+        re.compile(r"/news/(\d{4})(\d{2})/\d+\.shtml"),
     ]
 
     @classmethod
@@ -172,7 +174,11 @@ class ParserAgent(BaseAgent):
         for pattern in cls._URL_DATE_PATTERNS:
             m = pattern.search(url)
             if m:
-                return f"{m.group(1)}-{m.group(2).zfill(2)}-{m.group(3).zfill(2)}"
+                groups = m.groups()
+                if len(groups) == 3:
+                    return f"{groups[0]}-{groups[1].zfill(2)}-{groups[2].zfill(2)}"
+                if len(groups) == 2:
+                    return f"{groups[0]}-{groups[1].zfill(2)}"
         return ""
 
     @classmethod
@@ -223,6 +229,10 @@ class ParserAgent(BaseAgent):
                 continue
             seen.add(text)
             full_url = urljoin(page_url, href) if page_url else href
+
+            if profile_obj.url_pattern:
+                if not re.search(profile_obj.url_pattern, full_url):
+                    continue
 
             # Extract time from multiple sources, best source first
             extracted_time = (
@@ -511,6 +521,7 @@ class ParserAgent(BaseAgent):
         self, soup: BeautifulSoup, page_url: str, profile: SiteProfile
     ) -> list:
         noise_patterns = [re.compile(p) for p in profile.noise_patterns]
+        url_filter = re.compile(profile.url_pattern) if profile.url_pattern else None
         links = []
         base_tag = profile.fixed_tag
 
@@ -535,6 +546,9 @@ class ParserAgent(BaseAgent):
                     continue
 
                 full_url = urljoin(page_url, href) if page_url else href
+
+                if url_filter and not url_filter.search(full_url):
+                    continue
 
                 tag = base_tag
                 if profile.tag_from == "selector" and profile.tag_selector:
