@@ -291,6 +291,52 @@ header .header-actions { display: flex; gap: 8px; align-items: center; }
   box-shadow: 0 0 0 3px var(--accent-soft); }
 .filters input::placeholder { color: var(--muted); opacity: 0.7; }
 
+/* ── Filter bar (News Items) ───────────────────────────────────── */
+.filter-bar { margin-bottom: 14px; }
+.filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.filter-select { background: var(--bg); border: 1px solid var(--border);
+  color: var(--text); padding: 7px 12px; border-radius: var(--radius-sm);
+  font-size: 13px; transition: all var(--transition); outline: none;
+  min-width: 130px; }
+.filter-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.filter-search-box { display: flex; align-items: center; flex: 1; min-width: 240px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  overflow: hidden; transition: all var(--transition); }
+.filter-search-box:focus-within { border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft); }
+.search-icon { padding: 0 2px 0 10px; font-size: 13px; color: var(--muted);
+  opacity: 0.6; flex-shrink: 0; }
+.filter-search-box input { flex: 1; background: transparent; border: none;
+  color: var(--text); padding: 7px 8px; font-size: 13px; outline: none;
+  min-width: 0; }
+.filter-search-box input::placeholder { color: var(--muted); opacity: 0.7; }
+.filter-search-btn { background: var(--accent); border: none; color: var(--bg);
+  padding: 7px 16px; cursor: pointer; font-size: 12px; font-weight: 600;
+  white-space: nowrap; border-radius: 0; }
+.filter-search-btn:hover { filter: brightness(1.1); }
+.tag-chip-clear { border-color: var(--border) !important; color: var(--muted) !important; }
+
+/* ── Refresh All button ────────────────────────────────────────── */
+.btn-refresh-all { background: linear-gradient(135deg, var(--accent), #2dd4bf);
+  border: none; color: var(--bg); padding: 8px 20px; border-radius: 20px;
+  cursor: pointer; font-size: 12px; font-weight: 600; display: flex;
+  align-items: center; gap: 6px; }
+.btn-refresh-all:hover { filter: brightness(1.08); transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59,130,246,0.25); }
+.btn-icon { font-size: 15px; display: inline-block; }
+
+/* ── Health card actions ───────────────────────────────────────── */
+.health-actions { display: flex; gap: 6px; margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--border-light); }
+.health-run-btn { background: var(--bg); border: 1px solid var(--accent);
+  color: var(--accent); padding: 3px 12px; border-radius: 12px;
+  cursor: pointer; font-size: 11px; font-weight: 500; }
+.health-run-btn:hover { background: var(--accent-soft); }
+.health-reset-btn { background: var(--bg); border: 1px solid rgba(248,113,113,0.25);
+  color: var(--red); padding: 3px 12px; border-radius: 12px;
+  cursor: pointer; font-size: 11px; font-weight: 500; margin-left: auto; }
+.health-reset-btn:hover { background: rgba(248,113,113,0.06); }
+
 /* ── Buttons ──────────────────────────────────────────────────── */
 button { font-family: inherit; transition: all var(--transition); outline: none;
   cursor: pointer; }

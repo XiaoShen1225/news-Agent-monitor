@@ -3,7 +3,7 @@ var drawerMonitorHTML = [
   '<section class="card" style="margin-bottom:16px">',
   '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">',
   '<h2 style="margin:0">Overview</h2>',
-  '<div style="display:flex;gap:8px;flex-wrap:wrap" id="action-buttons"></div>',
+  '<div id="action-buttons"></div>',
   '</div>',
   '<div class="stats" id="stats-grid" style="margin-top:12px">',
   '<div class="stat"><div class="val">--</div><div class="lbl">Total Runs</div></div>',
@@ -28,17 +28,21 @@ var drawerMonitorHTML = [
   '<div class="echart-card wide"><h3>Overview</h3><div id="chart-summary" style="min-height:100px;padding:8px 0;color:var(--muted)">Select a site.</div></div>',
   '</div></section>',
   '<section class="card" style="margin-bottom:16px"><h2>News Items</h2>',
-  '<div class="filters">',
-  '<select id="filter-site" onchange="onSiteFilterChange()"><option value="">All sites</option></select>',
-  '<select id="filter-tag"><option value="">All tags</option></select>',
-  '<input type="text" id="filter-search" placeholder="Search..." onkeydown="if(event.key===13)loadItems(0)" style="min-width:180px">',
-  '<button class="tab active" onclick="loadItems(0)" style="cursor:pointer">Search</button></div>',
-  '<div class="tag-chips"><span style="font-size:11px;color:var(--muted);margin-right:4px">Quick:</span>',
+  '<div class="filter-bar">',
+  '<div class="filter-row">',
+  '<select id="filter-site" onchange="onSiteFilterChange()" class="filter-select"><option value="">All sites</option></select>',
+  '<select id="filter-tag" class="filter-select"><option value="">All tags</option></select>',
+  '<div class="filter-search-box"><span class="search-icon">&#x1f50d;</span>',
+  '<input type="text" id="filter-search" placeholder="Search titles..." onkeydown="if(event.key===13)loadItems(0)">',
+  '<button class="filter-search-btn" onclick="loadItems(0)">Search</button></div>',
+  '</div>',
+  '<div class="tag-chips"><span style="font-size:11px;color:var(--muted);margin-right:6px">Quick:</span>',
   '<button onclick="quickFilter("Tech")" class="tag-chip">Tech</button>',
   '<button onclick="quickFilter("China")" class="tag-chip">China</button>',
   '<button onclick="quickFilter("Finance")" class="tag-chip">Finance</button>',
   '<button onclick="quickFilter("World")" class="tag-chip">World</button>',
-  '<button onclick="quickFilter("",true)" class="tag-chip" style="border-color:var(--border);color:var(--muted)">Clear</button></div>',
+  '<button onclick="quickFilter("",true)" class="tag-chip tag-chip-clear">Clear</button></div>',
+  '</div>',
   '<div style="overflow-x:auto"><table><thead><tr><th>Title</th><th>Tag</th><th>Site</th><th>Time</th><th></th></tr></thead>',
   '<tbody id="items-body"><tr><td colspan="5" style="color:var(--muted)">Loading...</td></tr></tbody></table></div>',
   '<div class="pagination" id="pagination"></div></section>',
@@ -191,9 +195,8 @@ async function loadTargets(){
 
 function renderActionButtons(){
   var el=document.getElementById('action-buttons');if(!el)return;
-  el.innerHTML='<button onclick="refreshAll()" id="refresh-all-btn" style="background:linear-gradient(135deg, var(--accent), #2dd4bf);border:none;color:var(--bg);padding:6px 18px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:600">Refresh All</button>'+
-    targetsData.map(function(t){return '<button onclick="triggerRun(\x27'+t.name+'\x27,\x27'+t.url+'\x27,'+(t.use_browser||false)+')" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:500">Run: '+t.name+'</button>'+
-    '<button onclick="resetSite(\x27'+t.name+'\x27)" style="background:var(--bg);border:1px solid rgba(248,113,113,0.3);color:var(--red);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:500">Reset: '+t.name+'</button>';}).join('');
+  el.innerHTML='<button onclick="refreshAll()" id="refresh-all-btn" class="btn-refresh-all">'+
+    '<span class="btn-icon">&#x21bb;</span> Refresh All</button>';
 }
 
 async function refreshAll(){var btn=document.getElementById('refresh-all-btn');if(!btn)return;btn.textContent='Running...';btn.disabled=true;btn.style.opacity='0.6';
@@ -243,7 +246,10 @@ function loadSiteHealth(){
       else{cls='idle';dotCls='idle';label='Waiting';}
       var rt=hh.last_run_time?hh.last_run_time.slice(0,19):'--';
       var sst=hh.last_snapshot_time?hh.last_snapshot_time.slice(0,19):'--';
-      return '<div class="health-card '+cls+'"><div class="health-card-header"><div class="health-dot '+dotCls+'"></div><span class="name">'+s+'</span><span class="status">'+label+'</span></div><div class="health-metrics"><div class="health-metric">Last Run: <span>'+rt+'</span></div><div class="health-metric">Items: <span>'+(hh.last_run_items||0)+'</span></div><div class="health-metric">Snapshot: <span>'+sst+'</span></div><div class="health-metric">Snap Items: <span>'+(hh.last_snapshot_items||0)+'</span></div></div>'+(hh.consecutive_failures>0?'<div class="health-metric" style="grid-column:1/-1;margin-top:4px">Failures: <span style="color:var(--orange)">'+hh.consecutive_failures+'</span></div>':'')+(hh.error_message?'<div class="health-error-msg" title="'+hh.error_message.replace(/"/g,'&amp;quot;')+'">'+hh.error_message+'</div>':'')+'</div>';
+      var turl='';var tBrowser=false;
+      for(var i=0;i<targetsData.length;i++){if(targetsData[i].name===s){turl=targetsData[i].url||'';tBrowser=targetsData[i].use_browser||false;break;}}
+      return '<div class="health-card '+cls+'"><div class="health-card-header"><div class="health-dot '+dotCls+'"></div><span class="name" title="'+s+'">'+s+'</span><span class="status">'+label+'</span></div><div class="health-metrics"><div class="health-metric">Last Run: <span>'+rt+'</span></div><div class="health-metric">Items: <span>'+(hh.last_run_items||0)+'</span></div><div class="health-metric">Snapshot: <span>'+sst+'</span></div><div class="health-metric">Snap Items: <span>'+(hh.last_snapshot_items||0)+'</span></div></div>'+(hh.consecutive_failures>0?'<div class="health-metric" style="grid-column:1/-1;margin-top:4px">Failures: <span style="color:var(--orange)">'+hh.consecutive_failures+'</span></div>':'')+(hh.error_message?'<div class="health-error-msg" title="'+hh.error_message.replace(/"/g,'&amp;quot;')+'">'+hh.error_message+'</div>':'')+
+        '<div class="health-actions"><button onclick="triggerRun(\x27'+s+'\x27,\x27'+turl+'\x27,'+tBrowser+')" class="health-run-btn">&#x25b6; Run</button><button onclick="resetSite(\x27'+s+'\x27)" class="health-reset-btn">&#x21ba; Reset</button></div></div>';
     }).join('');
   }).catch(function(){});
 }
