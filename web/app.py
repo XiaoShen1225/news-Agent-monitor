@@ -1097,8 +1097,6 @@ async def api_track(request: Request):
 def _get_chat_agent():
     if ctx.chat_agent is None:
         from data.store import DataStore
-        from data.alert_store import AlertStore
-        from data.story_watch import StoryWatchStore
         from data.episodic_memory import EpisodicMemory
 
         from agents.chat_agent import ChatAgent
@@ -1109,8 +1107,8 @@ def _get_chat_agent():
             news_store=DataStore(source_type="news"),
             paper_store=DataStore(source_type="paper"),
             vector_store=None,
-            alert_store=AlertStore(),
-            story_watch=StoryWatchStore(),
+            alert_store=_get_alert_store(),
+            story_watch=_get_story_watch_store(),
             hybrid_searcher=_get_hybrid_searcher(),
             coordinator=ctx.coordinator,
             episodic_memory=EpisodicMemory(),
@@ -1344,7 +1342,9 @@ async def api_alerts_remove(keyword: str = Query(..., min_length=1)):
 async def api_stories(status: str | None = Query(None)):
     """List tracked stories, optionally filtered by status."""
     store = _get_story_watch_store()
-    stories = store.list_stories(status=status if status else None)
+    stories = store.list_stories(
+        status=status if status else None, include_matches=True
+    )
     config = store.get_config()
     return {"stories": stories, "count": len(stories), "config": config}
 

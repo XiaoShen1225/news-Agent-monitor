@@ -119,7 +119,9 @@ class StoryWatchStore:
                 return {"ok": True, "msg": f"故事「{s['title'][:40]}」已标记为完结"}
         return {"ok": False, "msg": "未找到该故事"}
 
-    def list_stories(self, status: str = None) -> list[dict]:
+    def list_stories(
+        self, status: str = None, include_matches: bool = False
+    ) -> list[dict]:
         """List tracked stories, optionally filtered by status."""
         self._auto_update_lifecycle()
         stories = self._data.get("stories", [])
@@ -127,19 +129,20 @@ class StoryWatchStore:
         for s in stories:
             if status and s["status"] != status:
                 continue
-            result.append(
-                {
-                    "id": s["id"],
-                    "title": s["title"],
-                    "url": s.get("url", ""),
-                    "status": s["status"],
-                    "source_site": s.get("source_site", ""),
-                    "tags": s.get("tags", []),
-                    "match_count": s.get("match_count", 0),
-                    "created_at": s.get("created_at", ""),
-                    "last_match_at": s.get("last_match_at"),
-                }
-            )
+            entry = {
+                "id": s["id"],
+                "title": s["title"],
+                "url": s.get("url", ""),
+                "status": s["status"],
+                "source_site": s.get("source_site", ""),
+                "tags": s.get("tags", []),
+                "match_count": s.get("match_count", 0),
+                "created_at": s.get("created_at", ""),
+                "last_match_at": s.get("last_match_at"),
+            }
+            if include_matches:
+                entry["match_history"] = s.get("match_history", [])[-20:]
+            result.append(entry)
         return result
 
     # ── matching ────────────────────────────────────────────────────

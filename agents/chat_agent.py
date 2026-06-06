@@ -583,8 +583,6 @@ class ChatAgent(BaseAgent):
         tool_calls_log: list[dict] = []
         round_num = 0
 
-        self._seed_graph_state(config)
-
         try:
             async for event in self._graph.astream_events(
                 {"messages": input_msgs}, config, version="v2"

@@ -15,8 +15,8 @@ var drawerOpsHTML = [
   '<button class="tab" onclick="loadStories(\x27active\x27)">Active</button>',
   '<button class="tab" onclick="loadStories(\x27completed\x27)">Completed</button>',
   '<button class="tab" onclick="loadStories(\x27dormant\x27)">Dormant</button></div>',
-  '<div style="overflow-x:auto"><table><thead><tr><th>Title</th><th>Source</th><th>Status</th><th>Matches</th><th>Created</th><th>Last Match</th><th>Actions</th></tr></thead>',
-  '<tbody id="stories-body"><tr><td colspan="7" style="color:var(--muted)">Loading...</td></tr></tbody></table></div>',
+  '<div id="stories-list" style="margin-top:8px">',
+  '<div style="color:var(--muted);padding:12px;text-align:center">Loading...</div></div>',
   '<div id="stories-config" style="margin-top:12px;font-size:12px;color:var(--muted);padding:8px 12px;background:var(--bg);border-radius:var(--radius-sm);border-left:3px solid var(--accent)"></div></section>',
 
   // ── Target Management ──
@@ -97,16 +97,47 @@ async function loadStories(status){
   document.querySelectorAll('#story-status-tabs .tab').forEach(function(t){t.classList.toggle('active',(status===''&&t.textContent==='All')||(status==='active'&&t.textContent==='Active')||(status==='completed'&&t.textContent==='Completed')||(status==='dormant'&&t.textContent==='Dormant'));});
   try{var url=status?'/api/stories?status='+encodeURIComponent(status):'/api/stories';var r=await fetch(url);var d=await r.json();
     var stories=d.stories||[];var config=d.config||{};
-    document.getElementById('stories-body').innerHTML=stories.length?stories.map(function(s){
+    var listEl=document.getElementById('stories-list');
+    if(!stories.length){listEl.innerHTML='<div style="color:var(--muted);padding:12px;text-align:center">No tracked stories. Use the AI assistant to track a story.</div>';}
+    else{
       var sc={active:'var(--green)',completed:'var(--muted)',dormant:'var(--orange)'};
-      var sl={active:'Active',completed:'Completed',dormant:'Dormant'};var color=sc[s.status]||'var(--muted)';var label=sl[s.status]||s.status;
-      var st=s.title||'';var et=st.replace(/'/g,"\'");
-      var actions='';
-      if(s.status==='active'){actions='<button onclick="completeStory(\x27'+s.id+'\x27)" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:500;margin-right:4px">Complete</button>';}
-      else if(s.status==='dormant'){actions='<button onclick="reactivateStory(\x27'+s.id+'\x27)" style="background:var(--bg);border:1px solid var(--border);color:var(--accent);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:500;margin-right:4px">Reactivate</button>';}
-      actions+='<button onclick="removeStory(\x27'+s.id+'\x27,\x27'+et+'\x27)" style="background:var(--bg);border:1px solid rgba(248,113,113,0.3);color:var(--red);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:500">Delete</button>';
-      return '<tr><td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+s.title+'</td><td><span class="tag">'+(s.source_site||'-')+'</span></td><td><span style="color:'+color+';font-weight:500;font-size:12px">'+label+'</span></td><td style="color:var(--accent)">'+(s.match_count||0)+'</td><td style="color:var(--muted);font-size:12px">'+(s.created_at||'').slice(0,10)+'</td><td style="color:var(--muted);font-size:12px">'+(s.last_match_at||'--').slice(0,16)+'</td><td style="white-space:nowrap">'+actions+'</td></tr>';
-    }).join(''):'<tr><td colspan="7" style="color:var(--muted)">No tracked stories.</td></tr>';
+      var bg={active:'rgba(52,211,153,0.08)',completed:'rgba(148,163,184,0.06)',dormant:'rgba(251,191,36,0.08)'};
+      var sl={active:'Active',completed:'Completed',dormant:'Dormant'};
+      listEl.innerHTML=stories.map(function(s){
+        var color=sc[s.status]||'var(--muted)';var label=sl[s.status]||s.status;
+        var st=(s.title||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+        var sid=s.id.replace(/'/g,"\\'");
+        var matches=s.match_history||[];
+        var matchList='';
+        if(matches.length){
+          matchList='<div style="margin-top:8px;padding:8px 0 0 12px;border-top:1px solid var(--border)">';
+          matches.forEach(function(m){
+            var mu=m.url||'';var mt=(m.title||'').slice(0,60);
+            matchList+='<div style="font-size:12px;padding:4px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
+              '<span style="color:var(--accent);font-size:10px;background:var(--bg);padding:1px 6px;border-radius:8px">'+((m.score||0).toFixed(2))+'</span>'+
+              (mu?'<a href="'+mu+'" target="_blank" style="color:var(--text);text-decoration:none;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+mt+'</a>':
+              '<span style="color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+mt+'</span>')+
+              '<span style="color:var(--muted);font-size:10px;white-space:nowrap">'+(m.time||'').slice(0,16)+'</span></div>';
+          });
+          matchList+='</div>';
+        }
+        var actions='';
+        if(s.status==='active'){actions+='<button onclick="completeStory(\x27'+sid+'\x27)" class="story-action-btn" style="color:var(--muted)">Complete</button>';}
+        else if(s.status==='dormant'){actions+='<button onclick="reactivateStory(\x27'+sid+'\x27)" class="story-action-btn" style="color:var(--accent)">Reactivate</button>';}
+        actions+='<button onclick="removeStory(\x27'+sid+'\x27,\x27'+st+'\x27)" class="story-action-btn" style="color:var(--red)">Delete</button>';
+        return '<div class="story-item" style="background:'+(bg[s.status]||bg.active)+';border-radius:var(--radius);padding:10px 14px;margin-bottom:6px;border-left:3px solid '+color+';cursor:pointer" onclick="var d=this.querySelector(\x27.story-detail\x27);if(d)d.style.display=d.style.display===`none`?`block`:`none`">'+
+          '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
+            '<span style="font-weight:500;font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+s.title+'</span>'+
+            '<span style="color:'+color+';font-weight:600;font-size:11px;padding:2px 10px;border-radius:10px;background:'+color+'22;white-space:nowrap">'+label+'</span>'+
+            '<span style="color:var(--accent);font-size:12px;font-weight:500;white-space:nowrap">'+ (s.match_count||0)+' matches</span>'+
+            '<span style="color:var(--muted);font-size:10px">'+(s.source_site||'')+'</span>'+
+            '<span style="color:var(--muted);font-size:10px">'+(s.created_at||'').slice(0,10)+'</span>'+
+            '<span style="display:flex;gap:4px" onclick="event.stopPropagation()">'+actions+'</span>'+
+          '</div>'+
+          '<div class="story-detail" style="display:none">'+matchList+'</div>'+
+        '</div>';
+      }).join('');
+    }
     document.getElementById('stories-config').innerHTML=stories.length?'<strong>Config:</strong> Similarity threshold '+(config.similarity_threshold||0.7)+' | Cooldown '+(config.match_cooldown_hours||12)+'h | Dormant after '+(config.dormant_after_days||30)+'d | Auto-clean '+(config.remove_dormant_after_days||90)+'d':'';}catch(e){}
 }
 
