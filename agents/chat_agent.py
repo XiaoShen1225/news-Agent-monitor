@@ -856,11 +856,56 @@ class ChatAgent(BaseAgent):
             logger.warning("[ChatAgent] Failed to load chat history: %s", e)
 
     def _repair_all_sessions(self):
-        """Ensure every message has a 'content' key (required by LangChain)."""
+        """Fix corrupted history: missing content keys, and broken
+        tool_call_id chains that cause 400 API errors."""
+        repaired = False
         for sid, session in self._sessions.items():
-            for msg in session.get("history", []):
+            history = session.get("history", [])
+            for msg in history:
                 if "content" not in msg:
                     msg["content"] = ""
+                    repaired = True
+            # Two-way repair: ensure tool_calls ↔ tool messages are consistent
+            # 1. Collect tool_call_ids from assistant tool_calls
+            ai_ids = set()
+            for m in history:
+                if m.get("role") == "assistant" and m.get("tool_calls"):
+                    for tc in m["tool_calls"]:
+                        if tc.get("id"):
+                            ai_ids.add(tc["id"])
+            # 2. Collect tool_call_ids from tool messages
+            tool_ids = {
+                m["tool_call_id"]
+                for m in history
+                if m.get("role") == "tool" and m.get("tool_call_id")
+            }
+            # 3. Strip orphan tool_calls (no matching tool message)
+            for m in history:
+                if m.get("role") == "assistant" and m.get("tool_calls"):
+                    before = len(m["tool_calls"])
+                    m["tool_calls"] = [
+                        tc for tc in m["tool_calls"] if tc.get("id") in tool_ids
+                    ]
+                    if len(m["tool_calls"]) != before:
+                        repaired = True
+                    if not m["tool_calls"]:
+                        del m["tool_calls"]
+            # 4. Strip orphan tool messages (no matching tool_calls)
+            new_history = [
+                m
+                for m in history
+                if not (
+                    m.get("role") == "tool"
+                    and m.get("tool_call_id")
+                    and m["tool_call_id"] not in ai_ids
+                )
+            ]
+            if len(new_history) != len(history):
+                repaired = True
+            session["history"] = new_history
+        if repaired:
+            self._save_history()
+            logger.info("[ChatAgent] Repaired corrupted history")
 
     async def _generate_title(self, session_id: str):
         """Generate a short title (≤15 chars) from the first exchange."""
