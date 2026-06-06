@@ -63,9 +63,6 @@ FETCH_HEADERS = {
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
 
-# ── Valid site names ───────────────────────────────────────────────────
-VALID_SITES = ["baidu_news", "sina_news", "deepmind_blog", "openai_blog"]
-
 # Tools are now built dynamically via build_all_tools()
 # (see agents/tools/__init__.py with 18 LangChain @tool functions)
 
@@ -230,7 +227,9 @@ class ChatAgent(BaseAgent):
         await super().aclose()
 
     def _get_store(self, site_name: str = None):
-        if site_name in ("deepmind_blog", "openai_blog"):
+        from agents.site_profiles import is_article_site
+
+        if site_name and is_article_site(site_name):
             return self.paper_store or self.news_store
         return self.news_store
 

@@ -212,6 +212,21 @@ class DataStore:
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_name
                 ON entities(name)
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_targets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    site_name TEXT UNIQUE NOT NULL,
+                    url TEXT NOT NULL,
+                    interval_minutes INTEGER DEFAULT 60,
+                    use_browser INTEGER DEFAULT 0,
+                    extraction_strategy TEXT DEFAULT 'auto',
+                    profile_json TEXT DEFAULT '{}',
+                    is_article_source INTEGER DEFAULT 0,
+                    enabled INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             conn.commit()
 
     def prune_snapshots(self, site_name: str, keep_count: int):
@@ -401,6 +416,138 @@ class DataStore:
                 }
             )
         return results
+
+    # ── User targets CRUD ────────────────────────────────────────────
+
+    def add_user_target(
+        self,
+        site_name: str,
+        url: str,
+        interval_minutes: int = 60,
+        use_browser: bool = False,
+        extraction_strategy: str = "auto",
+        profile_json: str = "{}",
+        is_article_source: bool = False,
+    ) -> dict:
+        """Insert or replace a user-defined monitoring target."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """INSERT INTO user_targets
+                   (site_name, url, interval_minutes, use_browser,
+                    extraction_strategy, profile_json, is_article_source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(site_name) DO UPDATE SET
+                   url=excluded.url,
+                   interval_minutes=excluded.interval_minutes,
+                   use_browser=excluded.use_browser,
+                   extraction_strategy=excluded.extraction_strategy,
+                   profile_json=excluded.profile_json,
+                   is_article_source=excluded.is_article_source,
+                   updated_at=CURRENT_TIMESTAMP""",
+                (
+                    site_name,
+                    url,
+                    interval_minutes,
+                    1 if use_browser else 0,
+                    extraction_strategy,
+                    profile_json,
+                    1 if is_article_source else 0,
+                ),
+            )
+            conn.commit()
+        return self.get_user_target(site_name) or {}
+
+    def remove_user_target(self, site_name: str) -> bool:
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                "DELETE FROM user_targets WHERE site_name = ?", (site_name,)
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def get_user_target(self, site_name: str) -> dict | None:
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT site_name, url, interval_minutes, use_browser,"
+                " extraction_strategy, profile_json, is_article_source, enabled,"
+                " created_at, updated_at FROM user_targets WHERE site_name = ?",
+                (site_name,),
+            ).fetchone()
+        if not row:
+            return None
+        return dict(
+            zip(
+                [
+                    "name",
+                    "url",
+                    "interval_minutes",
+                    "use_browser",
+                    "strategy",
+                    "profile_json",
+                    "is_article_source",
+                    "enabled",
+                    "created_at",
+                    "updated_at",
+                ],
+                row,
+            )
+        )
+
+    def list_user_targets(self, enabled_only: bool = True) -> list[dict]:
+        with self._get_conn() as conn:
+            query = (
+                "SELECT site_name, url, interval_minutes, use_browser,"
+                " extraction_strategy, profile_json, is_article_source, enabled,"
+                " created_at, updated_at FROM user_targets"
+            )
+            if enabled_only:
+                query += " WHERE enabled = 1"
+            query += " ORDER BY created_at"
+            rows = conn.execute(query).fetchall()
+        keys = [
+            "name",
+            "url",
+            "interval_minutes",
+            "use_browser",
+            "strategy",
+            "profile_json",
+            "is_article_source",
+            "enabled",
+            "created_at",
+            "updated_at",
+        ]
+        return [dict(zip(keys, r)) for r in rows]
+
+    def update_user_target(self, site_name: str, **fields) -> bool:
+        allowed = {
+            "interval_minutes",
+            "use_browser",
+            "extraction_strategy",
+            "profile_json",
+            "is_article_source",
+        }
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return False
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                f"UPDATE user_targets SET {set_clause}, updated_at = CURRENT_TIMESTAMP"
+                " WHERE site_name = ?",
+                (*updates.values(), site_name),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def toggle_user_target(self, site_name: str, enabled: bool) -> bool:
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                "UPDATE user_targets SET enabled = ?, updated_at = CURRENT_TIMESTAMP"
+                " WHERE site_name = ?",
+                (1 if enabled else 0, site_name),
+            )
+            conn.commit()
+            return cur.rowcount > 0
 
     # ── Deduplication ────────────────────────────────────────────────
 

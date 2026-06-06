@@ -4,7 +4,7 @@
 
 ## 功能特性
 
-- **多源监控**：新闻站点（百度、新浪）+ AI 论文 RSS 源（DeepMind / OpenAI / Google AI）
+- **多源监控**：新闻站点（百度、新浪）+ AI 论文 RSS 源（DeepMind / OpenAI / Google AI） + **动态新增目标**（Web UI 随时添加/移除监控站点，URL 自动嗅探策略，无需重启）
 - **浏览器渲染**：Playwright 无头 Chromium 渲染 JS 页面 + 渐进式滚动触发懒加载
 - **四种提取策略**：section_walk / css_selector / LLM 智能过滤 / RSS/Atom XML 解析
 - **导航切换**：新闻监控 + 论文追踪双页面，论文页不含复杂数据分析
@@ -160,6 +160,7 @@ Visualization/
 │   └── vector_db/                 # ChromaDB 持久化数据
 ├── web/
 │   ├── app.py                     # FastAPI 应用（REST API + SSE + WebSocket）
+│   ├── target_manager.py          # 联邦目标源（内置 config.yaml + 用户 DB 目标动态合并）
 │   ├── templates/
 │   │   └── index.html             # Chat 中心化布局（侧边栏+抽屉面板）
 │   └── static/
@@ -172,7 +173,7 @@ Visualization/
 │           ├── monitor.js         # 新闻监控面板（ECharts 图表）
 │           ├── papers.js          # 论文追踪面板
 │           ├── deep.js            # 深度分析面板（实体/事件/时间线）
-│           └── ops.js             # 运营管理面板（告警/故事追踪）
+│           └── ops.js             # 运营管理面板（告警/故事追踪/目标管理）
 ├── notifications/
 │   ├── base.py                    # 通知基类 + PipelineEvent
 │   ├── dispatcher.py              # 通知分发器
@@ -269,7 +270,12 @@ Visualization/
 | `GET /api/chart-data?site=` | ECharts 实时图表数据 |
 | `GET /api/summarize?url=&title=` | 文章内容即时摘要 |
 | `GET /api/papers?site=&limit=&offset=` | 论文/文章条目查询 |
-| `GET /api/targets` | 已配置的监控目标列表 |
+| `GET /api/targets` | 全部监控目标（内置 + 用户新增） |
+| `POST /api/targets` | 动态添加监控站点（URL 验证 + 自动调度 + 首次抓取） |
+| `DELETE /api/targets/{name}` | 删除用户新增站点（`?cleanup=true` 清理关联数据） |
+| `PUT /api/targets/{name}` | 更新站点配置（间隔/策略/浏览器开关） |
+| `POST /api/targets/{name}/toggle` | 启用/暂停站点监控 |
+| `POST /api/targets/validate` | URL 预检（可达性 + 策略自动检测建议） |
 | `GET /api/schedule` | 调度器状态和配置 |
 | `POST /api/trigger-run?site=&url=` | 手动触发单次抓取 |
 | `POST /api/refresh-all` | 一键刷新全部监控目标 |

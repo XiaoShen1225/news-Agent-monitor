@@ -251,3 +251,97 @@ def get_profile(name: str, custom: dict | None = None) -> SiteProfile:
     if profile is None:
         profile = SiteProfile(name=name, display_name=name, strategy="css_selector")
     return profile
+
+
+def is_article_site(site_name: str, target_manager: object = None) -> bool:
+    """Check whether a site is an article/paper source.
+
+    Checks built-in profiles first, then falls back to TargetManager
+    for user-added targets.
+    """
+    profile = BUILTIN_PROFILES.get(site_name)
+    if profile and profile.is_article_source:
+        return True
+    if target_manager is not None and hasattr(target_manager, "is_article_site"):
+        return target_manager.is_article_site(site_name)
+    return False
+
+
+async def auto_detect_strategy(url: str) -> dict:
+    """Fetch a URL and determine the best extraction strategy.
+
+    Returns a dict with: strategy, is_article_source,
+    suggested_use_browser, detected_title, content_type.
+    """
+    import xml.etree.ElementTree as ET
+
+    import httpx
+
+    result = {
+        "strategy": "css_selector",
+        "is_article_source": False,
+        "suggested_use_browser": False,
+        "detected_title": "",
+        "content_type": "unknown",
+        "reachable": False,
+        "status_code": 0,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            head = await client.head(url)
+            result["status_code"] = head.status_code
+            result["reachable"] = head.status_code < 500
+            ct = head.headers.get("content-type", "")
+            result["content_type"] = ct
+            if "rss" in ct or "atom" in ct or "xml" in ct:
+                result["strategy"] = "rss"
+                result["is_article_source"] = True
+            resp = await client.get(url)
+            body = resp.text[:65536] if resp.text else ""
+    except Exception:
+        result["reachable"] = False
+        return result
+
+    # Detect RSS/Atom from body
+    if (
+        body.lstrip().startswith("<?xml")
+        or "<rss" in body[:1000]
+        or "<feed" in body[:1000]
+    ):
+        result["strategy"] = "rss"
+        result["is_article_source"] = True
+        try:
+            root = ET.fromstring(body)
+            title_el = root.find(".//channel/title") or root.find(".//title")
+            if title_el is not None and title_el.text:
+                result["detected_title"] = title_el.text.strip()[:80]
+        except Exception:
+            pass
+    elif "<html" in body.lower():
+        # HTML page — use llm strategy for best coverage
+        result["strategy"] = "llm"
+        # Try to extract <title>
+        import re
+
+        m = re.search(r"<title[^>]*>([^<]+)</title>", body, re.IGNORECASE)
+        if m:
+            result["detected_title"] = m.group(1).strip()[:80]
+    else:
+        result["strategy"] = "llm"
+
+    # Browser detection: short body or SPA markers
+    if len(body) < 500 or any(
+        tag in body
+        for tag in ('<div id="root"', '<div id="app"', "window.__INITIAL_STATE__")
+    ):
+        result["suggested_use_browser"] = True
+
+    # Article source detection from URL patterns
+    url_lower = url.lower()
+    if any(
+        p in url_lower for p in ("/blog/", "/articles/", "/research/", "/rss", "/feed")
+    ):
+        result["is_article_source"] = True
+
+    return result

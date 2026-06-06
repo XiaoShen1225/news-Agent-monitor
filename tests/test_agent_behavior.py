@@ -343,7 +343,11 @@ class TestDashboardSummary:
     def test_dashboard_all_sites(self, in_memory_store):
         from agents.tools.dashboard_summary import make_dashboard_summary_tool
 
-        tool_fn = make_dashboard_summary_tool(in_memory_store, in_memory_store)
+        tool_fn = make_dashboard_summary_tool(
+            in_memory_store,
+            in_memory_store,
+            [{"name": "test_site"}],
+        )
         import asyncio
 
         result = asyncio.run(tool_fn.ainvoke({}))

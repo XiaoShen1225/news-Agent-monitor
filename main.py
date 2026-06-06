@@ -198,8 +198,12 @@ async def _cmd_schedule_async(config: dict):
 
     coordinator, notifiers, __ = _create_coordinator(config)
 
+    from web.target_manager import TargetManager
+
+    target_manager = TargetManager(config, coordinator.store)
+    targets = target_manager.all_targets()
+
     scheduler = AsyncIOScheduler()
-    targets = config.get("targets", [])
 
     if not targets:
         logger.error("No targets configured in config.yaml")
@@ -287,7 +291,14 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
     ctx.config = config
     ctx.notifiers = notifiers or []
 
-    targets = config.get("targets", [])
+    # Init TargetManager for dynamic target management
+    from web.target_manager import TargetManager
+
+    news_store = coordinator.store
+    target_manager = TargetManager(config, news_store)
+    ctx.target_manager = target_manager
+
+    targets = target_manager.all_targets()
     if not targets:
         logger.error("No targets configured in config.yaml")
         return
@@ -513,8 +524,9 @@ def cmd_reset(config: dict, name: str):
     """Reset history for a site (checks both news and paper databases)."""
     import sqlite3
 
-    paper_sources = {"deepmind_blog", "openai_blog"}
-    is_paper = name in paper_sources
+    from agents.site_profiles import is_article_site
+
+    is_paper = is_article_site(name)
 
     storage = config.get("storage", {})
     if is_paper:

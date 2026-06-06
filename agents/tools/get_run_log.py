@@ -10,9 +10,9 @@ def make_get_run_log_tool(news_store, paper_store):
 
         使用场景：用户问"最近运行正常吗""抓取有没有报错""token消耗情况"时使用。
         """
-        store = (
-            paper_store if site_name in ("deepmind_blog", "openai_blog") else news_store
-        )
+        from agents.site_profiles import is_article_site
+
+        store = paper_store if is_article_site(site_name) else news_store
         if store is None:
             return f"[运行历史] 站点 {site_name} 暂无数据。"
 

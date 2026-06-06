@@ -23,11 +23,9 @@ def make_get_timeline_tool(news_store, paper_store):
 
         items = []
         if site_name:
-            store = (
-                paper_store
-                if site_name in ("deepmind_blog", "openai_blog")
-                else news_store
-            )
+            from agents.site_profiles import is_article_site
+
+            store = paper_store if is_article_site(site_name) else news_store
             if store:
                 items = store.query_items(
                     site_name=site_name, sentiment=sentiment_val, limit=limit

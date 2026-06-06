@@ -28,6 +28,7 @@ from .memory_audit import make_memory_audit_tool
 
 def build_all_tools(agent) -> list:
     """Create all 21 tools, injecting shared dependencies from the agent."""
+    all_targets = agent.config.get("targets", []) if agent.config else []
     return [
         # ── Query ──
         make_search_tool(
@@ -37,7 +38,7 @@ def build_all_tools(agent) -> list:
             agent.paper_store,
         ),
         make_get_item_tool(agent.news_store, agent.paper_store),
-        make_list_tags_tool(agent.news_store, agent.paper_store),
+        make_list_tags_tool(agent.news_store, agent.paper_store, all_targets),
         make_get_snapshot_tool(agent.news_store, agent.paper_store),
         make_get_run_log_tool(agent.news_store, agent.paper_store),
         make_fetch_article_tool(agent),
@@ -47,7 +48,7 @@ def build_all_tools(agent) -> list:
         make_get_entities_tool(agent.news_store, agent.paper_store),
         make_get_deep_summary_tool(agent.news_store, agent.paper_store),
         make_run_deep_analysis_tool(agent._coordinator),
-        make_dashboard_summary_tool(agent.news_store, agent.paper_store),
+        make_dashboard_summary_tool(agent.news_store, agent.paper_store, all_targets),
         # ── Management ──
         make_preferences_tool(agent),
         make_system_info_tool(agent.config),

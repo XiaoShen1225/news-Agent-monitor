@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 from .app_context import ctx
 from data.track_store import TrackStore
+from agents.site_profiles import is_article_site as _is_article_site
 
 logger = logging.getLogger(__name__)
 
@@ -284,18 +285,265 @@ def _build_chart_data(site_name: str, store) -> dict:
 
 @app.get("/api/targets")
 async def api_targets():
-    """Return configured monitoring targets."""
-    targets = ctx.config.get("targets", []) if ctx.config else []
+    """Return all monitoring targets (built-in + user)."""
+    tm = _get_target_manager()
+    all_t = tm.all_targets()
+    builtin_count = sum(1 for t in all_t if t.get("source") == "builtin")
+    user_count = sum(1 for t in all_t if t.get("source") == "user")
     return {
         "targets": [
             {
                 "name": t.get("name", ""),
                 "url": t.get("url", ""),
-                "use_browser": t.get("use_browser", False),
+                "use_browser": bool(t.get("use_browser", False)),
+                "interval_minutes": t.get("interval_minutes", 60),
+                "strategy": t.get("strategy", ""),
+                "is_article": bool(t.get("is_article_source", False)),
+                "source": t.get("source", "builtin"),
+                "enabled": bool(t.get("enabled", True)),
             }
-            for t in targets
-        ]
+            for t in all_t
+        ],
+        "builtin_count": builtin_count,
+        "user_count": user_count,
     }
+
+
+# ── TargetManager lazy init + scheduler helpers ────────────────────
+
+
+def _get_target_manager():
+    if ctx.target_manager is None:
+        from .target_manager import TargetManager
+
+        ctx.target_manager = TargetManager(ctx.config or {}, _get_data_store())
+    return ctx.target_manager
+
+
+def _add_scheduler_job(target: dict):
+    """Add a monitoring job for a single target to the running scheduler."""
+    if not ctx.scheduler or not ctx.scheduler.running:
+        return
+    name = target.get("name") or target.get("site_name", "")
+    job_id = f"monitor_{name}"
+    try:
+        ctx.scheduler.remove_job(job_id)
+    except Exception:
+        pass
+    tm = _get_target_manager()
+    profile = tm.get_profile(name)
+    ctx.scheduler.add_job(
+        ctx.coordinator.run_async,
+        "interval",
+        minutes=target.get("interval_minutes", 60),
+        kwargs={
+            "url": target["url"],
+            "site_name": name,
+            "use_browser": target.get("use_browser", False),
+            "profile": profile,
+        },
+        id=job_id,
+        name=f"Monitor {name}",
+        replace_existing=True,
+    )
+    logger.info("Scheduled dynamic target '%s'", name)
+
+
+def _remove_scheduler_job(site_name: str):
+    if not ctx.scheduler or not ctx.scheduler.running:
+        return
+    try:
+        ctx.scheduler.remove_job(f"monitor_{site_name}")
+        logger.info("Removed scheduler job for '%s'", site_name)
+    except Exception:
+        pass
+
+
+# ── Target CRUD endpoints ──────────────────────────────────────────
+
+TARGET_URL_IMPORT = """\
+import httpx
+import asyncio
+import json
+import re"""
+
+
+@app.post("/api/targets/validate")
+async def api_targets_validate(request: Request):
+    """Pre-flight URL check: reachability + strategy detection."""
+    body = await request.json()
+    url = (body.get("url") or "").strip()
+    if not url:
+        return JSONResponse({"error": "url is required"}, status_code=400)
+    from agents.site_profiles import auto_detect_strategy
+
+    result = await auto_detect_strategy(url)
+    return result
+
+
+@app.post("/api/targets")
+async def api_targets_add(request: Request):
+    """Add a new monitoring target."""
+    body = await request.json()
+    url = (body.get("url") or "").strip()
+    site_name = (body.get("site_name") or "").strip()
+    if not url or not site_name:
+        return JSONResponse({"error": "url and site_name required"}, status_code=400)
+    tm = _get_target_manager()
+    if tm.is_builtin(site_name):
+        return JSONResponse(
+            {"error": f"'{site_name}' is a built-in target"},
+            status_code=409,
+        )
+    for t in tm.all_targets():
+        if t["name"] == site_name and t.get("source") == "user":
+            return JSONResponse(
+                {"error": f"'{site_name}' already exists"},
+                status_code=409,
+            )
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            resp = await client.head(url)
+            if resp.status_code >= 500:
+                return JSONResponse(
+                    {"error": f"URL returned {resp.status_code}"},
+                    status_code=400,
+                )
+    except Exception as e:
+        return JSONResponse(
+            {"error": f"URL unreachable: {str(e)[:200]}"},
+            status_code=400,
+        )
+
+    interval = body.get("interval_minutes", 60)
+    use_browser = body.get("use_browser", False)
+    strategy = body.get("strategy", "auto")
+    is_article_source = body.get("is_article_source", False)
+    profile = body.get("profile", {})
+
+    target = tm.add_target(
+        site_name=site_name,
+        url=url,
+        interval_minutes=interval,
+        use_browser=use_browser,
+        extraction_strategy=strategy,
+        is_article_source=is_article_source,
+        profile=profile,
+    )
+
+    _add_scheduler_job(target)
+
+    if ctx.coordinator:
+
+        async def _initial_fetch():
+            try:
+                profile = tm.get_profile(site_name)
+                await ctx.coordinator.run_async(
+                    url,
+                    site_name,
+                    use_browser=use_browser,
+                    profile=profile,
+                )
+            except Exception as e:
+                logger.error("Initial fetch for '%s' failed: %s", site_name, e)
+
+        asyncio.create_task(_initial_fetch())
+
+    return {"status": "ok", "target": target}
+
+
+@app.delete("/api/targets/{site_name}")
+async def api_targets_delete(site_name: str, cleanup: bool = Query(False)):
+    """Remove a user target. Rejects built-in targets."""
+    tm = _get_target_manager()
+    if tm.is_builtin(site_name):
+        return JSONResponse(
+            {"error": "Cannot remove built-in target", "allowed": False},
+            status_code=403,
+        )
+    _remove_scheduler_job(site_name)
+    ok = tm.remove_target(site_name)
+    if not ok:
+        return JSONResponse({"error": "Target not found"}, status_code=404)
+    if cleanup:
+        store = _get_data_store()
+        try:
+            for table in ["news_items", "snapshots", "run_logs", "site_metadata"]:
+                store._get_conn().execute(
+                    f"DELETE FROM {table} WHERE site_name = ?", (site_name,)
+                )
+                store._get_conn().commit()
+        except Exception:
+            pass
+    return {"status": "ok"}
+
+
+@app.put("/api/targets/{site_name}")
+async def api_targets_update(site_name: str, request: Request):
+    """Update a user target's config."""
+    tm = _get_target_manager()
+    if tm.is_builtin(site_name):
+        target = next((t for t in tm.all_targets() if t["name"] == site_name), None)
+        if target and target.get("source") != "user":
+            return JSONResponse(
+                {"error": "Cannot modify built-in target config"},
+                status_code=403,
+            )
+    body = await request.json()
+    fields = {}
+    for k in (
+        "interval_minutes",
+        "use_browser",
+        "extraction_strategy",
+        "profile_json",
+        "is_article_source",
+    ):
+        if k in body:
+            fields[k] = body[k]
+    ok = tm.update_target(site_name, **fields)
+    if not ok:
+        return JSONResponse({"error": "Target not found"}, status_code=404)
+    # Reschedule if interval changed
+    if "interval_minutes" in fields:
+        target = tm._store.get_user_target(site_name) or {}
+        target.setdefault("url", "")
+        target.setdefault("use_browser", False)
+        target["name"] = site_name
+        target["site_name"] = site_name
+        target["interval_minutes"] = fields["interval_minutes"]
+        _add_scheduler_job(target)
+    return {"status": "ok"}
+
+
+@app.post("/api/targets/{site_name}/toggle")
+async def api_targets_toggle(site_name: str, request: Request):
+    """Enable or disable a monitoring target."""
+    body = await request.json()
+    enabled = bool(body.get("enabled", True))
+    tm = _get_target_manager()
+    if tm.is_builtin(site_name):
+        # Allow toggling built-in targets too (disables scheduler job)
+        pass
+    ok = tm.toggle_target(site_name, enabled)
+    if not ok:
+        return JSONResponse({"error": "Target not found"}, status_code=404)
+    if enabled:
+        target = tm._store.get_user_target(site_name) or {
+            "name": site_name,
+            "url": next(
+                (t["url"] for t in tm.all_targets() if t["name"] == site_name),
+                "",
+            ),
+            "use_browser": False,
+            "interval_minutes": 60,
+        }
+        target["site_name"] = site_name
+        _add_scheduler_job(target)
+    else:
+        _remove_scheduler_job(site_name)
+    return {"status": "ok", "enabled": enabled}
 
 
 @app.get("/api/papers")
@@ -307,7 +555,7 @@ async def api_papers(
     """Query papers/articles from article-type sources (uses separate papers.db)."""
     conn = _get_papers_db()
     try:
-        article_sources = ["deepmind_blog", "openai_blog"]
+        article_sources = list(_get_target_manager().get_paper_source_names())
         if site:
             source_list = [site] if site in article_sources else article_sources
         else:
@@ -361,8 +609,9 @@ async def api_schedule_status():
                     "interval_minutes",
                     scheduler_cfg.get("default_interval_minutes", 60),
                 ),
-                "is_article": t.get("name", "")
-                in ["deepmind_blog", "openai_blog", "google_ai_blog"],
+                "is_article": _is_article_site(
+                    t.get("name", ""), _get_target_manager()
+                ),
             }
             for t in targets
         ],
@@ -779,8 +1028,7 @@ async def api_refresh_all():
 @app.post("/api/reset")
 async def api_reset(site: str = Query(..., min_length=1)):
     """Reset all history for a site (checks both news and papers DBs)."""
-    paper_sources = {"deepmind_blog", "openai_blog"}
-    is_paper = site in paper_sources
+    is_paper = _is_article_site(site, _get_target_manager())
 
     db_paths = (
         [str(PAPERS_DB_PATH)]

@@ -18,7 +18,7 @@ def make_search_tool(hybrid_searcher, vector_store, news_store, paper_store):
         """语义搜索新闻/论文数据库（BM25关键词 + 向量语义混合检索 + RRF融合排序）。
 
         使用场景：用户查新闻/找文章时使用，是所有搜索类意图的唯一入口。
-        query为必填；site_name限定站点（baidu_news/sina_news/deepmind_blog/openai_blog）；
+        query为必填；site_name限定站点（可用 system_info 查看全部站点列表）；
         tag标签筛选；sentiment情感筛选（positive/negative/neutral）；days回溯天数（0=今天）；limit返回数量，默认15。
         """
         if not query.strip():
@@ -59,9 +59,9 @@ def make_search_tool(hybrid_searcher, vector_store, news_store, paper_store):
                 for r in results
             ]
         else:
-            store = (
-                paper_store if site in ("deepmind_blog", "openai_blog") else news_store
-            )
+            from agents.site_profiles import is_article_site
+
+            store = paper_store if is_article_site(site) else news_store
             if store is None:
                 store = news_store
             items = store.query_items(

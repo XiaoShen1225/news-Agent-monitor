@@ -28,6 +28,7 @@ class AppContext:
         self.track_store: Any = None
         self.memory_manager: Any = None
         self.data_store: Any = None
+        self.target_manager: Any = None
 
         # Dashboard state
         self.dashboard_token: str | None = None
