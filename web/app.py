@@ -924,8 +924,9 @@ async def api_chat_stream(request: Request):
 
 
 def _filter_history(messages: list) -> list:
-    """Remove intermediate tool messages and empty tool-call stubs."""
-    return [
+    """Remove intermediate tool messages, empty tool-call stubs, and merge
+    consecutive assistant messages into one."""
+    filtered = [
         m
         for m in messages
         if m["role"] not in ("tool",)
@@ -935,6 +936,16 @@ def _filter_history(messages: list) -> list:
             and m.get("tool_calls")
         )
     ]
+    # Merge consecutive assistant messages
+    merged = []
+    for m in filtered:
+        if merged and merged[-1]["role"] == "assistant" and m["role"] == "assistant":
+            merged[-1]["content"] = (
+                merged[-1]["content"] + "\n\n" + m.get("content", "")
+            )
+        else:
+            merged.append(m.copy())
+    return merged
 
 
 @app.get("/api/chat/history")

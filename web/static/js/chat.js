@@ -39,7 +39,7 @@ function switchSession(sid){
 
 function resetChatWelcome(){
   var el=document.getElementById('chat-messages');
-  el.innerHTML='<div class="chat-welcome"><div class="chat-welcome-icon">&#x1f4ac;</div><div style="font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:6px">AI &#x76d1;&#x63a7;&#x6570;&#x636e;&#x52a9;&#x624b;</div><div style="font-size:13px;line-height:1.7">&#x53ef;&#x4ee5;&#x67e5;&#x8be2;&#x65b0;&#x95fb;&#x3001;&#x7edf;&#x8ba1;&#x3001;&#x641c;&#x7d22;&#x6587;&#x7ae0;<br>&#x8bd5;&#x8bd5;&#x95ee;&#xff1a;"&#x6709;&#x54ea;&#x4e9b;&#x76d1;&#x63a7;&#x7ad9;&#x70b9;&#xff1f;" &#x6216;"&#x6700;&#x8fd1;&#x6709;&#x54ea;&#x4e9b;&#x79d1;&#x6280;&#x65b0;&#x95fb;&#xff1f;"</div></div><div class="chat-chips"><button onclick="askExample(\x27&#x4eca;&#x5929;&#x6709;&#x4ec0;&#x4e48;&#x79d1;&#x6280;&#x65b0;&#x95fb;&#xff1f;\x27)" class="chat-chip">&#x4eca;&#x5929;&#x6709;&#x4ec0;&#x4e48;&#x79d1;&#x6280;&#x65b0;&#x95fb;&#xff1f;</button><button onclick="askExample(\x27&#x6700;&#x8fd1;&#x4e00;&#x5468;&#x6709;&#x4ec0;&#x4e48;&#x70ed;&#x70b9;&#x8d8b;&#x52bf;&#xff1f;\x27)" class="chat-chip">&#x6700;&#x8fd1;&#x4e00;&#x5468;&#x6709;&#x4ec0;&#x4e48;&#x70ed;&#x70b9;&#x8d8b;&#x52bf;&#xff1f;</button><button onclick="askExample(\x27&#x767e;&#x5ea6;&#x65b0;&#x95fb;&#x8fd0;&#x884c;&#x6b63;&#x5e38;&#x5417;&#xff1f;\x27)" class="chat-chip">&#x767e;&#x5ea6;&#x65b0;&#x95fb;&#x8fd0;&#x884c;&#x6b63;&#x5e38;&#x5417;&#xff1f;</button><button onclick="askExample(\x27&#x5e2e;&#x6211;&#x8bbe;&#x7f6e;&#x4e00;&#x4e2a;AI&#x76f8;&#x5173;&#x7684;&#x544a;&#x8b66;\x27)" class="chat-chip">&#x5e2e;&#x6211;&#x8bbe;&#x7f6e;&#x4e00;&#x4e2a;AI&#x76f8;&#x5173;&#x544a;&#x8b66;</button></div>';
+  el.innerHTML='<div class="chat-welcome"><div class="chat-welcome-icon">&#x1f4ac;</div><div style="font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:6px">AI \u76d1\u63a7\u6570\u636e\u52a9\u624b</div><div style="font-size:13px;line-height:1.7">\u53ef\u4ee5\u67e5\u8be2\u65b0\u95fb\u3001\u7edf\u8ba1\u3001\u641c\u7d22\u6587\u7ae0<br>\u8bd5\u8bd5\u95ee\uff1a"\u6709\u54ea\u4e9b\u76d1\u63a7\u7ad9\u70b9\uff1f" \u6216"\u6700\u8fd1\u6709\u54ea\u4e9b\u79d1\u6280\u65b0\u95fb\uff1f"</div></div><div class="chat-chips"><button onclick="askExample(\x27\u4eca\u5929\u6709\u4ec0\u4e48\u79d1\u6280\u65b0\u95fb\uff1f\x27)" class="chat-chip">\u4eca\u5929\u6709\u4ec0\u4e48\u79d1\u6280\u65b0\u95fb\uff1f</button><button onclick="askExample(\x27\u6700\u8fd1\u4e00\u5468\u6709\u4ec0\u4e48\u70ed\u70b9\u8d8b\u52bf\uff1f\x27)" class="chat-chip">\u6700\u8fd1\u4e00\u5468\u6709\u4ec0\u4e48\u70ed\u70b9\u8d8b\u52bf\uff1f</button><button onclick="askExample(\x27\u767e\u5ea6\u65b0\u95fb\u8fd0\u884c\u6b63\u5e38\u5417\uff1f\x27)" class="chat-chip">\u767e\u5ea6\u65b0\u95fb\u8fd0\u884c\u6b63\u5e38\u5417\uff1f</button><button onclick="askExample(\x27\u5e2e\u6211\u8bbe\u7f6e\u4e00\u4e2aAI\u76f8\u5173\u7684\u544a\u8b66\x27)" class="chat-chip">\u5e2e\u6211\u8bbe\u7f6e\u4e00\u4e2aAI\u76f8\u5173\u544a\u8b66</button></div>';
   document.getElementById('chat-tool-trace').innerHTML='';
   var bar=document.getElementById('chat-context-bar');if(bar)bar.style.display='none';
 }
@@ -50,12 +50,43 @@ async function loadChatHistory(){
     if(d.not_found){localStorage.removeItem('chat_session_id');resetChatWelcome();loadSessions();return;}
     if(!d.messages||d.messages.length===0)return;
     var c=document.getElementById('chat-messages');if(c.querySelector('.chat-bubble'))return;c.innerHTML='';
+    // Filter & merge: skip tool msgs; merge consecutive assistant bubbles
+    var prevRole='';
     d.messages.forEach(function(m){
       if(m.role==='tool')return;
-      if(m.role==='assistant'&&(!m.content||!m.content.trim())&&m.tool_calls)return;
-      appendChatMessage(m.role,m.content||'');
+      if(m.role==='assistant'&&(!m.content||!m.content.trim())&&m.tool_calls){
+        renderToolCallChips(m);
+        return;
+      }
+      if(m.role==='assistant'&&m.tool_calls&&m.tool_calls.length>0){
+        renderToolCallChips(m);
+      }
+      if(m.role==='assistant'&&prevRole==='assistant'){
+        var bubbles=c.querySelectorAll('.chat-bubble.assistant');
+        var last=bubbles[bubbles.length-1];
+        if(last){var cd=last.querySelector('.chat-bubble-content');
+          if(typeof marked!=='undefined'){cd.innerHTML+=marked.parse('\n\n'+m.content);}
+          else{cd.textContent+='\n\n'+m.content;}
+        }
+      }else{
+        appendChatMessage(m.role,m.content||'');
+      }
+      prevRole=m.role;
     });c.scrollTop=c.scrollHeight;
   }catch(e){}
+}
+
+function renderToolCallChips(m){
+  var trace=document.getElementById('chat-tool-trace');
+  if(!trace)return;
+  (m.tool_calls||[]).forEach(function(tc){
+    var name=tc.function?tc.function.name:(tc.name||'');
+    if(!name)return;
+    var chip=document.createElement('span');
+    chip.textContent='\u{1F527} '+name;
+    chip.style.cssText='font-size:11px;padding:2px 8px;margin:0 3px;border-radius:12px;background:var(--bg-tertiary);color:var(--muted);display:inline-block;';
+    trace.appendChild(chip);
+  });
 }
 
 function askExample(q){document.getElementById('chat-input').value=q;sendChat();}
@@ -66,7 +97,7 @@ async function sendChat(){
   var sb=document.getElementById('chat-send-btn');sb.disabled=true;
   var aiBubble=appendChatMessage('assistant','');
   var aiContent=aiBubble.querySelector('.chat-bubble-content');
-  var traceEl=document.getElementById('chat-tool-trace');traceEl.textContent='';
+  var traceEl=document.getElementById('chat-tool-trace');traceEl.innerHTML='';
   var oldCards=document.querySelectorAll('.thinking-card');for(var oi=0;oi<oldCards.length;oi++)oldCards[oi].remove();
   if(chatAbortController)chatAbortController.abort();chatAbortController=new AbortController();
   var sid=getSessionId();
@@ -110,6 +141,11 @@ async function sendChat(){
             else if(event==='done'){if(parsed.session_id)setSessionId(parsed.session_id);traceEl.innerHTML='';if(tc){tc.remove();tc=null;}loadSessions();}
           }catch(e){}event='';data='';}}
       }
+    }
+    // Re-render with markdown after stream completes
+    if(typeof marked!=='undefined'){
+      var raw=aiContent.textContent||'';
+      if(raw.trim())aiContent.innerHTML=marked.parse(raw);
     }
   }catch(e){if(e.name!=='AbortError'){aiContent.textContent=aiContent.textContent||'\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002';}}
   if(!aiContent.textContent.trim()){aiContent.textContent='(\u7a7a\u56de\u590d)';}
