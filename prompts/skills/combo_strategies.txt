@@ -12,10 +12,7 @@
 `get_circuit_status() + get_cost(days=7)` → 站点故障 + Token 消耗综合分析
 
 **热点发现（并行）**
-`list_tags() + get_events() + get_timeline(days=3)` → 标签分布+事件聚合+时间线三维分析
-
-**跨站事件（并行）**
-`get_deep_summary() + get_events()` → 深度摘要结合事件详情
+`list_tags() + get_timeline(days=3)` → 标签分布+时间线趋势分析
 
 **偏好引导搜索（串行 2 轮）**
 第 1 轮：`preferences()` → 第 2 轮：`search(tag=兴趣标签)`

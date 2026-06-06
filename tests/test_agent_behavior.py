@@ -117,8 +117,6 @@ def in_memory_store():
         "latest_tag_distribution": {"科技": 30, "财经": 20},
     }
     store.is_circuit_open.return_value = False
-    store.get_events.return_value = []
-    store.get_entities.return_value = []
     store.get_last_snapshot.return_value = {
         "items": [
             {
@@ -402,28 +400,6 @@ class TestListTags:
         assert isinstance(result, str)
 
 
-class TestGetEvents:
-    def test_get_events(self, in_memory_store):
-        from agents.tools.get_events import make_get_events_tool
-
-        tool_fn = make_get_events_tool(in_memory_store, in_memory_store)
-        import asyncio
-
-        result = asyncio.run(tool_fn.ainvoke({"limit": 5}))
-        assert isinstance(result, str)
-
-
-class TestGetEntities:
-    def test_get_entities(self, in_memory_store):
-        from agents.tools.get_entities import make_get_entities_tool
-
-        tool_fn = make_get_entities_tool(in_memory_store, in_memory_store)
-        import asyncio
-
-        result = asyncio.run(tool_fn.ainvoke({"type": "PER"}))
-        assert isinstance(result, str)
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Episodic memory
 # ═══════════════════════════════════════════════════════════════════════════
@@ -572,33 +548,6 @@ class TestHybridSearchFilters:
 # ═══════════════════════════════════════════════════════════════════════════
 # Preference system
 # ═══════════════════════════════════════════════════════════════════════════
-
-
-class TestPreferenceUtils:
-    """Test pure functions extracted to agents/preference_utils.py."""
-
-    def test_decay_weight_simple(self):
-        from agents.preference_utils import decay_weight
-
-        w = decay_weight({"count": 10, "last_ts": "2026-01-01T00:00:00"})
-        assert w < 10  # decayed
-
-    def test_confidence_label(self):
-        from agents.preference_utils import confidence_label
-
-        assert confidence_label(0.9) == "高"
-        assert confidence_label(0.6) == "中"
-        assert confidence_label(0.3) == "低"
-
-    def test_bump_signal(self):
-        from agents.preference_utils import bump_signal
-
-        signals = {}
-        bump_signal(signals, "baidu_news")
-        bump_signal(signals, "baidu_news")
-        entry = signals["baidu_news"]
-        assert entry["count"] == 2
-        assert "last_ts" in entry
 
 
 class TestPreferenceEngine:

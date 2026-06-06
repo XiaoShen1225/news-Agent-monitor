@@ -12,22 +12,8 @@ from .parser import ParserAgent
 from .analyzer import AnalyzerAgent
 from .sentiment_analyzer import classify
 from .site_profiles import SiteProfile, get_profile
-from data.alert_store import AlertStore
-from data.story_watch import StoryWatchStore
+from data.watch_store import WatchStore
 from notifications.dispatcher import build_event, notify_all
-
-_deep_analyzer = None
-
-
-def _get_deep_analyzer():
-    """Lazy-import DeepAnalyzer to avoid circular import at module level."""
-    global _deep_analyzer
-    if _deep_analyzer is None:
-        from .deep_analyzer import DeepAnalyzer
-
-        _deep_analyzer = DeepAnalyzer
-    return _deep_analyzer
-
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +38,8 @@ class CoordinatorAgent(BaseAgent):
         self.paper_store = paper_store or data_store
         self.notifiers = notifiers or []
         self._vector_store = vector_store
-        self.alert_store = AlertStore()
-        self.alert_store.load_config(config)
-        self.story_watch = StoryWatchStore()
-        self.story_watch.load_config(config)
+        self.watch_store = WatchStore()
+        self.watch_store.load_config(config)
         self.max_snapshots = config.get("storage", {}).get("max_snapshots_per_site", 0)
         self._run_callbacks: list = []
 
@@ -216,25 +200,30 @@ class CoordinatorAgent(BaseAgent):
             result["status"] = "success"
             result["report"] = report
 
-            # ── Alert matching ────────────────────────────────────────
-            alert_config = self.config.get("alerts", {}) or {}
+            # ── Watch matching (unified topic + event) ────────────────
             new_items = report.get("new_items", [])
-
-            # Keyword matching
-            alert_matches = self.alert_store.match_items(new_items)
-            result["alert_matches"] = alert_matches
+            watch_matches = {"keyword_matches": [], "semantic_matches": []}
+            if new_items:
+                try:
+                    watch_matches = self.watch_store.check_new_items(
+                        new_items, self.vector_store
+                    )
+                except Exception as e:
+                    logger.warning("[Coordinator] Watch matching failed: %s", e)
+            result["watch_matches"] = watch_matches
 
             # Anomaly detection cooldown check
+            alert_config = self.config.get("alerts", {}) or {}
             anomalies = report.get("anomalies", [])
             result["anomalies"] = []
             anomaly_cfg = alert_config.get("anomaly", {})
             cooldown_min = anomaly_cfg.get("cooldown_minutes", 120)
             for a in anomalies:
-                if self.alert_store.should_alert_anomaly(
+                if self.watch_store.should_alert_anomaly(
                     site_name, a["type"], cooldown_min
                 ):
                     result["anomalies"].append(a)
-                    self.alert_store.log_anomaly_alert(
+                    self.watch_store.log_anomaly_alert(
                         site_name,
                         a["type"],
                         f"{a['type']}: current={a['current_count']}, baseline={a['baseline_avg']}",
@@ -244,22 +233,11 @@ class CoordinatorAgent(BaseAgent):
             sentiment_shift = report.get("sentiment_shift", {}) or {}
             if sentiment_shift.get("significant"):
                 result["sentiment_shift"] = sentiment_shift
-                self.alert_store.log_sentiment_shift(
+                self.watch_store.log_sentiment_shift(
                     site_name, f"情感偏移: {sentiment_shift.get('shifted', {})}"
                 )
             else:
                 result["sentiment_shift"] = None
-
-            # Story follow-up matching
-            result["story_matches"] = []
-            if self.vector_store and new_items:
-                try:
-                    story_matches = self.story_watch.check_new_items(
-                        new_items, self.vector_store
-                    )
-                    result["story_matches"] = story_matches
-                except Exception as e:
-                    logger.warning("[Coordinator] Story watch check failed: %s", e)
 
             elapsed = (time.time() - start_time) * 1000
             total_tokens = (
@@ -360,129 +338,4 @@ class CoordinatorAgent(BaseAgent):
 
         logger.info("[Coordinator] Running %d targets concurrently", len(tasks))
         results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Phase 3: Deep cross-site analysis (only when auto_run enabled)
-        deep_cfg = self.config.get("deep_analysis", {}) or {}
-        if (
-            deep_cfg.get("enabled", True)
-            and deep_cfg.get("auto_run", False)
-            and len(targets) >= 1
-        ):
-            try:
-                await self._run_deep_analysis(results)
-            except Exception as e:
-                logger.warning("[Coordinator] Deep analysis failed: %s", e)
-
         return results
-
-    async def _run_deep_analysis(self, results: list):
-        """Run cross-site event clustering and entity extraction."""
-        # Collect all new_items from successful results
-        all_new_items = []
-        for result in results:
-            if isinstance(result, Exception):
-                continue
-            if not isinstance(result, dict):
-                continue
-            report = result.get("report", {}) or {}
-            new_items = report.get("new_items", [])
-            site_name = result.get("site_name", "")
-            for it in new_items:
-                if "site_name" not in it:
-                    it["site_name"] = site_name
-            all_new_items.extend(new_items)
-
-        if len(all_new_items) < 2:
-            logger.info(
-                "[Coordinator] Not enough new items for deep analysis (%d)",
-                len(all_new_items),
-            )
-            return
-
-        if self.vector_store is None:
-            logger.warning(
-                "[Coordinator] Skipping deep analysis: VectorStore not available "
-                "(model download / network). Entity extraction and event clustering skipped."
-            )
-            return
-
-        logger.info(
-            "[Coordinator] Starting deep analysis on %d new items across sites",
-            len(all_new_items),
-        )
-
-        DeepAnalyzerCls = _get_deep_analyzer()
-        deep = DeepAnalyzerCls(self.config)
-        try:
-            deep_result = await deep.run_async(
-                all_new_items, self.vector_store, self.store
-            )
-            logger.info(
-                "[Coordinator] Deep analysis complete: %d events, %d entities",
-                deep_result.get("event_count", 0),
-                deep_result.get("entity_count", 0),
-            )
-        finally:
-            await deep.aclose()
-
-    async def run_deep_analysis_manual(self) -> dict:
-        """Manually trigger deep analysis on recent items from the store.
-
-        Queries the store for items across all sites, then runs event
-        clustering and entity extraction.  Returns a summary dict.
-        """
-        deep_cfg = self.config.get("deep_analysis", {}) or {}
-        if not deep_cfg.get("enabled", True):
-            return {"ok": False, "msg": "Deep analysis is disabled in config"}
-
-        if self.vector_store is None:
-            return {
-                "ok": False,
-                "msg": "VectorStore not available — embedding model may be downloading",
-            }
-
-        if self.store is None:
-            return {"ok": False, "msg": "DataStore not available"}
-
-        # Collect recent items across all sites
-        targets = self.config.get("targets", [])
-        all_items = []
-        for t in targets:
-            items = self.store.query_items(site_name=t["name"], limit=200, offset=0)
-            for it in items:
-                if "site_name" not in it:
-                    it["site_name"] = t["name"]
-            all_items.extend(items)
-
-        if len(all_items) < 2:
-            return {
-                "ok": False,
-                "msg": f"Not enough items for analysis ({len(all_items)} across {len(targets)} sites)",
-            }
-
-        logger.info(
-            "[Coordinator] Manual deep analysis on %d items across %d sites",
-            len(all_items),
-            len(targets),
-        )
-
-        DeepAnalyzerCls = _get_deep_analyzer()
-        deep = DeepAnalyzerCls(self.config)
-        try:
-            result = await deep.run_async(all_items, self.vector_store, self.store)
-            logger.info(
-                "[Coordinator] Manual deep analysis complete: %d events, %d entities",
-                result.get("event_count", 0),
-                result.get("entity_count", 0),
-            )
-            return {
-                "ok": True,
-                "event_count": result.get("event_count", 0),
-                "entity_count": result.get("entity_count", 0),
-                "items_analyzed": len(all_items),
-            }
-        except Exception as e:
-            logger.error("[Coordinator] Manual deep analysis failed: %s", e)
-            return {"ok": False, "msg": str(e)}
-        finally:
-            await deep.aclose()

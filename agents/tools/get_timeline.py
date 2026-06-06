@@ -14,7 +14,7 @@ def make_get_timeline_tool(news_store, paper_store):
         """获取按时间排序的新闻条目列表，用于了解最近动态时间线。
 
         使用场景：用户问"最近发生了什么""时间线""这几天有什么新消息"时使用。
-        可用 list_tags 了解标签分布、get_events 了解聚集事件作为补充。
+        可用 list_tags 了解标签分布作为补充。
         sentiment可筛选情感（positive/negative/neutral），不传则返回全部。
         """
         days = min(max(days, 1), 30)

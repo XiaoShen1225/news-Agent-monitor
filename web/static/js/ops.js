@@ -1,23 +1,19 @@
 // Operations drawer — alert management, story tracking, target management
 var drawerOpsHTML = [
-  // ── Alert Management ──
-  '<section class="card" style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><h2 style="margin:0">Alert Management</h2><div style="display:flex;gap:8px;align-items:center" id="alert-add-form">',
-  '<input id="alert-keyword-input" type="text" placeholder="Enter keyword..." onkeydown="if(event.key===13)addAlertKeyword()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:var(--radius-sm);font-size:13px;outline:none;min-width:180px">',
-  '<button onclick="addAlertKeyword()" style="background:linear-gradient(135deg, var(--accent), #2dd4bf);border:none;color:var(--bg);padding:8px 18px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">+ Add</button></div></div>',
-  '<div style="overflow-x:auto;margin-top:12px"><table><thead><tr><th>Keyword</th><th>Created</th><th></th></tr></thead>',
-  '<tbody id="alerts-keywords-body"><tr><td colspan="3" style="color:var(--muted)">Loading...</td></tr></tbody></table></div>',
-  '<div id="alerts-config" style="margin-top:12px;font-size:12px;color:var(--muted);padding:8px 12px;background:var(--bg);border-radius:var(--radius-sm);border-left:3px solid var(--accent)"></div></section>',
+  // ── Preferences & Memory ──
+  '<section class="card" style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">Preferences & Memory</h2><button onclick="loadPreferences()" style="background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text);padding:4px 12px;border-radius:12px;cursor:pointer;font-size:11px">Refresh</button></div>',
+  '<div id="preferences-display" style="margin-top:10px;font-size:13px;color:var(--muted);line-height:1.6">Loading...</div>',
+  '<div id="memory-status" style="margin-top:8px;font-size:11px;color:var(--muted);padding:6px 10px;background:var(--bg);border-radius:var(--radius-sm);display:flex;gap:16px;flex-wrap:wrap"></div></section>',
 
-  // ── Story Tracking ──
-  '<section class="card" style="margin-bottom:16px"><h2 style="margin:0 0 12px">Story Tracking</h2>',
-  '<div class="filters" id="story-status-tabs">',
-  '<button class="tab active" onclick="loadStories(\x27\x27)">All</button>',
-  '<button class="tab" onclick="loadStories(\x27active\x27)">Active</button>',
-  '<button class="tab" onclick="loadStories(\x27completed\x27)">Completed</button>',
-  '<button class="tab" onclick="loadStories(\x27dormant\x27)">Dormant</button></div>',
-  '<div id="stories-list" style="margin-top:8px">',
+  // ── Watch Management ──
+  '<section class="card" style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><h2 style="margin:0">Watch Management</h2><button onclick="loadWatches(watchTypeFilter)" style="background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text);padding:4px 12px;border-radius:12px;cursor:pointer;font-size:11px">Refresh</button></div>',
+  '<div class="filters" id="watch-type-tabs" style="margin-top:10px">',
+  '<button class="tab active" onclick="loadWatches(\x27\x27)">All</button>',
+  '<button class="tab" onclick="loadWatches(\x27topic\x27)">Topic</button>',
+  '<button class="tab" onclick="loadWatches(\x27event\x27)">Event</button></div>',
+  '<div id="watches-list" style="margin-top:8px">',
   '<div style="color:var(--muted);padding:12px;text-align:center">Loading...</div></div>',
-  '<div id="stories-config" style="margin-top:12px;font-size:12px;color:var(--muted);padding:8px 12px;background:var(--bg);border-radius:var(--radius-sm);border-left:3px solid var(--accent)"></div></section>',
+  '<div id="watches-config" style="margin-top:12px;font-size:12px;color:var(--muted);padding:8px 12px;background:var(--bg);border-radius:var(--radius-sm);border-left:3px solid var(--accent)"></div></section>',
 
   // ── Target Management ──
   '<section class="card" style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><h2 style="margin:0">Monitoring Targets</h2>',
@@ -65,90 +61,204 @@ var drawerOpsHTML = [
   '<tbody id="targets-body"><tr><td colspan="8" style="color:var(--muted)">Loading...</td></tr></tbody></table></div></section>'
 ].join('');
 
-var storiesFilter='';
+var watchTypeFilter='';
 var targetListSave=[];
 
-function initOpsDrawer(){loadAlerts();loadStories('');loadTargetsConfig();}
+function initOpsDrawer(){loadPreferences();loadWatches('');loadTargetsConfig();}
 
-// ── Alert Management ─────────────────────────────────────────────
+// ── Preferences & Memory ─────────────────────────────────────────
 
-async function loadAlerts(){
-  try{var r=await fetch('/api/alerts');var d=await r.json();var keywords=d.keywords||[];var config=d.config||{};
-    document.getElementById('alerts-keywords-body').innerHTML=keywords.length?keywords.map(function(k){
-      var ek=k.keyword.replace(/'/g,"\'");
-      return '<tr><td><span class="tag">'+k.keyword+'</span></td><td style="color:var(--muted);font-size:12px">'+(k.created_at||'').slice(0,19)+'</td><td><button onclick="removeAlertKeyword(\x27'+ek+'\x27)" style="background:var(--bg);border:1px solid rgba(248,113,113,0.3);color:var(--red);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:500">Delete</button></td></tr>';
-    }).join(''):'<tr><td colspan="3" style="color:var(--muted)">No alert keywords.</td></tr>';
-    document.getElementById('alerts-config').innerHTML=keywords.length?'<strong>Config:</strong> Cooldown '+ (config.keyword_cooldown_hours||24)+'h | Anomaly '+(config.anomaly_enabled?'on (z-score '+(config.anomaly_zscore||2.5)+')':'off')+' | Sentiment '+(config.sentiment_enabled?'on':'off'):'';}catch(e){}
+async function loadPreferences(){
+  try{
+    var pr=await fetch('/api/preferences');var pd=await pr.json();
+    var mr=await fetch('/api/memory/status');var md=await mr.json();
+    var display=pd.display||'暂无偏好数据';
+    var el=document.getElementById('preferences-display');
+    if(!el)return;
+    // Format display text with line breaks
+    el.innerHTML=display.replace(/\n/g,'<br>').replace(/\[偏好分析\]/g,'<b>[偏好分析]</b>');
+    // Memory status bar
+    var ms=document.getElementById('memory-status');
+    if(ms){
+      var parts=[];
+      parts.push('Events: <b>'+(md.total_events||0)+'</b>');
+      parts.push('30d clicks: <b>'+(md.stats_30d?.['click_link']||0)+'</b>');
+      parts.push('30d searches: <b>'+((md.stats_30d?.['search']||0)+(md.stats_30d?.['filter_tag']||0))+'</b>');
+      parts.push('L0 events: <b>'+((md.l0_event_count)||0)+'</b>');
+      parts.push('Episodic: <b>'+(md.episodic_count||0)+'</b>');
+      if(md.l2 && md.l2.identity)parts.push('Identity: <b>'+md.l2.identity+'</b>');
+      ms.innerHTML=parts.join(' | ');
+    }
+  }catch(e){console.error('loadPreferences',e);}
 }
 
-async function addAlertKeyword(){
-  var input=document.getElementById('alert-keyword-input');var kw=input.value.trim();if(!kw)return;input.value='';input.disabled=true;
-  try{var r=await fetch('/api/alerts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:kw})});var d=await r.json();
-    if(!r.ok){alert(d.error||d.msg||'Add failed');}loadAlerts();}catch(e){alert('Request failed: '+e.message);}input.disabled=false;input.focus();}
+// ── Watch Management ─────────────────────────────────────────────
 
-async function removeAlertKeyword(keyword){
-  if(!confirm('Delete alert keyword "'+keyword+'"?'))return;
-  try{var r=await fetch('/api/alerts?keyword='+encodeURIComponent(keyword),{method:'DELETE'});if(!r.ok){var d=await r.json();alert(d.error||'Delete failed');}loadAlerts();}catch(e){alert('Request failed: '+e.message);}}
-
-// ── Story Tracking ───────────────────────────────────────────────
-
-async function loadStories(status){
-  storiesFilter=status;
-  document.querySelectorAll('#story-status-tabs .tab').forEach(function(t){t.classList.toggle('active',(status===''&&t.textContent==='All')||(status==='active'&&t.textContent==='Active')||(status==='completed'&&t.textContent==='Completed')||(status==='dormant'&&t.textContent==='Dormant'));});
-  try{var url=status?'/api/stories?status='+encodeURIComponent(status):'/api/stories';var r=await fetch(url);var d=await r.json();
-    var stories=d.stories||[];var config=d.config||{};
-    var listEl=document.getElementById('stories-list');
-    if(!stories.length){listEl.innerHTML='<div style="color:var(--muted);padding:12px;text-align:center">No tracked stories. Use the AI assistant to track a story.</div>';}
-    else{
-      var sc={active:'var(--green)',completed:'var(--muted)',dormant:'var(--orange)'};
-      var bg={active:'rgba(52,211,153,0.08)',completed:'rgba(148,163,184,0.06)',dormant:'rgba(251,191,36,0.08)'};
-      var sl={active:'Active',completed:'Completed',dormant:'Dormant'};
-      listEl.innerHTML=stories.map(function(s){
-        var color=sc[s.status]||'var(--muted)';var label=sl[s.status]||s.status;
-        var st=(s.title||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
-        var sid=s.id.replace(/'/g,"\\'");
-        var matches=s.match_history||[];
-        var matchList='';
-        if(matches.length){
-          matchList='<div style="margin-top:8px;padding:8px 0 0 12px;border-top:1px solid var(--border)">';
-          matches.forEach(function(m){
-            var mu=m.url||'';var mt=(m.title||'').slice(0,60);
-            matchList+='<div style="font-size:12px;padding:4px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
-              '<span style="color:var(--accent);font-size:10px;background:var(--bg);padding:1px 6px;border-radius:8px">'+((m.score||0).toFixed(2))+'</span>'+
-              (mu?'<a href="'+mu+'" target="_blank" style="color:var(--text);text-decoration:none;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+mt+'</a>':
-              '<span style="color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+mt+'</span>')+
-              '<span style="color:var(--muted);font-size:10px;white-space:nowrap">'+(m.time||'').slice(0,16)+'</span></div>';
-          });
-          matchList+='</div>';
-        }
-        var actions='';
-        if(s.status==='active'){actions+='<button onclick="completeStory(\x27'+sid+'\x27)" class="story-action-btn" style="color:var(--muted)">Complete</button>';}
-        else if(s.status==='dormant'){actions+='<button onclick="reactivateStory(\x27'+sid+'\x27)" class="story-action-btn" style="color:var(--accent)">Reactivate</button>';}
-        actions+='<button onclick="removeStory(\x27'+sid+'\x27,\x27'+st+'\x27)" class="story-action-btn" style="color:var(--red)">Delete</button>';
-        return '<div class="story-item" style="background:'+(bg[s.status]||bg.active)+';border-radius:var(--radius);padding:10px 14px;margin-bottom:6px;border-left:3px solid '+color+';cursor:pointer" onclick="var d=this.querySelector(\x27.story-detail\x27);if(d)d.style.display=d.style.display===`none`?`block`:`none`">'+
-          '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
-            '<span style="font-weight:500;font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+s.title+'</span>'+
-            '<span style="color:'+color+';font-weight:600;font-size:11px;padding:2px 10px;border-radius:10px;background:'+color+'22;white-space:nowrap">'+label+'</span>'+
-            '<span style="color:var(--accent);font-size:12px;font-weight:500;white-space:nowrap">'+ (s.match_count||0)+' matches</span>'+
-            '<span style="color:var(--muted);font-size:10px">'+(s.source_site||'')+'</span>'+
-            '<span style="color:var(--muted);font-size:10px">'+(s.created_at||'').slice(0,10)+'</span>'+
-            '<span style="display:flex;gap:4px" onclick="event.stopPropagation()">'+actions+'</span>'+
-          '</div>'+
-          '<div class="story-detail" style="display:none">'+matchList+'</div>'+
-        '</div>';
+async function loadWatches(type){
+  watchTypeFilter=type||'';
+  var tabs=document.querySelectorAll('#watch-type-tabs .tab');
+  tabs.forEach(function(t){
+    var tType=t.getAttribute('onclick')||'';
+    var matchAll=(type===''||type===undefined)&&t.textContent.trim()==='All';
+    var matchTopic=type==='topic'&&t.textContent.trim()==='Topic';
+    var matchEvent=type==='event'&&t.textContent.trim()==='Event';
+    t.classList.toggle('active',matchAll||matchTopic||matchEvent);
+  });
+  try{
+    var params=[];
+    if(type)params.push('type='+encodeURIComponent(type));
+    var r=await fetch('/api/watches'+(params.length?'?'+params.join('&'):''));
+    var d=await r.json();
+    var watches=d.watches||[];
+    var config=d.config||{};
+    var stale=d.stale||[];
+    var listEl=document.getElementById('watches-list');
+    if(!watches.length){
+      listEl.innerHTML='<div style="color:var(--muted);padding:12px;text-align:center">No watches yet. Use the AI assistant to start tracking.</div>';
+    }else{
+      var sc={active:'var(--green)',completed:'var(--muted)',paused:'var(--orange)'};
+      var sl={active:'Active',completed:'Done',paused:'Paused'};
+      var tc={topic:'var(--accent)',event:'#a78bfa'};
+      listEl.innerHTML=watches.map(function(w){
+        var color=sc[w.status]||'var(--muted)';
+        var label=sl[w.status]||w.status;
+        var typeColor=tc[w.type]||'var(--muted)';
+        var typeLabel=w.type==='topic'?'Topic':'Event';
+        var wid=(w.id||'').replace(/'/g,"\\'");
+        var lastMatch=w.last_match_at?w.last_match_at.slice(0,16):'Never';
+        return '<div class="watch-card" onclick="openWatchModal(\x27'+wid+'\x27)" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;margin-bottom:6px;cursor:pointer;transition:all var(--transition)">'+
+          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'+
+            '<span style="font-weight:500;font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(w.title||'Untitled')+'</span>'+
+            '<span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:8px;color:'+typeColor+';background:'+typeColor+'18">'+typeLabel+'</span>'+
+            '<span style="color:'+color+';font-weight:600;font-size:10px;padding:2px 8px;border-radius:8px;background:'+color+'18">'+label+'</span>'+
+            '<span style="color:var(--accent);font-size:11px;font-weight:500">'+(w.match_count||0)+' matches</span>'+
+            '<span style="color:var(--muted);font-size:10px">'+lastMatch+'</span>'+
+          '</div></div>';
       }).join('');
     }
-    document.getElementById('stories-config').innerHTML=stories.length?'<strong>Config:</strong> Similarity threshold '+(config.similarity_threshold||0.7)+' | Cooldown '+(config.match_cooldown_hours||12)+'h | Dormant after '+(config.dormant_after_days||30)+'d | Auto-clean '+(config.remove_dormant_after_days||90)+'d':'';}catch(e){}
+    var cfgEl=document.getElementById('watches-config');
+    cfgEl.innerHTML='<strong>Config:</strong> Threshold '+(config.similarity_threshold||0.7)+' | Cooldown '+(config.match_cooldown_hours||12)+'h | Stale prompt after '+(config.stale_prompt_days||14)+'d'+
+      (stale.length?' | <span style="color:var(--orange)">'+stale.length+' stale</span>':'');
+  }catch(e){console.error('loadWatches',e);}
 }
 
-async function completeStory(id){if(!confirm('Mark this story as completed?'))return;
-  try{var r=await fetch('/api/stories/'+encodeURIComponent(id)+'/complete',{method:'POST'});if(!r.ok){var d=await r.json();alert(d.error||'Failed');}loadStories(storiesFilter);}catch(e){alert('Request failed: '+e.message);}}
+async function openWatchModal(watchId){
+  try{
+    var wr=await fetch('/api/watches/'+encodeURIComponent(watchId));
+    var w=await wr.json();
+    if(!w||w.error){alert(w.error||'Watch not found');return;}
+    var sr=await fetch('/api/watches/'+encodeURIComponent(watchId)+'/summary');
+    var sd=await sr.json();
 
-async function reactivateStory(id){if(!confirm('Reactivate this dormant story?'))return;
-  try{var r=await fetch('/api/stories/'+encodeURIComponent(id)+'/reactivate',{method:'POST'});if(!r.ok){var d=await r.json();alert(d.error||'Failed');}loadStories(storiesFilter);}catch(e){alert('Request failed: '+e.message);}}
+    var sc={active:'var(--green)',completed:'var(--muted)',paused:'var(--orange)'};
+    var sl={active:'Active',completed:'Done',paused:'Paused'};
+    var color=sc[w.status]||'var(--muted)';
+    var typeColor=w.type==='topic'?'var(--accent)':'#a78bfa';
+    var typeLabel=w.type==='topic'?'Topic':'Event';
 
-async function removeStory(id,title){if(!confirm('Delete story "'+title.slice(0,50)+'"?'))return;
-  try{var r=await fetch('/api/stories/'+encodeURIComponent(id),{method:'DELETE'});if(!r.ok){var d=await r.json();alert(d.error||'Delete failed');}loadStories(storiesFilter);}catch(e){alert('Request failed: '+e.message);}}
+    // Part 1: latest summary
+    var summaryHTML='';
+    if(sd.latest_summary){
+      summaryHTML='<div class="watch-modal-section"><h3>Latest Summary</h3><div class="watch-summary-block">'+sd.latest_summary.replace(/\n/g,'<br>')+'</div></div>';
+    }
+
+    // Part 2: match history timeline
+    var timelineHTML='';
+    var matches=w.match_history||[];
+    if(matches.length){
+      timelineHTML='<div class="watch-modal-section"><h3>Match Timeline ('+matches.length+' items)</h3><div class="watch-timeline">';
+      matches.slice().reverse().forEach(function(m){
+        var mu=m.url||'';
+        var mt=(m.title||'不详').slice(0,80);
+        var mt_display=mt;
+        if(mu)mt_display='<a href="'+mu+'" target="_blank" style="color:var(--text);text-decoration:none">'+mt+'</a>';
+        timelineHTML+='<div class="watch-timeline-item">'+
+          '<div class="watch-timeline-dot" style="background:'+(m.match_type==='keyword'?'var(--accent)':'#a78bfa')+'"></div>'+
+          '<div class="watch-timeline-content">'+
+            '<div class="watch-timeline-time">'+(m.time||'').slice(0,16)+' &middot; score: '+(m.score||0).toFixed(3)+' &middot; '+(m.match_type||'semantic')+'</div>'+
+            '<div class="watch-timeline-title">'+mt_display+'</div>'+
+          '</div></div>';
+      });
+      timelineHTML+='</div></div>';
+    }else{
+      timelineHTML='<div class="watch-modal-section"><h3>Match Timeline</h3><div style="color:var(--muted);font-size:13px;padding:8px 0">No matches yet.</div></div>';
+    }
+
+    // Part 3: all related news (match_history as grid)
+    var newsHTML='';
+    if(matches.length){
+      newsHTML='<div class="watch-modal-section"><h3>Related News</h3><div class="watch-news-grid">';
+      matches.slice().reverse().forEach(function(m){
+        var mu=m.url||'';
+        var mt=(m.title||'').slice(0,100);
+        newsHTML+='<div class="watch-news-card">'+
+          '<div class="watch-news-score">'+(m.score||0).toFixed(3)+'</div>'+
+          '<div class="watch-news-title">'+(mu?'<a href="'+mu+'" target="_blank">'+mt+'</a>':'<span>'+mt+'</span>')+'</div>'+
+          '<div class="watch-news-meta">'+(m.time||'').slice(0,16)+' &middot; '+(m.source_site||'')+' &middot; '+(m.match_type||'')+'</div>'+
+        '</div>';
+      });
+      newsHTML+='</div></div>';
+    }
+
+    // Actions
+    var actionsHTML='';
+    if(w.status==='active'){
+      actionsHTML+='<button onclick="event.stopPropagation();completeWatch(\x27'+watchId+'\x27)" class="watch-modal-btn watch-modal-btn-muted">Complete</button>';
+      actionsHTML+='<button onclick="event.stopPropagation();pauseWatch(\x27'+watchId+'\x27)" class="watch-modal-btn watch-modal-btn-muted">Pause</button>';
+    }else if(w.status==='paused'){
+      actionsHTML+='<button onclick="event.stopPropagation();resumeWatch(\x27'+watchId+'\x27)" class="watch-modal-btn watch-modal-btn-accent">Resume</button>';
+      actionsHTML+='<button onclick="event.stopPropagation();completeWatch(\x27'+watchId+'\x27)" class="watch-modal-btn watch-modal-btn-muted">Complete</button>';
+    }
+    actionsHTML+='<button onclick="event.stopPropagation();removeWatch(\x27'+watchId+'\x27,\x27'+(w.title||'').replace(/'/g,"\\'").slice(0,40)+'\x27)" class="watch-modal-btn watch-modal-btn-danger">Delete</button>';
+
+    var modalHTML=
+      '<div class="watch-modal-overlay" id="watch-modal-overlay" onclick="closeWatchModal()">'+
+        '<div class="watch-modal" onclick="event.stopPropagation()">'+
+          '<div class="watch-modal-header">'+
+            '<div><h2 style="margin:0;font-size:16px">'+(w.title||'Watch Detail')+'</h2>'+
+            '<span style="font-size:11px;color:var(--muted)">'+(w.keywords||[]).join(', ')+' &middot; ID: '+(w.id||'').slice(0,10)+'</span></div>'+
+            '<div style="display:flex;gap:6px;align-items:center">'+
+              '<span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:8px;color:'+typeColor+';background:'+typeColor+'18">'+typeLabel+'</span>'+
+              '<span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:8px;color:'+color+';background:'+color+'18">'+(sl[w.status]||w.status)+'</span>'+
+              '<button onclick="closeWatchModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted);padding:0 4px;line-height:1">&times;</button>'+
+            '</div>'+
+          '</div>'+
+          '<div class="watch-modal-body">'+
+            summaryHTML+
+            timelineHTML+
+            newsHTML+
+          '</div>'+
+          '<div class="watch-modal-footer">'+actionsHTML+'</div>'+
+        '</div>'+
+      '</div>';
+    document.body.insertAdjacentHTML('beforeend',modalHTML);
+  }catch(e){console.error('openWatchModal',e);}
+}
+
+function closeWatchModal(){
+  var overlay=document.getElementById('watch-modal-overlay');
+  if(overlay)overlay.remove();
+}
+
+async function completeWatch(id){
+  if(!confirm('Mark this watch as completed?'))return;
+  try{var r=await fetch('/api/watches/'+encodeURIComponent(id)+'/complete',{method:'POST'});if(!r.ok){var d=await r.json();alert(d.error||'Failed');return;}
+    closeWatchModal();loadWatches(watchTypeFilter);}catch(e){alert('Request failed: '+e.message);}}
+
+async function pauseWatch(id){
+  if(!confirm('Pause this watch?'))return;
+  try{var r=await fetch('/api/watches/'+encodeURIComponent(id)+'/pause',{method:'POST'});if(!r.ok){var d=await r.json();alert(d.error||'Failed');return;}
+    closeWatchModal();loadWatches(watchTypeFilter);}catch(e){alert('Request failed: '+e.message);}}
+
+async function resumeWatch(id){
+  if(!confirm('Resume this watch?'))return;
+  try{var r=await fetch('/api/watches/'+encodeURIComponent(id)+'/resume',{method:'POST'});if(!r.ok){var d=await r.json();alert(d.error||'Failed');return;}
+    closeWatchModal();loadWatches(watchTypeFilter);}catch(e){alert('Request failed: '+e.message);}}
+
+async function removeWatch(id,title){
+  if(!confirm('Delete watch "'+title.slice(0,50)+'"?'))return;
+  try{var r=await fetch('/api/watches/'+encodeURIComponent(id),{method:'DELETE'});if(!r.ok){var d=await r.json();alert(d.error||'Delete failed');return;}
+    closeWatchModal();loadWatches(watchTypeFilter);}catch(e){alert('Request failed: '+e.message);}}
 
 // ── Target Management ─────────────────────────────────────────────
 

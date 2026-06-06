@@ -1,9 +1,0 @@
-{
-  "stories": [],
-  "config": {
-    "similarity_threshold": 0.7,
-    "match_cooldown_hours": 12,
-    "dormant_after_days": 30,
-    "remove_dormant_after_days": 90
-  }
-}

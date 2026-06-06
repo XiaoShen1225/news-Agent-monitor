@@ -22,8 +22,7 @@ class AppContext:
         # Lazily initialized within web/app.py
         self.vector_store: Any = None
         self.hybrid_searcher: Any = None
-        self.alert_store: Any = None
-        self.story_watch_store: Any = None
+        self.watch_store: Any = None
         self.chat_agent: Any = None
         self.track_store: Any = None
         self.memory_manager: Any = None

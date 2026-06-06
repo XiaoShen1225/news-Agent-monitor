@@ -78,8 +78,12 @@ alerts:
   sentiment:
     enabled: true
     shift_threshold: 0.3            # minimum % change to trigger sentiment shift alert
-  keyword:
-    cooldown_hours: 24              # cooldown between keyword alert repeats
+
+# Unified watch system — topic monitoring + event tracking
+watch:
+  similarity_threshold: 0.7        # cosine similarity threshold for semantic follow-up detection
+  match_cooldown_hours: 12         # hours between successive match alerts per watch
+  stale_prompt_days: 14            # prompt user when watch has no matches for N days
 
 # Webhook / notification settings (optional)
 # Uncomment and fill in to enable.
@@ -121,15 +125,6 @@ memory:
   l1_cooldown_hours: 2         # minimum hours between L1 runs
   l2_cooldown_hours: 24        # minimum hours between L2 profile updates
 
-# Deep content analysis — cross-site event aggregation & entity recognition
-deep_analysis:
-  enabled: true
-  auto_run: false                        # auto-run after each batch fetch; false = manual trigger only
-  cluster_similarity_threshold: 0.75   # cosine similarity threshold for event clustering
-  min_event_items: 2                   # minimum items per event cluster
-  entity_batch_size: 50                # titles per LLM batch for entity extraction
-  timeline_lookback_snapshots: 20      # snapshots to search for timeline construction
-
 # Hybrid search — BM25 keyword + vector semantic + RRF fusion
 search:
   rrf_k: 60                  # RRF fusion smoothing parameter
@@ -137,11 +132,3 @@ search:
   bm25_b: 0.75               # BM25 document length normalization
   bm25_top_k: 50             # BM25 coarse retrieval count
   vector_top_k: 50           # Vector coarse retrieval count
-
-# Story watching — track ongoing news stories and detect follow-up coverage
-story_watch:
-  enabled: true
-  similarity_threshold: 0.7            # cosine similarity threshold for follow-up detection
-  match_cooldown_hours: 12             # hours between successive match alerts per story
-  dormant_after_days: 30               # mark story as dormant if no matches for N days
-  remove_dormant_after_days: 90        # remove dormant story after N days of inactivity

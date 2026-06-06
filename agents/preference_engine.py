@@ -12,8 +12,6 @@ from .preference_utils import now_iso
 
 logger = logging.getLogger(__name__)
 
-# Migrated from old data/user_preferences.json
-OLD_PREFERENCES_FILE = Path("data/user_preferences.json")
 OVERRIDES_FILE = Path("data/memory/explicit_overrides.json")
 L1_PATTERNS_FILE = Path("data/memory/l1_patterns.json")
 L2_PROFILE_FILE = Path("data/memory/l2_profile.json")
@@ -29,25 +27,6 @@ class PreferenceEngine:
     # ── file I/O ──────────────────────────────────────────────────────
 
     def _load(self) -> dict:
-        # Migrate from old location if exists
-        if OLD_PREFERENCES_FILE.exists() and not OVERRIDES_FILE.exists():
-            try:
-                old = json.loads(OLD_PREFERENCES_FILE.read_text(encoding="utf-8"))
-                overrides = old.get("explicit_overrides", {})
-                if overrides:
-                    OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
-                    OVERRIDES_FILE.write_text(
-                        json.dumps(overrides, ensure_ascii=False, indent=2),
-                        encoding="utf-8",
-                    )
-                    logger.info(
-                        "Migrated overrides from %s to %s",
-                        OLD_PREFERENCES_FILE,
-                        OVERRIDES_FILE,
-                    )
-            except (json.JSONDecodeError, OSError):
-                pass
-
         if OVERRIDES_FILE.exists():
             try:
                 return json.loads(OVERRIDES_FILE.read_text(encoding="utf-8"))

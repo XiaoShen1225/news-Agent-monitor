@@ -351,10 +351,39 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
                     "chart_data": chart_payload,
                 }
             )
+            # Also broadcast watch summary after each successful run
+            await _broadcast_watch_summary()
         except Exception:
             pass
 
     coordinator.add_run_callback(_broadcast_on_run)
+
+    # ── Watch summary broadcast ───────────────────────────────────
+    async def _broadcast_watch_summary():
+        """Collect watch matches from all recent results and broadcast."""
+        try:
+            store = coordinator.watch_store
+            stale = store.get_stale_watches()
+            active_watches = store.list_watches(status="active", include_matches=False)
+            await ws_manager.broadcast(
+                {
+                    "type": "watch_summary",
+                    "active_count": len(active_watches),
+                    "stale": [
+                        {
+                            "id": s["id"],
+                            "title": s["title"],
+                            "days_since_match": s.get("days_since_match", 0),
+                        }
+                        for s in stale
+                    ],
+                    "total_matches": sum(
+                        w.get("match_count", 0) for w in active_watches
+                    ),
+                }
+            )
+        except Exception:
+            pass
 
     # Start scheduler in background task
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -374,8 +403,6 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
     default_interval = config.get("scheduler", {}).get("default_interval_minutes", 60)
 
     # Defer initial fetch to background so the server starts immediately.
-    # Deep analysis (vector model download + LLM entity extraction) can take
-    # 30-60s on first run — blocking startup creates a poor UX.
     # Use --no-fetch to skip entirely (useful during development restarts).
     if not no_fetch:
 
@@ -386,6 +413,7 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
             )
             try:
                 await coordinator.run_all_targets_async()
+                await _broadcast_watch_summary()
             except Exception as e:
                 logger.error("Initial batch fetch failed: %s", e)
 

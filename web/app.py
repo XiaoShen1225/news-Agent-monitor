@@ -1,6 +1,7 @@
 """FastAPI web dashboard for the news monitoring system."""
 
 import asyncio
+import json
 import logging
 import os
 import sqlite3
@@ -135,20 +136,12 @@ def _get_data_store():
     return ctx.data_store
 
 
-def _get_alert_store():
-    if ctx.alert_store is None:
-        from data.alert_store import AlertStore
+def _get_watch_store():
+    if ctx.watch_store is None:
+        from data.watch_store import WatchStore
 
-        ctx.alert_store = AlertStore()
-    return ctx.alert_store
-
-
-def _get_story_watch_store():
-    if ctx.story_watch_store is None:
-        from data.story_watch import StoryWatchStore
-
-        ctx.story_watch_store = StoryWatchStore()
-    return ctx.story_watch_store
+        ctx.watch_store = WatchStore()
+    return ctx.watch_store
 
 
 def _diff_items(prev_items: list, curr_items: list) -> dict:
@@ -1107,8 +1100,7 @@ def _get_chat_agent():
             news_store=DataStore(source_type="news"),
             paper_store=DataStore(source_type="paper"),
             vector_store=None,
-            alert_store=_get_alert_store(),
-            story_watch=_get_story_watch_store(),
+            watch_store=_get_watch_store(),
             hybrid_searcher=_get_hybrid_searcher(),
             coordinator=ctx.coordinator,
             episodic_memory=EpisodicMemory(),
@@ -1297,146 +1289,163 @@ async def api_chat_sessions():
     return {"sessions": _get_chat_agent().list_sessions()}
 
 
-# ── Alert Management API ───────────────────────────────────────────
+# ── Unified Watch API ──────────────────────────────────────────────
 
 
-@app.get("/api/alerts")
-async def api_alerts():
-    """List all keyword alerts and alert config."""
-    store = _get_alert_store()
+@app.get("/api/watches")
+async def api_watches(
+    type: str | None = Query(None),
+    status: str | None = Query(None),
+):
+    """List all watches, optionally filtered by type and/or status."""
+    store = _get_watch_store()
+    watches = store.list_watches(
+        watch_type=type if type else None,
+        status=status if status else None,
+        include_matches=True,
+    )
+    config = store.get_config()
+    stale = store.get_stale_watches()
     return {
-        "keywords": store.get_keywords(),
-        "config": store.get_config(),
+        "watches": watches,
+        "count": len(watches),
+        "config": config,
+        "stale": stale,
     }
 
 
-@app.post("/api/alerts")
-async def api_alerts_add(request: Request):
-    """Add a keyword alert."""
+@app.get("/api/watches/{watch_id}")
+async def api_watch_detail(watch_id: str):
+    """Get a single watch with full match history."""
+    store = _get_watch_store()
+    w = store.get_watch(watch_id)
+    if not w:
+        return JSONResponse({"error": "Watch not found"}, status_code=404)
+    return w
+
+
+@app.get("/api/watches/{watch_id}/summary")
+async def api_watch_summary(watch_id: str):
+    """Get or generate latest match summary for a watch."""
+    store = _get_watch_store()
+    w = store.get_watch(watch_id)
+    if not w:
+        return JSONResponse({"error": "Watch not found"}, status_code=404)
+    return {
+        "watch_id": watch_id,
+        "latest_summary": w.get("latest_summary"),
+        "match_count": w.get("match_count", 0),
+    }
+
+
+@app.post("/api/watches/{watch_id}/complete")
+async def api_watch_complete(watch_id: str):
+    """Mark a watch as completed."""
+    store = _get_watch_store()
+    result = store.complete_watch(watch_id)
+    if not result["ok"]:
+        return JSONResponse({"error": result["msg"]}, status_code=404)
+    return result
+
+
+@app.post("/api/watches/{watch_id}/pause")
+async def api_watch_pause(watch_id: str):
+    """Pause a watch."""
+    store = _get_watch_store()
+    result = store.pause_watch(watch_id)
+    if not result["ok"]:
+        return JSONResponse({"error": result["msg"]}, status_code=404)
+    return result
+
+
+@app.post("/api/watches/{watch_id}/resume")
+async def api_watch_resume(watch_id: str):
+    """Resume a paused watch."""
+    store = _get_watch_store()
+    result = store.resume_watch(watch_id)
+    if not result["ok"]:
+        return JSONResponse({"error": result["msg"]}, status_code=404)
+    return result
+
+
+@app.delete("/api/watches/{watch_id}")
+async def api_watch_remove(watch_id: str):
+    """Remove a watch."""
+    store = _get_watch_store()
+    result = store.remove_watch(watch_id)
+    if not result["ok"]:
+        return JSONResponse({"error": result["msg"]}, status_code=404)
+    return result
+
+
+# ── Preferences & Memory API ────────────────────────────────────────
+
+
+@app.get("/api/preferences")
+async def api_preferences():
+    """Return user preference data: L2 profile + L1 patterns + overrides."""
+    agent = _get_chat_agent()
+    engine = agent._preference_engine
+    if engine is None:
+        return {"l1": None, "l2": None, "overrides": {}, "display": "暂无偏好数据"}
+    current = engine.get_current()
+    overrides = engine.get_overrides()
+    display = engine.format_for_display()
+    return {
+        "l1": current.get("l1"),
+        "l2": current.get("l2"),
+        "overrides": overrides,
+        "display": display,
+    }
+
+
+@app.get("/api/memory/status")
+async def api_memory_status():
+    """Return memory system health: event counts, L0/L1/L2 status, episodic count."""
+    from data.episodic_memory import EpisodicMemory
+
+    ts = _get_track_store()
+    stats = ts.get_stats(days=30)
+    total = ts.total_count()
+    l0_count = ts.get_l0_event_count_since("1970-01-01T00:00:00")
+
+    em = EpisodicMemory()
+    episodic_count = len(em._episodes)
+
+    from pathlib import Path
+
+    l1_path = Path("data/memory/l1_patterns.json")
+    l2_path = Path("data/memory/l2_profile.json")
+    overrides_path = Path("data/memory/explicit_overrides.json")
+
+    l1_data = None
+    l2_data = None
+    overrides_data = None
     try:
-        body = await request.json()
+        if l1_path.exists():
+            l1_data = json.loads(l1_path.read_text(encoding="utf-8"))
     except Exception:
-        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
-    keyword = (body.get("keyword") or "").strip()
-    if not keyword:
-        return JSONResponse({"error": "keyword is required"}, status_code=400)
-    store = _get_alert_store()
-    result = store.add_keyword(keyword)
-    return result
-
-
-@app.delete("/api/alerts")
-async def api_alerts_remove(keyword: str = Query(..., min_length=1)):
-    """Remove a keyword alert."""
-    store = _get_alert_store()
-    result = store.remove_keyword(keyword)
-    if not result["ok"]:
-        return JSONResponse({"error": result["msg"]}, status_code=404)
-    return result
-
-
-# ── Story Management API ───────────────────────────────────────────
-
-
-@app.get("/api/stories")
-async def api_stories(status: str | None = Query(None)):
-    """List tracked stories, optionally filtered by status."""
-    store = _get_story_watch_store()
-    stories = store.list_stories(
-        status=status if status else None, include_matches=True
-    )
-    config = store.get_config()
-    return {"stories": stories, "count": len(stories), "config": config}
-
-
-@app.post("/api/stories/{story_id}/complete")
-async def api_story_complete(story_id: str):
-    """Mark a story as completed."""
-    store = _get_story_watch_store()
-    result = store.complete_story(story_id)
-    if not result["ok"]:
-        return JSONResponse({"error": result["msg"]}, status_code=404)
-    return result
-
-
-@app.post("/api/stories/{story_id}/reactivate")
-async def api_story_reactivate(story_id: str):
-    """Reactivate a dormant story."""
-    store = _get_story_watch_store()
-    result = store.reactivate_story(story_id)
-    if not result["ok"]:
-        return JSONResponse({"error": result["msg"]}, status_code=404)
-    return result
-
-
-@app.delete("/api/stories/{story_id}")
-async def api_story_remove(story_id: str):
-    """Remove a tracked story."""
-    store = _get_story_watch_store()
-    result = store.remove_story(story_id=story_id)
-    if not result["ok"]:
-        return JSONResponse({"error": result["msg"]}, status_code=404)
-    return result
-
-
-# ── Deep Analysis API ──────────────────────────────────────────────
-
-
-@app.post("/api/deep-analysis/run")
-async def api_run_deep_analysis():
-    """Manually trigger deep cross-site analysis (event clustering + entity extraction)."""
-    coordinator = ctx.coordinator
-    if coordinator is None:
-        return JSONResponse(
-            {"ok": False, "msg": "Coordinator not initialized"}, status_code=503
-        )
+        pass
     try:
-        result = await coordinator.run_deep_analysis_manual()
-    except Exception as e:
-        return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
-    if not result.get("ok"):
-        return JSONResponse(result, status_code=400)
-    return result
+        if l2_path.exists():
+            l2_data = json.loads(l2_path.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    try:
+        if overrides_path.exists():
+            overrides_data = json.loads(overrides_path.read_text(encoding="utf-8"))
+    except Exception:
+        pass
 
-
-@app.get("/api/events")
-async def api_events(limit: int = Query(20, ge=1, le=100)):
-    """Get recent cross-site event clusters."""
-    store = _get_data_store()
-    events = store.get_events(limit=limit)
-    return {"events": events, "count": len(events)}
-
-
-@app.get("/api/events/{event_id}")
-async def api_event_detail(event_id: str):
-    """Get event detail with timeline items."""
-    store = _get_data_store()
-    event = store.get_event(event_id)
-    if not event:
-        return JSONResponse({"error": "Event not found"}, status_code=404)
-    return event
-
-
-@app.get("/api/entities")
-async def api_entities(
-    limit: int = Query(50, ge=1, le=200),
-    type: str | None = Query(None),
-):
-    """Get entity leaderboard, optionally filtered by type (PER/ORG/LOC/PROD/EVENT)."""
-    store = _get_data_store()
-    entities = store.get_entities(limit=limit, entity_type=type)
-    return {"entities": entities, "count": len(entities)}
-
-
-@app.get("/api/entities/{entity_name}")
-async def api_entity_detail(
-    entity_name: str,
-    limit: int = Query(50, ge=1, le=200),
-):
-    """Get news items mentioning a specific entity."""
-    store = _get_data_store()
-    items = store.get_entity_items(entity_name, limit=limit)
-    return {"entity_name": entity_name, "items": items, "count": len(items)}
+    return {
+        "total_events": total,
+        "stats_30d": stats,
+        "l0_event_count": l0_count,
+        "episodic_count": episodic_count,
+        "l1": l1_data,
+        "l2": l2_data,
+        "overrides": overrides_data,
+    }
 
 
 # ── WebSocket ──────────────────────────────────────────────────────

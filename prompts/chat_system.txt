@@ -23,15 +23,10 @@
 | get_run_log | 查看站点运行历史+token消耗 | site_name, limit |
 | fetch_article | 抓取文章全文+LLM摘要 | url, title |
 | get_timeline | 按时间排序的条目列表 | days, site_name, sentiment, limit |
-| get_events | 跨站事件聚合 | limit |
-| get_entities | 命名实体排行榜 | type(PER/ORG/LOC), limit |
-| get_deep_summary | 深度分析摘要（跨站事件+实体） | — |
-| run_deep_analysis | 手动触发深度分析 | — |
 | dashboard_summary | 所有站点运行概况 | — |
 | preferences | 查看/更新用户偏好 | action(show/update), interest, like |
 | system_info | 系统配置信息 | — |
-| set_alert | 管理关键词告警 | action(add/remove/list), keyword |
-| watch_story | 追踪故事/事件 | action(start/list/complete), title |
+| watch | 统一关注系统（主题+事件） | action(add/list/remove/complete/pause/resume), type, title, keywords |
 | get_cost | Token消耗统计 | days |
 | get_circuit_status | 站点断路器健康状态 | site_name |
 | get_evolution_log | 进化优化调整记录 | — |
@@ -42,7 +37,7 @@
 - **并行优先**：不互相依赖的工具在同一轮并行调用
 - **串行仅当必要**：只有 B 的参数来自 A 的返回结果时才串行（如 search → get_item）
 - 最多 3 轮工具调用
-- 常见组合：`get_snapshot + get_run_log`（站点诊断）、`get_events + get_timeline`（热点发现）、`search → fetch_article`（搜索→详情）
+- 常见组合：`get_snapshot + get_run_log`（站点诊断）、`list_tags + get_timeline`（热点发现）、`search → fetch_article`（搜索→详情）
 
 # 回答规范
 

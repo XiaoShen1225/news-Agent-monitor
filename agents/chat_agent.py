@@ -84,8 +84,7 @@ class ChatAgent(BaseAgent):
         news_store=None,
         paper_store=None,
         vector_store=None,
-        alert_store=None,
-        story_watch=None,
+        watch_store=None,
         hybrid_searcher=None,
         coordinator=None,
         max_history_tokens: int | None = None,
@@ -95,8 +94,7 @@ class ChatAgent(BaseAgent):
         self.news_store = news_store
         self.paper_store = paper_store
         self.vector_store = vector_store
-        self.alert_store = alert_store
-        self.story_watch = story_watch
+        self.watch_store = watch_store
         self.hybrid_searcher = hybrid_searcher
         self._coordinator = coordinator
         self.episodic_memory = episodic_memory
@@ -814,7 +812,7 @@ class ChatAgent(BaseAgent):
 
         # ── Episodic memory context ──────────────────────────────────
         if self.episodic_memory is not None:
-            recent_eps = self.episodic_memory.get_recent(3)
+            recent_eps = self.episodic_memory.retrieve(query=user_message, top_k=3)
             if recent_eps:
                 lines = ["\n\n历史会话摘要（跨会话记忆，仅供参考）:"]
                 for ep in recent_eps:
@@ -825,7 +823,34 @@ class ChatAgent(BaseAgent):
             pref_text = self._preference_engine.format_for_prompt()
             if pref_text:
                 content += "\n\n" + pref_text
+
+        # ── Watch context ───────────────────────────────────────────
+        if self.watch_store is not None:
+            watch_text = self._format_watches_for_prompt()
+            if watch_text:
+                content += "\n\n" + watch_text
         return content
+
+    def _format_watches_for_prompt(self) -> str:
+        """Format active watches as a brief context block (~300 tokens max)."""
+        try:
+            active = self.watch_store.list_watches(status="active")
+        except Exception:
+            return ""
+        if not active:
+            return ""
+        # Sort by last_match_at (recent first), then by topic before event
+        active.sort(key=lambda w: w.get("last_match_at") or "0", reverse=True)
+        active.sort(key=lambda w: 0 if w["type"] == "topic" else 1)
+        shown = active[:5]
+        lines = ["[用户关注]"]
+        for w in shown:
+            kind = "主题" if w["type"] == "topic" else "事件"
+            kws = "、".join(w.get("keywords", [])[:3])
+            detail = f" — {kws}" if kws else ""
+            lines.append(f"- [{kind}] {w['title'][:50]}{detail}")
+        lines.append("(以上是用户正在关注的主题和事件，可在相关时引用)")
+        return "\n".join(lines)
 
     def _load_history(self):
         """Load all sessions from JSON file. Migrates legacy single-session format."""

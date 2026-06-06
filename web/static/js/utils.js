@@ -17,7 +17,7 @@ var wsProtocol=location.protocol==='https:'?'wss:':'ws:';
 var ws=new WebSocket(wsProtocol+'//'+location.host+'/ws');
 ws.onopen=function(){document.getElementById('ws-dot').classList.remove('offline');document.getElementById('ws-text').textContent='在线';};
 ws.onclose=function(){document.getElementById('ws-dot').classList.add('offline');document.getElementById('ws-text').textContent='离线';};
-ws.onmessage=function(e){var d=JSON.parse(e.data);if(d.type==='pipeline_update'){if(d.chart_data){var s=d.chart_data.site_name;echartSiteData[s]=d.chart_data;var sel=document.getElementById('echart-site');if(sel&&!Array.from(sel.options).some(function(o){return o.value===s;})){sel.innerHTML+='<option value="'+s+'">'+s+'</option>';}if(s===echartCurrentSite||!echartCurrentSite){if(!echartCurrentSite){echartCurrentSite=s;if(sel)sel.value=s;}renderAllCharts(d.chart_data);}}loadStats();loadItems(itemsPage);loadRuns();}};
+ws.onmessage=function(e){var d=JSON.parse(e.data);if(d.type==='pipeline_update'){if(d.chart_data){var s=d.chart_data.site_name;echartSiteData[s]=d.chart_data;var sel=document.getElementById('echart-site');if(sel&&!Array.from(sel.options).some(function(o){return o.value===s;})){sel.innerHTML+='<option value="'+s+'">'+s+'</option>';}if(s===echartCurrentSite||!echartCurrentSite){if(!echartCurrentSite){echartCurrentSite=s;if(sel)sel.value=s;}renderAllCharts(d.chart_data);}}loadStats();loadItems(itemsPage);loadRuns();}else if(d.type==='watch_summary'){if(currentDrawer==='ops'&&typeof loadWatches==='function')loadWatches(watchTypeFilter);}};
 setInterval(function(){if(ws.readyState===WebSocket.OPEN)ws.send('ping');},30000);
 setInterval(function(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();},1000);
 

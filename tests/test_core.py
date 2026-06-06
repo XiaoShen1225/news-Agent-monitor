@@ -123,107 +123,6 @@ class TestHash:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Clustering: cosine similarity + union-find
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-class TestCosineSim:
-    def test_identical(self):
-        from agents.clustering import _cosine_sim
-
-        assert _cosine_sim([1, 2, 3], [1, 2, 3]) == pytest.approx(1.0)
-
-    def test_orthogonal(self):
-        from agents.clustering import _cosine_sim
-
-        assert _cosine_sim([1, 0, 0], [0, 1, 0]) == pytest.approx(0.0)
-
-    def test_zero_vector(self):
-        from agents.clustering import _cosine_sim
-
-        assert _cosine_sim([0, 0], [1, 1]) == 0.0
-
-    def test_opposite(self):
-        from agents.clustering import _cosine_sim
-
-        assert _cosine_sim([1, 1], [-1, -1]) == pytest.approx(-1.0)
-
-
-class TestClusterItems:
-    def test_empty(self):
-        from agents.clustering import cluster_items
-
-        assert cluster_items([], None) == []
-
-    def test_single(self):
-        from agents.clustering import cluster_items
-
-        assert cluster_items([{"title": "x"}], None) == []
-
-    def test_no_vector_store(self):
-        from agents.clustering import cluster_items
-
-        items = [{"title": "a"}, {"title": "b"}]
-        assert cluster_items(items, None) == []
-
-
-class FakeVectorStore:
-    def __init__(self, embeddings_map):
-        self._embeddings_map = embeddings_map
-
-    def _ef(self, titles):
-        return [self._embeddings_map.get(t) for t in titles]
-
-
-class TestClusterWithEmbeddings:
-    def test_similar_cluster(self):
-        from agents.clustering import cluster_items
-
-        vs = FakeVectorStore(
-            {
-                "华为发布新品": [0.9, 0.1],
-                "华为推出新手机": [0.85, 0.15],
-            }
-        )
-        items = [
-            {"title": "华为发布新品", "site_name": "a", "tag": "科技"},
-            {"title": "华为推出新手机", "site_name": "b", "tag": "科技"},
-        ]
-        clusters = cluster_items(items, vs, threshold=0.5)
-        assert len(clusters) == 1
-        assert clusters[0]["size"] == 2
-
-    def test_dissimilar_no_cluster(self):
-        from agents.clustering import cluster_items
-
-        vs = FakeVectorStore(
-            {
-                "科技新闻": [1.0, 0.0],
-                "体育新闻": [0.0, 1.0],
-            }
-        )
-        items = [
-            {"title": "科技新闻", "site_name": "a", "tag": "tech"},
-            {"title": "体育新闻", "site_name": "b", "tag": "sports"},
-        ]
-        clusters = cluster_items(items, vs, threshold=0.5)
-        assert len(clusters) == 0
-
-    def test_min_cluster_size(self):
-        from agents.clustering import cluster_items
-
-        vs = FakeVectorStore(
-            {
-                "a": [1.0, 0.0],
-                "b": [0.99, 0.01],
-            }
-        )
-        items = [{"title": "a"}, {"title": "b"}]
-        clusters = cluster_items(items, vs, threshold=0.5, min_cluster_size=3)
-        assert len(clusters) == 0
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 # Parser: link validation
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -560,12 +459,8 @@ class TestWebAPI:
         r = client.get("/api/chat/sessions")
         assert r.status_code == 200
 
-    def test_alerts(self, client):
-        r = client.get("/api/alerts")
-        assert r.status_code == 200
-
-    def test_stories(self, client):
-        r = client.get("/api/stories")
+    def test_watches(self, client):
+        r = client.get("/api/watches")
         assert r.status_code == 200
 
     def test_trigger_run_no_coord(self, client):

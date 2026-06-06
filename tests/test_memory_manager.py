@@ -33,9 +33,6 @@ def tmp_memory_dir():
         prompts_dir.joinpath("l2_profile.txt").write_text(
             "更新画像。输出 JSON。", encoding="utf-8"
         )
-        prompts_dir.joinpath("quality_check.txt").write_text(
-            "检查质量。输出 JSON。", encoding="utf-8"
-        )
         try:
             yield Path(d)
         finally:
