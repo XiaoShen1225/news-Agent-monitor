@@ -303,6 +303,28 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
         logger.error("No targets configured in config.yaml")
         return
 
+    # ── Watch summary broadcast ───────────────────────────────────
+    async def _broadcast_watch_summary():
+        """Collect watch matches from all recent results and broadcast."""
+        store = coordinator.watch_store
+        stale = store.get_stale_watches()
+        active_watches = store.list_watches(status="active", include_matches=False)
+        await ws_manager.broadcast(
+            {
+                "type": "watch_summary",
+                "active_count": len(active_watches),
+                "stale": [
+                    {
+                        "id": s["id"],
+                        "title": s["title"],
+                        "days_since_match": s.get("days_since_match", 0),
+                    }
+                    for s in stale
+                ],
+                "total_matches": sum(w.get("match_count", 0) for w in active_watches),
+            }
+        )
+
     # Register WebSocket broadcast as post-run callback (event-driven, not monkey-patch)
     async def _broadcast_on_run(result):
         try:
@@ -351,39 +373,11 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
                     "chart_data": chart_payload,
                 }
             )
-            # Also broadcast watch summary after each successful run
             await _broadcast_watch_summary()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[WS] _broadcast_on_run failed: %s", e)
 
     coordinator.add_run_callback(_broadcast_on_run)
-
-    # ── Watch summary broadcast ───────────────────────────────────
-    async def _broadcast_watch_summary():
-        """Collect watch matches from all recent results and broadcast."""
-        try:
-            store = coordinator.watch_store
-            stale = store.get_stale_watches()
-            active_watches = store.list_watches(status="active", include_matches=False)
-            await ws_manager.broadcast(
-                {
-                    "type": "watch_summary",
-                    "active_count": len(active_watches),
-                    "stale": [
-                        {
-                            "id": s["id"],
-                            "title": s["title"],
-                            "days_since_match": s.get("days_since_match", 0),
-                        }
-                        for s in stale
-                    ],
-                    "total_matches": sum(
-                        w.get("match_count", 0) for w in active_watches
-                    ),
-                }
-            )
-        except Exception:
-            pass
 
     # Start scheduler in background task
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
