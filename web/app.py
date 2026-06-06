@@ -923,6 +923,20 @@ async def api_chat_stream(request: Request):
     )
 
 
+def _filter_history(messages: list) -> list:
+    """Remove intermediate tool messages and empty tool-call stubs."""
+    return [
+        m
+        for m in messages
+        if m["role"] not in ("tool",)
+        and not (
+            m["role"] == "assistant"
+            and not m.get("content", "").strip()
+            and m.get("tool_calls")
+        )
+    ]
+
+
 @app.get("/api/chat/history")
 async def api_chat_history(session_id: str | None = None):
     """Get current conversation history for a session."""
@@ -931,7 +945,7 @@ async def api_chat_history(session_id: str | None = None):
         sid = agent._activate_session(session_id, create=False)
         if sid is None:
             return {"messages": [], "session_id": None, "not_found": True}
-        return {"messages": list(agent._history), "session_id": sid}
+        return {"messages": _filter_history(list(agent._history)), "session_id": sid}
     return {"messages": [], "session_id": None}
 
 

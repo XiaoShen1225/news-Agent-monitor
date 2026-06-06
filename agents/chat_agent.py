@@ -444,15 +444,32 @@ class ChatAgent(BaseAgent):
             self._graph.update_state(config, {"messages": history_msgs})
 
     def _sync_history_from_graph(self, config: dict):
-        """Extract messages from LangGraph state → JSON-persistent _history."""
+        """Extract messages from LangGraph state → JSON-persistent _history.
+
+        Filters out intermediate messages:
+        - tool results (role="tool")
+        - assistant tool-call messages with no text content
+        Only keeps user messages and final assistant replies.
+        """
         try:
             state = self._graph.get_state(config)
             if state.values:
                 messages = state.values.get("messages", [])
-                # Keep only user/assistant/tool (skip system — rebuilt each call)
-                self._history = [
-                    self._msg_to_dict(m) for m in messages if m.type != "system"
-                ]
+                history = []
+                for m in messages:
+                    if m.type == "system":
+                        continue
+                    d = self._msg_to_dict(m)
+                    if d["role"] == "tool":
+                        continue
+                    if (
+                        d["role"] == "assistant"
+                        and not d["content"].strip()
+                        and d.get("tool_calls")
+                    ):
+                        continue
+                    history.append(d)
+                self._history = history
         except Exception:
             pass
 

@@ -50,7 +50,11 @@ async function loadChatHistory(){
     if(d.not_found){localStorage.removeItem('chat_session_id');resetChatWelcome();loadSessions();return;}
     if(!d.messages||d.messages.length===0)return;
     var c=document.getElementById('chat-messages');if(c.querySelector('.chat-bubble'))return;c.innerHTML='';
-    d.messages.forEach(function(m){appendChatMessage(m.role,m.content||'');});c.scrollTop=c.scrollHeight;
+    d.messages.forEach(function(m){
+      if(m.role==='tool')return;
+      if(m.role==='assistant'&&(!m.content||!m.content.trim())&&m.tool_calls)return;
+      appendChatMessage(m.role,m.content||'');
+    });c.scrollTop=c.scrollHeight;
   }catch(e){}
 }
 
