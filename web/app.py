@@ -924,27 +924,38 @@ async def api_chat_stream(request: Request):
 
 
 def _filter_history(messages: list) -> list:
-    """Remove intermediate tool messages, empty tool-call stubs, and merge
-    consecutive assistant messages into one."""
-    filtered = [
-        m
-        for m in messages
-        if m["role"] not in ("tool",)
-        and not (
+    """Remove tool msgs and empty tool-call stubs; propagate tool_calls to
+    next assistant so the frontend can render tool chips. Merge consecutive
+    assistant messages into one."""
+    pending_tool_calls = []
+    filtered = []
+    for m in messages:
+        if m["role"] == "tool":
+            continue
+        if (
             m["role"] == "assistant"
             and not m.get("content", "").strip()
             and m.get("tool_calls")
-        )
-    ]
-    # Merge consecutive assistant messages
+        ):
+            pending_tool_calls.extend(m["tool_calls"])
+            continue
+        m2 = m.copy()
+        if m2["role"] == "assistant" and pending_tool_calls:
+            m2["tool_calls"] = pending_tool_calls + m2.get("tool_calls", [])
+            pending_tool_calls = []
+        filtered.append(m2)
+    # Merge consecutive assistant messages (propagate tool_calls too)
     merged = []
     for m in filtered:
         if merged and merged[-1]["role"] == "assistant" and m["role"] == "assistant":
             merged[-1]["content"] = (
                 merged[-1]["content"] + "\n\n" + m.get("content", "")
             )
+            if m.get("tool_calls"):
+                tc = merged[-1].setdefault("tool_calls", [])
+                tc.extend(m["tool_calls"])
         else:
-            merged.append(m.copy())
+            merged.append(m)
     return merged
 
 

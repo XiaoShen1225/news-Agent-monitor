@@ -85,15 +85,21 @@ async function loadChatHistory(){
     if(d.not_found){localStorage.removeItem('chat_session_id');resetChatWelcome();loadSessions();return;}
     if(!d.messages||d.messages.length===0)return;
     var c=document.getElementById('chat-messages');if(c.querySelector('.chat-bubble'))return;c.innerHTML='';
-    var prevRole='';
+    var prevRole='';var pendingChips=[];
     d.messages.forEach(function(m){
       if(m.role==='tool')return;
       if(m.role==='assistant'&&(!m.content||!m.content.trim())&&m.tool_calls){
-        renderToolCallChips(m);
+        // Stub: collect tool names for next assistant bubble
+        pendingChips=pendingChips.concat(m.tool_calls);
         return;
       }
       if(m.role==='assistant'&&m.tool_calls&&m.tool_calls.length>0){
-        renderToolCallChips(m);
+        pendingChips=pendingChips.concat(m.tool_calls);
+      }
+      // Flush pending tool chips into the trace before rendering bubble
+      if(pendingChips.length>0){
+        renderToolCallChips({tool_calls:pendingChips});
+        pendingChips=[];
       }
       if(m.role==='assistant'&&prevRole==='assistant'){
         var bubbles=c.querySelectorAll('.chat-bubble.assistant');
