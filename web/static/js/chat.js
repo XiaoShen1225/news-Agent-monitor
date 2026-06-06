@@ -17,8 +17,16 @@ async function loadSessions(){
     var cs=getSessionId();list.innerHTML=ss.map(function(s){
       var l=(s.title||s.id||'').slice(0,20)||'No title';
       var a=s.id===cs?' active':'';
-      return '<div class="session-item'+a+'" onclick="switchSession(\x27'+s.id+'\x27)" title="'+s.id+'">'+l+'</div>';
+      return '<div class="session-item'+a+'" onclick="switchSession(\x27'+s.id+'\x27)" title="'+s.id+'">'+l+
+        '<span class="session-del" onclick="event.stopPropagation();deleteSession(\x27'+s.id+'\x27)" title=\u5220\u9664\u4f1a\u8bdd>&times;</span></div>';
     }).join('');}catch(e){}
+}
+
+async function deleteSession(sid){
+  if(!confirm('\u786e\u5b9a\u5220\u9664\u8be5\u4f1a\u8bdd\uff1f\u6b64\u64cd\u4f5c\u4e0d\u53ef\u64a4\u9500\u3002'))return;
+  try{await fetch('/api/chat/sessions/'+encodeURIComponent(sid),{method:'DELETE'});
+    if(getSessionId()===sid){localStorage.removeItem('chat_session_id');resetChatWelcome();}
+    loadSessions();}catch(e){}
 }
 
 function newChatSession(){

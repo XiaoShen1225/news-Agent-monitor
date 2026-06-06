@@ -1002,6 +1002,17 @@ class ChatAgent(BaseAgent):
             "[ChatAgent] History cleared for session %s", (session_id or "default")[:8]
         )
 
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a session by id. Returns True if found and deleted."""
+        if session_id in self._sessions:
+            del self._sessions[session_id]
+            if self._current_session_id == session_id:
+                self._current_session_id = None
+            self._save_history()
+            logger.info("[ChatAgent] Deleted session %s", session_id[:8])
+            return True
+        return False
+
     def list_sessions(self) -> list[dict]:
         """Return active session metadata (excludes empty sessions)."""
         result = []

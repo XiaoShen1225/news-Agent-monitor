@@ -967,6 +967,15 @@ async def api_chat_clear(session_id: str | None = None):
     return {"status": "cleared", "session_id": session_id}
 
 
+@app.delete("/api/chat/sessions/{session_id}")
+async def api_chat_delete_session(session_id: str):
+    """Delete an entire chat session."""
+    deleted = _get_chat_agent().delete_session(session_id)
+    if not deleted:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    return {"status": "deleted", "session_id": session_id}
+
+
 @app.get("/api/chat/context")
 async def api_chat_context(session_id: str | None = None):
     """Get current context usage stats for a session."""
