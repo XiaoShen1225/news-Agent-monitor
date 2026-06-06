@@ -1,7 +1,34 @@
 // Chat: session management + SSE streaming + message rendering
-if(typeof marked!=='undefined'){marked.setOptions({breaks:true,gfm:true});}
+// Built-in markdown renderer — no CDN dependency
 
 var chatAbortController=null;
+
+// ── Built-in markdown → HTML renderer ─────────────────────────────
+function renderMarkdown(text){
+  if(!text)return '';
+  // Escape HTML entities first, then convert markdown to HTML
+  var h=text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // Headings
+  h=h.replace(/^### (.+)$/gm,'<h4>$1</h4>');
+  h=h.replace(/^## (.+)$/gm,'<h3>$1</h3>');
+  h=h.replace(/^# (.+)$/gm,'<h2>$1</h2>');
+  // Bold & italic
+  h=h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  h=h.replace(/\*(.+?)\*/g,'<em>$1</em>');
+  // Inline code
+  h=h.replace(/`([^`]+)`/g,'<code>$1</code>');
+  // Links
+  h=h.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank">$1</a>');
+  // Unordered list items — wrap consecutive <li> in <ul>
+  h=h.replace(/^[\-*] (.+)$/gm,'<li>$1</li>');
+  h=h.replace(/((?:<li>.*<\/li>\n?)+)/g,'<ul>$1</ul>');
+  // Double newline → paragraph break
+  h=h.replace(/\n\n/g,'<br><br>');
+  // Single newline → <br>
+  h=h.replace(/\n/g,'<br>');
+  return h;
+}
 
 function getSessionId(){
   var s=localStorage.getItem('chat_session_id');
@@ -58,7 +85,6 @@ async function loadChatHistory(){
     if(d.not_found){localStorage.removeItem('chat_session_id');resetChatWelcome();loadSessions();return;}
     if(!d.messages||d.messages.length===0)return;
     var c=document.getElementById('chat-messages');if(c.querySelector('.chat-bubble'))return;c.innerHTML='';
-    // Filter & merge: skip tool msgs; merge consecutive assistant bubbles
     var prevRole='';
     d.messages.forEach(function(m){
       if(m.role==='tool')return;
@@ -73,8 +99,7 @@ async function loadChatHistory(){
         var bubbles=c.querySelectorAll('.chat-bubble.assistant');
         var last=bubbles[bubbles.length-1];
         if(last){var cd=last.querySelector('.chat-bubble-content');
-          if(typeof marked!=='undefined'){cd.innerHTML+=marked.parse('\n\n'+m.content);}
-          else{cd.textContent+='\n\n'+m.content;}
+          cd.innerHTML+=renderMarkdown('\n\n'+m.content);
         }
       }else{
         appendChatMessage(m.role,m.content||'');
@@ -114,6 +139,7 @@ async function sendChat(){
       body:JSON.stringify({message:msg,session_id:sid}),signal:chatAbortController.signal});
     var reader=res.body.getReader();var decoder=new TextDecoder();var buffer='';var tc=null;
     var toolResults=[];var toolResultsRendered=false;
+    var streamRaw=''; // accumulate raw text for real-time markdown rendering
     var container=document.getElementById('chat-messages');
     var cb=document.getElementById('chat-context-bar');var cf=document.getElementById('chat-context-fill');
     var ct=document.getElementById('chat-context-text');
@@ -135,7 +161,8 @@ async function sendChat(){
                 }
                 trBlock+='</div>';aiContent.innerHTML=trBlock;
               }
-              aiContent.innerHTML+=parsed.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+              streamRaw+=parsed;
+              aiContent.innerHTML=renderMarkdown(streamRaw);
               container.scrollTop=container.scrollHeight;
             }
             else if(event==='thinking'){if(!tc){tc=document.createElement('div');tc.className='thinking-card';container.appendChild(tc);}tc.textContent=parsed.text;container.scrollTop=container.scrollHeight;}
@@ -150,11 +177,6 @@ async function sendChat(){
           }catch(e){}event='';data='';}}
       }
     }
-    // Re-render with markdown after stream completes
-    if(typeof marked!=='undefined'){
-      var raw=aiContent.textContent||'';
-      if(raw.trim())aiContent.innerHTML=marked.parse(raw);
-    }
   }catch(e){if(e.name!=='AbortError'){aiContent.textContent=aiContent.textContent||'\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002';}}
   if(!aiContent.textContent.trim()){aiContent.textContent='(\u7a7a\u56de\u590d)';}
   chatAbortController=null;sb.disabled=false;inp.focus();
@@ -167,7 +189,7 @@ function appendChatMessage(role,content){
   var label=document.createElement('div');label.className='chat-bubble-label';
   label.textContent=isUser?'You':'AI \u52a9\u624b';
   var cd=document.createElement('div');cd.className='chat-bubble-content';
-  if(!isUser&&typeof marked!=='undefined'&&content){cd.innerHTML=marked.parse(content);}
+  if(!isUser&&content){cd.innerHTML=renderMarkdown(content);}
   else{cd.textContent=content;}
   bubble.appendChild(label);bubble.appendChild(cd);
   c.appendChild(bubble);c.scrollTop=c.scrollHeight;return bubble;
