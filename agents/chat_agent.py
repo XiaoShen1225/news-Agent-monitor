@@ -446,30 +446,17 @@ class ChatAgent(BaseAgent):
     def _sync_history_from_graph(self, config: dict):
         """Extract messages from LangGraph state → JSON-persistent _history.
 
-        Filters out intermediate messages:
-        - tool results (role="tool")
-        - assistant tool-call messages with no text content
-        Only keeps user messages and final assistant replies.
+        Keeps full message chain (including tool_calls and tool responses)
+        so the graph state can be restored correctly on next turn.
+        Display filtering is done at the API/frontend layer.
         """
         try:
             state = self._graph.get_state(config)
             if state.values:
                 messages = state.values.get("messages", [])
-                history = []
-                for m in messages:
-                    if m.type == "system":
-                        continue
-                    d = self._msg_to_dict(m)
-                    if d["role"] == "tool":
-                        continue
-                    if (
-                        d["role"] == "assistant"
-                        and not d["content"].strip()
-                        and d.get("tool_calls")
-                    ):
-                        continue
-                    history.append(d)
-                self._history = history
+                self._history = [
+                    self._msg_to_dict(m) for m in messages if m.type != "system"
+                ]
         except Exception:
             pass
 
