@@ -476,13 +476,17 @@ class ChatAgent(BaseAgent):
                 "session_id": sid,
             }
 
-        self._history.append({"role": "user", "content": user_message})
-        self._save_history()
-
         input_msgs: list = [HumanMessage(content=user_message)]
         config = {"configurable": {"thread_id": sid}}
 
+        # Seed graph with prior history only (NOT the current user message —
+        # it will be added via ainvoke input below). Prevents the first
+        # message from appearing twice in graph state.
         self._seed_graph_state(config)
+
+        self._history.append({"role": "user", "content": user_message})
+        self._save_history()
+
         try:
             result = await asyncio.wait_for(
                 self._graph.ainvoke({"messages": input_msgs}, config=config),
@@ -565,11 +569,14 @@ class ChatAgent(BaseAgent):
             yield self._sse("done", {"rejected": True, "session_id": sid})
             return
 
-        self._history.append({"role": "user", "content": user_message})
-        self._save_history()
-
         input_msgs: list = [HumanMessage(content=user_message)]
         config = {"configurable": {"thread_id": sid}}
+
+        # Seed with prior history only, not the current message
+        self._seed_graph_state(config)
+
+        self._history.append({"role": "user", "content": user_message})
+        self._save_history()
 
         yield self._sse("status", "正在分析...")
 
