@@ -14,7 +14,7 @@
 - **智能告警**：统一关注系统（主题监控 + 事件追踪）、Z-score 异常检测（量级突增/骤降）、中文情感偏移检测，冷却去重
 - **LangChain/LangGraph 架构**：LangGraph `create_react_agent` 驱动 AI 对话循环，原生并行工具调用 + `astream_events` 流式输出；ChatOpenAI/ChatAnthropic 统一 LLM 调用层；`@tool` 装饰器定义 15 个原子化工具（工厂模式 + 闭包依赖注入）
 - **统一 Watch 系统**：Topic（关键词 + 语义双路匹配，长期关注）+ Event（纯语义追踪，有始有终）；新建 watch 立即回溯匹配历史数据；前端 Modal 弹窗展示最新摘要 / 时间线 / 相关新闻；Agent 系统提示词自动注入关注上下文；过期提醒广播
-- **文章摘要**：点击任意条目可即时获取文章内容摘要
+- **文章摘要**：点击任意条目可即时获取文章内容摘要，自动提取配图（og:image）并内联展示
 - **向量语义搜索**：ChromaDB + stella-base-zh-v3-1792d 本地嵌入，`/api/search` 端点
 - **混合搜索引擎**：jieba 分词 + BM25 倒排索引 + 向量语义 + RRF 融合，统一 `search_news` 工具 + `/api/search/hybrid` 端点
 - **Web 仪表盘**：FastAPI + ECharts 5.5 实时交互图表 + 暗色主题 + 毛玻璃效果，WebSocket 实时推送

@@ -1,6 +1,7 @@
-"""fetch_article tool — fetch webpage + AI summarization."""
+"""fetch_article tool — fetch webpage + AI summarization + image extraction."""
 
 import re
+from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
@@ -19,6 +20,49 @@ FETCH_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
+
+# Minimum width/height for an img to be considered a content image (skip icons)
+MIN_IMG_SIZE = 120
+
+
+def _extract_image(soup: BeautifulSoup, base_url: str) -> tuple[str, str]:
+    """Extract (image_url, alt_text) from a page.  Prefers og:image meta tag."""
+    # 1. og:image meta
+    og = soup.find("meta", property="og:image")
+    if og and og.get("content"):
+        img_url = urljoin(base_url, og["content"].strip())
+        alt = ""
+        og_alt = soup.find("meta", property="og:image:alt")
+        if og_alt and og_alt.get("content"):
+            alt = og_alt["content"].strip()
+        return img_url, alt
+
+    # 2. First significant <img>
+    for img in soup.find_all("img"):
+        src = (img.get("src") or "").strip()
+        if not src or src.startswith("data:"):
+            continue
+        # Skip likely icons / tracking pixels
+        w = _parse_dim(img.get("width"))
+        h = _parse_dim(img.get("height"))
+        if w is not None and w < MIN_IMG_SIZE:
+            continue
+        if h is not None and h < MIN_IMG_SIZE:
+            continue
+        img_url = urljoin(base_url, src)
+        alt = (img.get("alt") or "").strip()
+        return img_url, alt
+
+    return "", ""
+
+
+def _parse_dim(val) -> int | None:
+    if val is None:
+        return None
+    try:
+        return int(str(val).strip("px "))
+    except (ValueError, TypeError):
+        return None
 
 
 def make_fetch_article_tool(agent):
@@ -46,8 +90,20 @@ def make_fetch_article_tool(agent):
             response = await client.get(url)
             response.raise_for_status()
 
-            text = SCRIPT_STYLE_RE.sub(" ", response.text)
+            html = response.text
+            text = SCRIPT_STYLE_RE.sub(" ", html)
             soup = BeautifulSoup(text, "lxml")
+
+            # Extract image
+            img_url, img_alt = _extract_image(soup, url)
+            if img_url:
+                for store in (agent.news_store, agent.paper_store):
+                    if store:
+                        try:
+                            store.update_item_image(url, img_url)
+                        except Exception:
+                            pass
+
             body = soup.get_text(separator=" ")
             body = WHITESPACE_RE.sub(" ", body).strip()
 
@@ -58,9 +114,12 @@ def make_fetch_article_tool(agent):
                 return f"文章内容过短（{len(body)} 字符），可能为动态加载页面，无法提取正文。"
 
             title_hint = f"标题：「{title}」\n" if title else ""
+            img_hint = ""
+            if img_alt:
+                img_hint = f"（文章配图描述：{img_alt}）"
             prompt = (
                 f"{title_hint}请用 3-5 句中文摘要以下文章的核心内容，"
-                f"突出关键信息和观点：\n\n{body}"
+                f"突出关键信息和观点。{img_hint}\n\n{body}"
             )
 
             result = await agent.model.ainvoke([{"role": "user", "content": prompt}])
@@ -74,7 +133,8 @@ def make_fetch_article_tool(agent):
                     except Exception:
                         pass
 
-            return summary
+            img_line = f"\n[配图] {img_url}" if img_url else ""
+            return summary + img_line
         except httpx.HTTPStatusError as e:
             return (
                 f"[抓取错误] HTTP {e.response.status_code} — 网页可能不存在或需要登录。"

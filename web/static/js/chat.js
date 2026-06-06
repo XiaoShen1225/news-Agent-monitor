@@ -162,8 +162,14 @@ async function sendChat(){
               if(!toolResultsRendered&&toolResults.length>0){toolResultsRendered=true;
                 var trBlock='<div class="tool-results-block">';
                 for(var j=0;j<toolResults.length;j++){
-                  var tr=toolResults[j];var rText=tr.result||'';if(rText.length>800)rText=rText.slice(0,800)+'...';
-                  trBlock+='<details class="tool-result-detail"><summary>\u{1F527} '+tr.name+'</summary><pre>'+rText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</pre></details>';
+                  var tr=toolResults[j];var rText=tr.result||'';
+                  var imgHTML='';
+                  rText=rText.replace(/[\r\n]*\[配图\]\s*(https?:\/\/\S+)[\r\n]*/g,function(m,imgUrl){
+                    imgHTML='<a href="'+imgUrl+'" target="_blank"><img src="'+imgUrl+'" class="tool-result-img" loading="lazy" onerror="this.style.display=\'none\'" alt="\u914d\u56fe"></a>';
+                    return '';
+                  });
+                  if(rText.length>800)rText=rText.slice(0,800)+'...';
+                  trBlock+='<details class="tool-result-detail"><summary>\u{1F527} '+tr.name+'</summary><pre>'+rText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</pre>'+imgHTML+'</details>';
                 }
                 trBlock+='</div>';aiContent.innerHTML=trBlock;
               }

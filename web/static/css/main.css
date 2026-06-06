@@ -227,6 +227,14 @@ header .header-actions { display: flex; gap: 8px; align-items: center; }
   max-height: 200px; overflow-y: auto; color: var(--text-secondary);
 }
 
+/* ── Tool Result Image ────────────────────────────────────────── */
+.tool-result-img {
+  max-width: 280px; max-height: 200px; border-radius: var(--radius-sm);
+  margin-top: 6px; object-fit: cover; cursor: pointer;
+  border: 1px solid var(--border-light); transition: transform var(--transition);
+}
+.tool-result-img:hover { transform: scale(1.02); border-color: var(--accent); }
+
 /* ── Tool Call Chip ───────────────────────────────────────────── */
 .tool-call-chip {
   display: inline-block; padding: 3px 10px; margin: 0 3px;

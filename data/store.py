@@ -110,6 +110,10 @@ class DataStore:
                 conn.execute(
                     "ALTER TABLE news_items ADD COLUMN published TEXT DEFAULT ''"
                 )
+            if "image_url" not in cols:
+                conn.execute(
+                    "ALTER TABLE news_items ADD COLUMN image_url TEXT DEFAULT ''"
+                )
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS run_logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -785,6 +789,24 @@ class DataStore:
                 (summary, url),
             )
             conn.commit()
+
+    def update_item_image(self, url: str, image_url: str):
+        """Cache an image URL for a news item URL."""
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE news_items SET image_url = ? WHERE url = ?",
+                (image_url, url),
+            )
+            conn.commit()
+
+    def get_item_image(self, url: str) -> str | None:
+        """Retrieve cached image URL, or None."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT image_url FROM news_items WHERE url = ? AND image_url != '' ORDER BY id DESC LIMIT 1",
+                (url,),
+            ).fetchone()
+        return row[0] if row else None
 
     def get_item_summary(self, url: str) -> str | None:
         """Retrieve a cached summary for a URL, or None if not cached."""
