@@ -169,7 +169,8 @@ async function sendChat(){
                     return '';
                   });
                   if(rText.length>800)rText=rText.slice(0,800)+'...';
-                  trBlock+='<details class="tool-result-detail"><summary>\u{1F527} '+tr.name+'</summary><pre>'+rText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</pre>'+imgHTML+'</details>';
+                  var hasImg=imgHTML?' open':'';
+                  trBlock+='<details class="tool-result-detail"'+hasImg+'><summary>\u{1F527} '+tr.name+'</summary><pre>'+rText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</pre>'+imgHTML+'</details>';
                 }
                 trBlock+='</div>';aiContent.innerHTML=trBlock;
               }

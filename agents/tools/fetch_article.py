@@ -23,35 +23,70 @@ FETCH_HEADERS = {
 
 # Minimum width/height for an img to be considered a content image (skip icons)
 MIN_IMG_SIZE = 120
+ICON_PATTERNS = [
+    "icon",
+    "logo",
+    "avatar",
+    "homenav",
+    "qr_code",
+    "qr-code",
+    "button",
+    "placeholder",
+    "pixel",
+    "track",
+    "favicon",
+    "apple-touch-icon",
+    "code110x110",
+    "banner_",
+]
+
+
+def _is_icon_url(url: str) -> bool:
+    lower = url.lower()
+    return any(p in lower for p in ICON_PATTERNS)
 
 
 def _extract_image(soup: BeautifulSoup, base_url: str) -> tuple[str, str]:
-    """Extract (image_url, alt_text) from a page.  Prefers og:image meta tag."""
-    # 1. og:image meta
-    og = soup.find("meta", property="og:image")
-    if og and og.get("content"):
-        img_url = urljoin(base_url, og["content"].strip())
-        alt = ""
-        og_alt = soup.find("meta", property="og:image:alt")
-        if og_alt and og_alt.get("content"):
-            alt = og_alt["content"].strip()
-        return img_url, alt
+    """Extract (image_url, alt_text) from a page."""
+    # 1. og:image / twitter:image meta (most reliable)
+    for prop in ("og:image", "twitter:image"):
+        og = soup.find("meta", property=prop)
+        if og and og.get("content"):
+            img_url = urljoin(base_url, og["content"].strip())
+            if not _is_icon_url(img_url):
+                alt = ""
+                og_alt = soup.find("meta", property="og:image:alt")
+                if og_alt and og_alt.get("content"):
+                    alt = og_alt["content"].strip()
+                return img_url, alt
 
-    # 2. First significant <img>
-    for img in soup.find_all("img"):
+    # 2. Search in article/main content area, pick largest
+    content_area = (
+        soup.find("article")
+        or soup.find("main")
+        or soup.find("div", class_=re.compile(r"content|article|post|detail|body"))
+    )
+    search_in = content_area if content_area else soup
+
+    candidates = []
+    for img in search_in.find_all("img"):
         src = (img.get("src") or "").strip()
-        if not src or src.startswith("data:"):
+        if not src or src.startswith("data:") or _is_icon_url(src):
             continue
-        # Skip likely icons / tracking pixels
         w = _parse_dim(img.get("width"))
         h = _parse_dim(img.get("height"))
+        area = (w or 0) * (h or 0)
         if w is not None and w < MIN_IMG_SIZE:
             continue
         if h is not None and h < MIN_IMG_SIZE:
             continue
-        img_url = urljoin(base_url, src)
         alt = (img.get("alt") or "").strip()
-        return img_url, alt
+        candidates.append((area, src, alt))
+
+    if candidates:
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        _, src, alt = candidates[0]
+        return urljoin(base_url, src), alt
 
     return "", ""
 
@@ -86,11 +121,23 @@ def make_fetch_article_tool(agent):
                     return cached
 
         try:
-            client = agent._get_fetch_client()
-            response = await client.get(url)
-            response.raise_for_status()
+            # Try Playwright browser first (bypasses anti-bot measures)
+            html = ""
+            if agent._coordinator and agent._coordinator.fetcher:
+                try:
+                    html = await agent._coordinator.fetcher.fetch_article_with_browser(
+                        url
+                    )
+                except Exception:
+                    pass
 
-            html = response.text
+            # Fall back to httpx if browser fetch failed or returned empty
+            if not html:
+                client = agent._get_fetch_client()
+                response = await client.get(url)
+                response.raise_for_status()
+                html = response.text
+
             text = SCRIPT_STYLE_RE.sub(" ", html)
             soup = BeautifulSoup(text, "lxml")
 
@@ -112,6 +159,9 @@ def make_fetch_article_tool(agent):
 
             if len(body) < 100:
                 return f"文章内容过短（{len(body)} 字符），可能为动态加载页面，无法提取正文。"
+
+            if "验证" in body[:200] and ("拖动" in body[:200] or "拼图" in body[:200]):
+                return "[反爬拦截] 网站要求验证码验证，请稍后重试或更换来源。"
 
             title_hint = f"标题：「{title}」\n" if title else ""
             img_hint = ""

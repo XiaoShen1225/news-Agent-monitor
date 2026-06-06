@@ -160,6 +160,35 @@ class FetcherAgent(BaseAgent):
         logger.info("[Fetcher] Browser launched (reusable)")
         return self._browser
 
+    async def fetch_article_with_browser(
+        self, url: str, timeout_ms: int = 15000
+    ) -> str:
+        """Fetch a single article page via Playwright. No progressive scroll."""
+        browser = await self._ensure_browser()
+        if browser is None:
+            return ""
+        context = await browser.new_context(
+            user_agent=HEADERS["User-Agent"],
+            locale="zh-CN",
+            viewport={"width": 1920, "height": 1080},
+            extra_http_headers={"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"},
+        )
+        self._browser_context_count += 1
+        page = await context.new_page()
+        await page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+        """)
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            await page.wait_for_timeout(1500)
+            html = await page.content()
+            return html
+        except Exception as e:
+            logger.warning("[Fetcher] Browser article fetch failed for %s: %s", url, e)
+            return ""
+        finally:
+            await context.close()
+
     async def _close_browser(self):
         if self._browser is not None:
             await self._browser.close()
