@@ -24,191 +24,52 @@ FETCH_HEADERS = {
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
 
-# Minimum width/height for an img to be considered a content image (skip icons)
-MIN_IMG_SIZE = 120
-ICON_PATTERNS = [
-    "icon",
-    "logo",
-    "avatar",
-    "homenav",
-    "qr_code",
-    "qr-code",
-    "button",
-    "placeholder",
-    "pixel",
-    "track",
-    "favicon",
-    "apple-touch-icon",
-    "code110x110",
-    "banner_",
-    "wechat",
-    "weibo",
-    "share",
-    "qrcode",
-    "erweima",
-    "code_",
-    "mini_",
-    "thumb_",
-    "default_",
-    "prd/",
-]
-# Parent tags that indicate a UI/decoration image, not article content
-SKIP_PARENTS = {"nav", "header", "footer", "aside", "noscript", "template"}
 
+def _extract_images(soup: BeautifulSoup, base_url: str, limit: int = 10) -> list[str]:
+    """Find image URLs in the article body area with minimal filtering.
 
-def _is_icon_url(url: str) -> bool:
-    """Check if a URL looks like an icon/decoration, not article content.
-
-    Patterns without '/' match only the filename (last path segment).
-    Patterns with '/' match anywhere in the URL.
+    Only skips data: URIs, empty src, and duplicate URLs.
+    Returns up to ``limit`` unique absolute URLs.
     """
-    lower = url.lower()
-    # Split URL: check only the filename portion for non-path patterns
-    path = lower.split("?")[0]  # strip query string
-    filename = path.rsplit("/", 1)[-1] if "/" in path else path
-    for p in ICON_PATTERNS:
-        if "/" in p:
-            if p in lower:
-                return True
-        else:
-            if p in filename:
-                return True
-    return False
-
-
-def _extract_image(soup: BeautifulSoup, base_url: str) -> tuple[str, str]:
-    """Extract (image_url, alt_text) from a page."""
-    # 1. og:image / twitter:image — check both property and name attributes
-    og_img = None
-    for attr in ("property", "name"):
-        for tag_name in ("og:image", "twitter:image"):
-            og = soup.find("meta", {attr: tag_name})
-            if og and og.get("content"):
-                full_url = urljoin(base_url, og["content"].strip())
-                if not _is_icon_url(full_url):
-                    og_img = full_url
-                    break
-        if og_img:
-            break
-    if og_img:
-        alt = ""
-        og_alt = soup.find("meta", property="og:image:alt") or soup.find(
-            "meta", attrs={"name": "og:image:alt"}
-        )
-        if og_alt and og_alt.get("content"):
-            alt = og_alt["content"].strip()
-        logger.info("_extract_image: og:image found %s", og_img[:120])
-        return og_img, alt
-
-    # 2. Scan <img> in content area, prefer <figure> children, skip UI
-    content_area = (
+    # Narrow scope to likely content area; fall back to whole page
+    content = (
         soup.find("article")
         or soup.find("main")
-        or soup.find("div", class_=re.compile(r"content|article|post|detail|body"))
+        or soup.find("div", class_=re.compile(r"content|article|post|detail"))
     )
-    search_in = content_area if content_area else soup
+    search_in = content if content else soup
 
-    all_imgs = search_in.find_all("img")
-    total = len(all_imgs)
-    # Diagnostic: log first few img tags to understand site's markup
-    for i, img in enumerate(all_imgs[:5]):
-        attrs = {
-            k: (str(v)[:80] if v else "")
-            for k, v in img.attrs.items()
-            if k
-            in ("src", "data-src", "data-original", "class", "width", "height", "alt")
-        }
-        logger.info("_extract_image: img[%d] %s", i, attrs)
-
-    candidates = []  # (score, src, alt) — higher score = better
-    for img in all_imgs:
-        src = (img.get("src") or "").strip()
-        # Fallback for lazy-loaded images: data-src, data-original, data-lazy-src
-        if not src or src.startswith("data:") or _is_icon_url(src):
-            for attr in ("data-src", "data-original", "data-lazy-src"):
-                alt_src = (img.get(attr) or "").strip()
-                if (
-                    alt_src
-                    and not alt_src.startswith("data:")
-                    and not _is_icon_url(alt_src)
-                ):
-                    src = alt_src
-                    break
-        if not src or src.startswith("data:") or _is_icon_url(src):
+    urls: list[str] = []
+    seen: set[str] = set()
+    for img in search_in.find_all("img"):
+        # Try src first, then common lazy-load attributes
+        raw = (
+            img.get("src")
+            or img.get("data-src")
+            or img.get("data-original")
+            or img.get("data-lazy-src")
+            or ""
+        ).strip()
+        if not raw or raw.startswith("data:"):
             continue
-        # Skip UI images by parent tag
-        parent = img.parent
-        if parent and parent.name in SKIP_PARENTS:
-            continue
-        # Skip if ancestor has share/sidebar/tool class
-        skip = False
-        for a in img.parents:
-            cls = (a.get("class") or []) if hasattr(a, "get") else []
-            cls_str = " ".join(cls) if isinstance(cls, list) else str(cls)
-            if any(
-                k in cls_str.lower()
-                for k in ("share", "sidebar", "toolbar", "recommend", "related")
-            ):
-                skip = True
+        full = urljoin(base_url, raw)
+        if full not in seen:
+            seen.add(full)
+            urls.append(full)
+            if len(urls) >= limit:
                 break
-        if skip:
-            continue
-
-        w = _parse_dim(img.get("width"))
-        h = _parse_dim(img.get("height"))
-        if w is not None and w < MIN_IMG_SIZE:
-            continue
-        if h is not None and h < MIN_IMG_SIZE:
-            continue
-
-        score = (w or 0) * (h or 0)
-        # Bonus for <figure>/<picture> children (strong content signal)
-        if parent and parent.name in ("figure", "picture"):
-            score += 100000
-        alt = (img.get("alt") or "").strip()
-        # Boost images with descriptive alt text
-        if len(alt) > 5:
-            score += 50000
-        candidates.append((score, src, alt))
-
-    logger.info(
-        "_extract_image: %d total imgs, %d candidates after filtering",
-        total,
-        len(candidates),
-    )
-    if candidates:
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        _, src, alt = candidates[0]
-        result = urljoin(base_url, src), alt
-        logger.info(
-            "_extract_image: img scan found %s (score=%d)",
-            result[0][:120],
-            candidates[0][0],
-        )
-        return result
-
-    logger.info("_extract_image: no image found for %s", base_url[:80])
-    return "", ""
-
-
-def _parse_dim(val) -> int | None:
-    if val is None:
-        return None
-    try:
-        return int(str(val).strip("px "))
-    except (ValueError, TypeError):
-        return None
+    logger.info("_extract_images: %d unique URLs found", len(urls))
+    return urls
 
 
 def make_fetch_article_tool(agent):
     @tool
     async def fetch_article(url: str, title: str = "") -> str:
-        """抓取指定URL的网页正文，用AI生成中文摘要，并自动提取文章配图（若有）。
+        """抓取指定URL的网页正文，用AI生成中文摘要，并提取正文区域图片。
 
-        返回格式：摘要 + [配图] URL。若返回中包含 [配图]，请在回复中展示该图片链接。
+        返回格式：摘要 + [配图1] URL + [配图2] URL ...（最多10张候选）。
+        请从候选配图中选最相关的一张展示给用户。
         需要网络请求，耗时较长（10-15秒）。
-        使用场景：用户想看某篇文章的具体内容，且 get_item 缓存为空时使用。
-        优先用 get_item 查缓存，确认无缓存后再用此工具。
         """
         if not url:
             return "[参数错误] 未提供 url 参数。"
@@ -266,19 +127,13 @@ def make_fetch_article_tool(agent):
             text = SCRIPT_STYLE_RE.sub(" ", html)
             soup = BeautifulSoup(text, "lxml")
 
-            # Extract image
-            img_url, img_alt = _extract_image(soup, url)
-            logger.info(
-                "fetch_article: image result for %s — url=%s alt=%s",
-                url[:80],
-                img_url[:120] if img_url else "(none)",
-                img_alt[:60] if img_alt else "(none)",
-            )
-            if img_url:
+            # Extract image URLs (minimal filtering, Agent picks the best one)
+            img_urls = _extract_images(soup, url)
+            if img_urls:
                 for store in (agent.news_store, agent.paper_store):
                     if store:
                         try:
-                            store.update_item_image(url, img_url)
+                            store.update_item_image(url, img_urls[0])
                         except Exception:
                             pass
 
@@ -295,12 +150,9 @@ def make_fetch_article_tool(agent):
                 return "[反爬拦截] 网站要求验证码验证，请稍后重试或更换来源。"
 
             title_hint = f"标题：「{title}」\n" if title else ""
-            img_hint = ""
-            if img_alt:
-                img_hint = f"（文章配图描述：{img_alt}）"
             prompt = (
                 f"{title_hint}请用 3-5 句中文摘要以下文章的核心内容，"
-                f"突出关键信息和观点。{img_hint}\n\n{body}"
+                f"突出关键信息和观点。\n\n{body}"
             )
 
             result = await agent.model.ainvoke([{"role": "user", "content": prompt}])
@@ -314,8 +166,12 @@ def make_fetch_article_tool(agent):
                     except Exception:
                         pass
 
-            img_line = f"\n[配图] {img_url}" if img_url else ""
-            return summary + img_line
+            if img_urls:
+                img_lines = "\n".join(
+                    f"[配图{i + 1}] {u}" for i, u in enumerate(img_urls)
+                )
+                return f"{summary}\n\n{img_lines}"
+            return summary
         except httpx.HTTPStatusError as e:
             return (
                 f"[抓取错误] HTTP {e.response.status_code} — 网页可能不存在或需要登录。"
