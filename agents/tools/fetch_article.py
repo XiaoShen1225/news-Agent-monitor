@@ -198,15 +198,22 @@ def make_fetch_article_tool(agent):
         if not (url.startswith("http://") or url.startswith("https://")):
             return "[参数错误] URL必须以 http:// 或 https:// 开头。"
 
-        # Check cache first
+        # Check cache first — but if image_url is missing, re-fetch to extract it
         for store in (agent.news_store, agent.paper_store):
             if store:
                 cached = store.get_item_summary(url)
+                if cached and "[配图]" in cached:
+                    return cached
                 if cached:
                     img = store.get_item_image(url)
                     if img:
                         cached += f"\n[配图] {img}"
-                    return cached
+                        return cached
+                    # Summary cached but no image — do full fetch to extract image
+                    logger.info(
+                        "fetch_article: cache hit for %s but no image, re-fetching",
+                        url[:80],
+                    )
 
         try:
             # Try Playwright browser first (bypasses anti-bot measures)
