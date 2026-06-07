@@ -26,23 +26,16 @@ FETCH_HEADERS = {
 
 
 def _extract_images(soup: BeautifulSoup, base_url: str, limit: int = 10) -> list[str]:
-    """Find image URLs in the article body area with minimal filtering.
-
-    Only skips data: URIs, empty src, and duplicate URLs.
+    """Find image URLs with minimal filtering. Searches entire page first;
+    only narrows to content area when that yields fewer irrelevant results.
     Returns up to ``limit`` unique absolute URLs.
     """
-    # Narrow scope to likely content area; fall back to whole page
-    content = (
-        soup.find("article")
-        or soup.find("main")
-        or soup.find("div", class_=re.compile(r"content|article|post|detail"))
-    )
-    search_in = content if content else soup
-
+    # Collect candidates from the whole page
     urls: list[str] = []
     seen: set[str] = set()
-    for img in search_in.find_all("img"):
-        # Try src first, then common lazy-load attributes
+    all_imgs = soup.find_all("img")
+    logger.info("_extract_images: %d imgs in full page", len(all_imgs))
+    for img in all_imgs:
         raw = (
             img.get("src")
             or img.get("data-src")
@@ -58,7 +51,9 @@ def _extract_images(soup: BeautifulSoup, base_url: str, limit: int = 10) -> list
             urls.append(full)
             if len(urls) >= limit:
                 break
-    logger.info("_extract_images: %d unique URLs found", len(urls))
+    # Diagnostic: show first 3 for debugging
+    for i, u in enumerate(urls[:3]):
+        logger.info("_extract_images: [%d] %s", i, u[:150])
     return urls
 
 
