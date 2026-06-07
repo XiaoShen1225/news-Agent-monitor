@@ -54,24 +54,44 @@ SKIP_PARENTS = {"nav", "header", "footer", "aside", "noscript", "template"}
 
 
 def _is_icon_url(url: str) -> bool:
+    """Check if a URL looks like an icon/decoration, not article content.
+
+    Patterns without '/' match only the filename (last path segment).
+    Patterns with '/' match anywhere in the URL.
+    """
     lower = url.lower()
-    return any(p in lower for p in ICON_PATTERNS)
+    # Split URL: check only the filename portion for non-path patterns
+    path = lower.split("?")[0]  # strip query string
+    filename = path.rsplit("/", 1)[-1] if "/" in path else path
+    for p in ICON_PATTERNS:
+        if "/" in p:
+            if p in lower:
+                return True
+        else:
+            if p in filename:
+                return True
+    return False
 
 
 def _extract_image(soup: BeautifulSoup, base_url: str) -> tuple[str, str]:
     """Extract (image_url, alt_text) from a page."""
-    # 1. og:image / twitter:image — but skip generic site placeholders
+    # 1. og:image / twitter:image — check both property and name attributes
     og_img = None
-    for prop in ("og:image", "twitter:image"):
-        og = soup.find("meta", property=prop)
-        if og and og.get("content"):
-            url = urljoin(base_url, og["content"].strip())
-            if not _is_icon_url(url):
-                og_img = url
-                break
+    for attr in ("property", "name"):
+        for tag_name in ("og:image", "twitter:image"):
+            og = soup.find("meta", {attr: tag_name})
+            if og and og.get("content"):
+                full_url = urljoin(base_url, og["content"].strip())
+                if not _is_icon_url(full_url):
+                    og_img = full_url
+                    break
+        if og_img:
+            break
     if og_img:
         alt = ""
-        og_alt = soup.find("meta", property="og:image:alt")
+        og_alt = soup.find("meta", property="og:image:alt") or soup.find(
+            "meta", attrs={"name": "og:image:alt"}
+        )
         if og_alt and og_alt.get("content"):
             alt = og_alt["content"].strip()
         return og_img, alt
@@ -87,6 +107,17 @@ def _extract_image(soup: BeautifulSoup, base_url: str) -> tuple[str, str]:
     candidates = []  # (score, src, alt) — higher score = better
     for img in search_in.find_all("img"):
         src = (img.get("src") or "").strip()
+        # Fallback for lazy-loaded images: data-src, data-original, data-lazy-src
+        if not src or src.startswith("data:") or _is_icon_url(src):
+            for attr in ("data-src", "data-original", "data-lazy-src"):
+                alt_src = (img.get(attr) or "").strip()
+                if (
+                    alt_src
+                    and not alt_src.startswith("data:")
+                    and not _is_icon_url(alt_src)
+                ):
+                    src = alt_src
+                    break
         if not src or src.startswith("data:") or _is_icon_url(src):
             continue
         # Skip UI images by parent tag
