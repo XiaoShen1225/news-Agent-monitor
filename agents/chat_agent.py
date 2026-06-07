@@ -888,8 +888,8 @@ class ChatAgent(BaseAgent):
 
     @staticmethod
     def _repair_history(history: list[dict]) -> bool:
-        """Fix a single history list: missing content + orphan tool_calls/tool msgs.
-        Returns True if any repair was made."""
+        """Fix a single history list: missing content, orphan tool_calls/tool msgs,
+        and duplicate tool messages (same tool_call_id appearing more than once)."""
         repaired = False
         for msg in history:
             if "content" not in msg:
@@ -902,32 +902,33 @@ class ChatAgent(BaseAgent):
                 for tc in m["tool_calls"]:
                     if tc.get("id"):
                         ai_ids.add(tc["id"])
-        # Collect tool_call_ids from tool messages
-        tool_ids = {
-            m["tool_call_id"]
-            for m in history
-            if m.get("role") == "tool" and m.get("tool_call_id")
-        }
         # Strip orphan tool_calls (no matching tool message)
         for m in history:
             if m.get("role") == "assistant" and m.get("tool_calls"):
                 before = len(m["tool_calls"])
                 m["tool_calls"] = [
-                    tc for tc in m["tool_calls"] if tc.get("id") in tool_ids
+                    tc
+                    for tc in m["tool_calls"]
+                    if tc.get("id")
+                    in {x["tool_call_id"] for x in history if x.get("role") == "tool"}
                 ]
                 if len(m["tool_calls"]) != before:
                     repaired = True
                 if not m["tool_calls"]:
                     del m["tool_calls"]
-        # Strip orphan tool messages (no matching tool_calls)
-        orphan_tool = [
-            i
-            for i, m in enumerate(history)
-            if m.get("role") == "tool"
-            and m.get("tool_call_id")
-            and m["tool_call_id"] not in ai_ids
-        ]
-        for i in reversed(orphan_tool):
+        # Strip orphan tool messages (no matching tool_calls) + duplicates
+        seen_tool_ids = set()
+        orphan_or_dup = []
+        for i, m in enumerate(history):
+            if m.get("role") == "tool" and m.get("tool_call_id"):
+                tid = m["tool_call_id"]
+                if tid not in ai_ids:
+                    orphan_or_dup.append(i)  # orphan
+                elif tid in seen_tool_ids:
+                    orphan_or_dup.append(i)  # duplicate
+                else:
+                    seen_tool_ids.add(tid)
+        for i in reversed(orphan_or_dup):
             del history[i]
             repaired = True
         return repaired
