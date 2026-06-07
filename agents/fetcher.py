@@ -163,7 +163,7 @@ class FetcherAgent(BaseAgent):
     async def fetch_article_with_browser(
         self, url: str, timeout_ms: int = 15000
     ) -> str:
-        """Fetch a single article page via Playwright. Scrolls once to trigger
+        """Fetch a single article page via Playwright. Quick scroll to trigger
         lazy-loaded images (common on Chinese news sites like Gamersky)."""
         browser = await self._ensure_browser()
         if browser is None:
@@ -182,17 +182,30 @@ class FetcherAgent(BaseAgent):
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             await page.wait_for_timeout(2000)
-            # Scroll down in steps to trigger lazy-loaded images
-            for _ in range(3):
-                await page.evaluate(
-                    "window.scrollBy(0, document.body.scrollHeight / 3)"
-                )
-                await page.wait_for_timeout(800)
-            await page.wait_for_timeout(1000)
+            # Scroll to trigger lazy-loaded images (safe JS with try-catch)
+            try:
+                await page.evaluate("""
+                    try {
+                        var h = document.body ? document.body.scrollHeight : 0;
+                        if (h > 0) {
+                            for (var i = 1; i <= 3; i++) {
+                                window.scrollTo(0, (h / 3) * i);
+                            }
+                        }
+                    } catch(e) {}
+                """)
+                await page.wait_for_timeout(1500)
+            except Exception:
+                pass
             html = await page.content()
+            logger.info(
+                "[Fetcher] Browser article fetch OK: %s (%d bytes)", url[:80], len(html)
+            )
             return html
         except Exception as e:
-            logger.warning("[Fetcher] Browser article fetch failed for %s: %s", url, e)
+            logger.warning(
+                "[Fetcher] Browser article fetch failed for %s: %s", url[:80], e
+            )
             return ""
         finally:
             await context.close()

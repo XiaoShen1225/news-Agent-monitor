@@ -200,20 +200,26 @@ def make_fetch_article_tool(agent):
 
         # Check cache first — but if image_url is missing, re-fetch to extract it
         for store in (agent.news_store, agent.paper_store):
-            if store:
+            if not store:
+                continue
+            try:
                 cached = store.get_item_summary(url)
-                if cached and "[配图]" in cached:
-                    return cached
-                if cached:
+            except Exception:
+                continue
+            if cached and "[配图]" in cached:
+                return cached
+            if cached:
+                try:
                     img = store.get_item_image(url)
-                    if img:
-                        cached += f"\n[配图] {img}"
-                        return cached
-                    # Summary cached but no image — do full fetch to extract image
-                    logger.info(
-                        "fetch_article: cache hit for %s but no image, re-fetching",
-                        url[:80],
-                    )
+                except Exception:
+                    img = None
+                if img:
+                    cached += f"\n[配图] {img}"
+                    return cached
+                logger.info(
+                    "fetch_article: cache hit for %s but no image, re-fetching",
+                    url[:80],
+                )
 
         try:
             # Try Playwright browser first (bypasses anti-bot measures)
@@ -228,10 +234,17 @@ def make_fetch_article_tool(agent):
 
             # Fall back to httpx if browser fetch failed or returned empty
             if not html:
+                logger.info(
+                    "fetch_article: browser fetch failed/empty for %s, trying httpx",
+                    url[:80],
+                )
                 client = agent._get_fetch_client()
                 response = await client.get(url)
                 response.raise_for_status()
                 html = response.text
+                logger.info(
+                    "fetch_article: httpx got %d bytes for %s", len(html), url[:80]
+                )
 
             text = SCRIPT_STYLE_RE.sub(" ", html)
             soup = BeautifulSoup(text, "lxml")
