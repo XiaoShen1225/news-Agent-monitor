@@ -162,12 +162,17 @@ class FetcherAgent(BaseAgent):
 
     async def fetch_article_with_browser(
         self, url: str, timeout_ms: int = 15000
-    ) -> str:
-        """Fetch a single article page via Playwright. Quick scroll to trigger
-        lazy-loaded images (common on Chinese news sites like Gamersky)."""
+    ) -> dict:
+        """Fetch a single article page via Playwright. Scrolls to trigger
+        lazy-loaded images, then extracts img URLs directly from the DOM via JS
+        (bypassing HTML parsing issues).
+
+        Returns ``{"html": str, "images": list[str]}``, or ``{"html": "", "images": []}``
+        on failure.
+        """
         browser = await self._ensure_browser()
         if browser is None:
-            return ""
+            return {"html": "", "images": []}
         context = await browser.new_context(
             user_agent=HEADERS["User-Agent"],
             locale="zh-CN",
@@ -198,15 +203,47 @@ class FetcherAgent(BaseAgent):
             except Exception:
                 pass
             html = await page.content()
+            # Extract image URLs directly from DOM via JS — bypasses
+            # HTML parsing discrepancies (malformed tags, regex over-match, etc.)
+            try:
+                images: list[str] = await page.evaluate("""
+                    (function() {
+                        var imgs = document.querySelectorAll('img');
+                        var urls = [];
+                        for (var i = 0; i < imgs.length && urls.length < 20; i++) {
+                            var el = imgs[i];
+                            var src = el.src
+                                || el.getAttribute('data-src')
+                                || el.getAttribute('data-original')
+                                || el.getAttribute('data-lazy-src')
+                                || '';
+                            if (src && src.indexOf('data:') !== 0 && src.indexOf('blob:') !== 0) {
+                                urls.push(src);
+                            }
+                        }
+                        return urls;
+                    })()
+                """)
+                logger.info(
+                    "[Fetcher] JS extracted %d images for %s",
+                    len(images),
+                    url[:80],
+                )
+            except Exception as e:
+                logger.warning("[Fetcher] JS image extraction failed: %s", e)
+                images = []
             logger.info(
-                "[Fetcher] Browser article fetch OK: %s (%d bytes)", url[:80], len(html)
+                "[Fetcher] Browser article fetch OK: %s (%d bytes, %d images)",
+                url[:80],
+                len(html),
+                len(images),
             )
-            return html
+            return {"html": html, "images": images}
         except Exception as e:
             logger.warning(
                 "[Fetcher] Browser article fetch failed for %s: %s", url[:80], e
             )
-            return ""
+            return {"html": "", "images": []}
         finally:
             await context.close()
 

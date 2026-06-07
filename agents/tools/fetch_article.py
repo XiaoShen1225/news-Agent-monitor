@@ -30,7 +30,6 @@ def _extract_images(soup: BeautifulSoup, base_url: str, limit: int = 10) -> list
     only narrows to content area when that yields fewer irrelevant results.
     Returns up to ``limit`` unique absolute URLs.
     """
-    # Collect candidates from the whole page
     urls: list[str] = []
     seen: set[str] = set()
     all_imgs = soup.find_all("img")
@@ -51,10 +50,21 @@ def _extract_images(soup: BeautifulSoup, base_url: str, limit: int = 10) -> list
             urls.append(full)
             if len(urls) >= limit:
                 break
-    # Diagnostic: show first 3 for debugging
     for i, u in enumerate(urls[:3]):
         logger.info("_extract_images: [%d] %s", i, u[:150])
     return urls
+
+
+def _extract_images_from_raw_html(
+    html: str, base_url: str, limit: int = 10
+) -> list[str]:
+    """Parse raw HTML (before script/style removal) to find img tags.
+    The SCRIPT_STYLE_RE regex can over-match on malformed HTML, removing
+    swaths of content including img tags.  Extracting from raw HTML first
+    avoids that hazard.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    return _extract_images(soup, base_url, limit)
 
 
 def make_fetch_article_tool(agent):
@@ -95,13 +105,23 @@ def make_fetch_article_tool(agent):
                 )
 
         try:
-            # Try Playwright browser first (bypasses anti-bot measures)
+            img_urls: list[str] = []
+
+            # Try Playwright browser first (bypasses anti-bot measures).
+            # Returns {"html": ..., "images": [...]} with JS-extracted images
+            # that completely bypass HTML parsing.
             html = ""
             if agent._coordinator and agent._coordinator.fetcher:
                 try:
-                    html = await agent._coordinator.fetcher.fetch_article_with_browser(
-                        url
+                    result = (
+                        await agent._coordinator.fetcher.fetch_article_with_browser(url)
                     )
+                    if isinstance(result, dict):
+                        html = result.get("html", "")
+                        img_urls = result.get("images", [])
+                    else:
+                        # Back-compat: old return type (str)
+                        html = result
                 except Exception:
                     pass
 
@@ -119,11 +139,23 @@ def make_fetch_article_tool(agent):
                     "fetch_article: httpx got %d bytes for %s", len(html), url[:80]
                 )
 
-            text = SCRIPT_STYLE_RE.sub(" ", html)
-            soup = BeautifulSoup(text, "lxml")
+            # Extract images from raw HTML first (before SCRIPT_STYLE_RE may
+            # over-match and remove content).  Merge with JS-extracted images
+            # from the browser path.
+            bs4_images = _extract_images_from_raw_html(html, url)
 
-            # Extract image URLs (minimal filtering, Agent picks the best one)
-            img_urls = _extract_images(soup, url)
+            # Merge: JS images first, then BS4 images (deduplicated)
+            seen: set[str] = set()
+            merged: list[str] = []
+            for u in img_urls + bs4_images:
+                if u not in seen:
+                    seen.add(u)
+                    merged.append(u)
+                    if len(merged) >= 10:
+                        break
+            img_urls = merged
+            logger.info("fetch_article: %d total images after merge", len(img_urls))
+
             if img_urls:
                 for store in (agent.news_store, agent.paper_store):
                     if store:
@@ -132,6 +164,9 @@ def make_fetch_article_tool(agent):
                         except Exception:
                             pass
 
+            # Clean HTML for text extraction
+            text = SCRIPT_STYLE_RE.sub(" ", html)
+            soup = BeautifulSoup(text, "lxml")
             body = soup.get_text(separator=" ")
             body = WHITESPACE_RE.sub(" ", body).strip()
 
