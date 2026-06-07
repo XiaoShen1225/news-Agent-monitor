@@ -402,12 +402,13 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
 
         async def _initial_fetch():
             await asyncio.sleep(2)  # let server bind port first
+            # 干净启动：立即广播 watch 摘要，不等抓取完成
+            await _broadcast_watch_summary()
             logger.info(
                 "Running initial fetch for %d targets (background)...", len(targets)
             )
             try:
                 await coordinator.run_all_targets_async()
-                await _broadcast_watch_summary()
             except Exception as e:
                 logger.error("Initial batch fetch failed: %s", e)
 
