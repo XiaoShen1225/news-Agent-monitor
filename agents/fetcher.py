@@ -163,7 +163,8 @@ class FetcherAgent(BaseAgent):
     async def fetch_article_with_browser(
         self, url: str, timeout_ms: int = 15000
     ) -> str:
-        """Fetch a single article page via Playwright. No progressive scroll."""
+        """Fetch a single article page via Playwright. Scrolls once to trigger
+        lazy-loaded images (common on Chinese news sites like Gamersky)."""
         browser = await self._ensure_browser()
         if browser is None:
             return ""
@@ -180,7 +181,14 @@ class FetcherAgent(BaseAgent):
         """)
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-            await page.wait_for_timeout(1500)
+            await page.wait_for_timeout(2000)
+            # Scroll down in steps to trigger lazy-loaded images
+            for _ in range(3):
+                await page.evaluate(
+                    "window.scrollBy(0, document.body.scrollHeight / 3)"
+                )
+                await page.wait_for_timeout(800)
+            await page.wait_for_timeout(1000)
             html = await page.content()
             return html
         except Exception as e:

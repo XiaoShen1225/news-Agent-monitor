@@ -1,11 +1,14 @@
 """fetch_article tool — fetch webpage + AI summarization + image extraction."""
 
+import logging
 import re
 from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
 from langchain_core.tools import tool
+
+logger = logging.getLogger(__name__)
 
 SCRIPT_STYLE_RE = re.compile(
     r"<(script|style|noscript)[^>]*>.*?</\1>", re.DOTALL | re.IGNORECASE
@@ -94,6 +97,7 @@ def _extract_image(soup: BeautifulSoup, base_url: str) -> tuple[str, str]:
         )
         if og_alt and og_alt.get("content"):
             alt = og_alt["content"].strip()
+        logger.info("_extract_image: og:image found %s", og_img[:120])
         return og_img, alt
 
     # 2. Scan <img> in content area, prefer <figure> children, skip UI
@@ -158,8 +162,15 @@ def _extract_image(soup: BeautifulSoup, base_url: str) -> tuple[str, str]:
     if candidates:
         candidates.sort(key=lambda x: x[0], reverse=True)
         _, src, alt = candidates[0]
-        return urljoin(base_url, src), alt
+        result = urljoin(base_url, src), alt
+        logger.info(
+            "_extract_image: img scan found %s (score=%d)",
+            result[0][:120],
+            candidates[0][0],
+        )
+        return result
 
+    logger.info("_extract_image: no image found for %s", base_url[:80])
     return "", ""
 
 
@@ -220,6 +231,12 @@ def make_fetch_article_tool(agent):
 
             # Extract image
             img_url, img_alt = _extract_image(soup, url)
+            logger.info(
+                "fetch_article: image result for %s — url=%s alt=%s",
+                url[:80],
+                img_url[:120] if img_url else "(none)",
+                img_alt[:60] if img_alt else "(none)",
+            )
             if img_url:
                 for store in (agent.news_store, agent.paper_store):
                     if store:
