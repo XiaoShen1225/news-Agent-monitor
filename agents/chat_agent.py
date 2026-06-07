@@ -436,6 +436,8 @@ class ChatAgent(BaseAgent):
             pass
         if not self._history:
             return
+        # Repair history before seeding to prevent 400 errors from orphan tool_calls
+        self._repair_history(self._history)
         history_msgs = [self._dict_to_msg(m) for m in self._history]
         if history_msgs:
             self._graph.update_state(config, {"messages": history_msgs})
@@ -884,55 +886,60 @@ class ChatAgent(BaseAgent):
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("[ChatAgent] Failed to load chat history: %s", e)
 
-    def _repair_all_sessions(self):
-        """Fix corrupted history: missing content keys, and broken
-        tool_call_id chains that cause 400 API errors."""
+    @staticmethod
+    def _repair_history(history: list[dict]) -> bool:
+        """Fix a single history list: missing content + orphan tool_calls/tool msgs.
+        Returns True if any repair was made."""
         repaired = False
+        for msg in history:
+            if "content" not in msg:
+                msg["content"] = ""
+                repaired = True
+        # Collect tool_call_ids from assistant tool_calls
+        ai_ids = set()
+        for m in history:
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                for tc in m["tool_calls"]:
+                    if tc.get("id"):
+                        ai_ids.add(tc["id"])
+        # Collect tool_call_ids from tool messages
+        tool_ids = {
+            m["tool_call_id"]
+            for m in history
+            if m.get("role") == "tool" and m.get("tool_call_id")
+        }
+        # Strip orphan tool_calls (no matching tool message)
+        for m in history:
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                before = len(m["tool_calls"])
+                m["tool_calls"] = [
+                    tc for tc in m["tool_calls"] if tc.get("id") in tool_ids
+                ]
+                if len(m["tool_calls"]) != before:
+                    repaired = True
+                if not m["tool_calls"]:
+                    del m["tool_calls"]
+        # Strip orphan tool messages (no matching tool_calls)
+        orphan_tool = [
+            i
+            for i, m in enumerate(history)
+            if m.get("role") == "tool"
+            and m.get("tool_call_id")
+            and m["tool_call_id"] not in ai_ids
+        ]
+        for i in reversed(orphan_tool):
+            del history[i]
+            repaired = True
+        return repaired
+
+    def _repair_all_sessions(self):
+        """Fix corrupted history across all sessions on load."""
+        repaired_any = False
         for sid, session in self._sessions.items():
             history = session.get("history", [])
-            for msg in history:
-                if "content" not in msg:
-                    msg["content"] = ""
-                    repaired = True
-            # Two-way repair: ensure tool_calls ↔ tool messages are consistent
-            # 1. Collect tool_call_ids from assistant tool_calls
-            ai_ids = set()
-            for m in history:
-                if m.get("role") == "assistant" and m.get("tool_calls"):
-                    for tc in m["tool_calls"]:
-                        if tc.get("id"):
-                            ai_ids.add(tc["id"])
-            # 2. Collect tool_call_ids from tool messages
-            tool_ids = {
-                m["tool_call_id"]
-                for m in history
-                if m.get("role") == "tool" and m.get("tool_call_id")
-            }
-            # 3. Strip orphan tool_calls (no matching tool message)
-            for m in history:
-                if m.get("role") == "assistant" and m.get("tool_calls"):
-                    before = len(m["tool_calls"])
-                    m["tool_calls"] = [
-                        tc for tc in m["tool_calls"] if tc.get("id") in tool_ids
-                    ]
-                    if len(m["tool_calls"]) != before:
-                        repaired = True
-                    if not m["tool_calls"]:
-                        del m["tool_calls"]
-            # 4. Strip orphan tool messages (no matching tool_calls)
-            new_history = [
-                m
-                for m in history
-                if not (
-                    m.get("role") == "tool"
-                    and m.get("tool_call_id")
-                    and m["tool_call_id"] not in ai_ids
-                )
-            ]
-            if len(new_history) != len(history):
-                repaired = True
-            session["history"] = new_history
-        if repaired:
+            if self._repair_history(history):
+                repaired_any = True
+        if repaired_any:
             self._save_history()
             logger.info("[ChatAgent] Repaired corrupted history")
 

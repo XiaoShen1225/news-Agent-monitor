@@ -307,7 +307,13 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
     from web.app import _build_watch_summary
 
     async def _broadcast_watch_summary():
-        await ws_manager.broadcast(_build_watch_summary())
+        data = _build_watch_summary()
+        await ws_manager.broadcast(data)
+        logger.info(
+            "[WS] watch_summary broadcast: %d active, %d stale",
+            data["active_count"],
+            len(data["stale"]),
+        )
 
     # Register WebSocket broadcast as post-run callback (event-driven, not monkey-patch)
     async def _broadcast_on_run(result):

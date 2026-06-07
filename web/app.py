@@ -1484,8 +1484,8 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         watch_data = _build_watch_summary()
         await websocket.send_json(watch_data)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("[WS] Failed to send watch_summary on connect: %s", e)
     try:
         while True:
             data = await websocket.receive_text()
