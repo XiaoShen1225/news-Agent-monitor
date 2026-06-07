@@ -144,8 +144,10 @@ def _parse_dim(val) -> int | None:
 def make_fetch_article_tool(agent):
     @tool
     async def fetch_article(url: str, title: str = "") -> str:
-        """抓取指定URL的网页正文并用AI生成中文摘要。需要网络请求，耗时较长（10-15秒）。
+        """抓取指定URL的网页正文，用AI生成中文摘要，并自动提取文章配图（若有）。
 
+        返回格式：摘要 + [配图] URL。若返回中包含 [配图]，请在回复中展示该图片链接。
+        需要网络请求，耗时较长（10-15秒）。
         使用场景：用户想看某篇文章的具体内容，且 get_item 缓存为空时使用。
         优先用 get_item 查缓存，确认无缓存后再用此工具。
         """

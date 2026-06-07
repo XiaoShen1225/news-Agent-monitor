@@ -144,6 +144,26 @@ def _get_watch_store():
     return ctx.watch_store
 
 
+def _build_watch_summary() -> dict:
+    """Build watch_summary payload for WebSocket push (connect + broadcast)."""
+    store = _get_watch_store()
+    stale = store.get_stale_watches()
+    active_watches = store.list_watches(status="active", include_matches=False)
+    return {
+        "type": "watch_summary",
+        "active_count": len(active_watches),
+        "stale": [
+            {
+                "id": s["id"],
+                "title": s["title"],
+                "days_since_match": s.get("days_since_match", 0),
+            }
+            for s in stale
+        ],
+        "total_matches": sum(w.get("match_count", 0) for w in active_watches),
+    }
+
+
 def _diff_items(prev_items: list, curr_items: list) -> dict:
     """Count new/removed/modified by delegating to AnalyzerAgent._diff_items."""
     from agents.analyzer import AnalyzerAgent
@@ -1460,6 +1480,12 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.close(code=4001, reason="unauthorized")
             return
     await ws_manager.connect(websocket)
+    # 连接时立即推送 watch_summary，避免因前后端启动时差而丢失广播
+    try:
+        watch_data = _build_watch_summary()
+        await websocket.send_json(watch_data)
+    except Exception:
+        pass
     try:
         while True:
             data = await websocket.receive_text()

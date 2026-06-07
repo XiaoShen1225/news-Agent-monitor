@@ -304,26 +304,10 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
         return
 
     # ── Watch summary broadcast ───────────────────────────────────
+    from web.app import _build_watch_summary
+
     async def _broadcast_watch_summary():
-        """Collect watch matches from all recent results and broadcast."""
-        store = coordinator.watch_store
-        stale = store.get_stale_watches()
-        active_watches = store.list_watches(status="active", include_matches=False)
-        await ws_manager.broadcast(
-            {
-                "type": "watch_summary",
-                "active_count": len(active_watches),
-                "stale": [
-                    {
-                        "id": s["id"],
-                        "title": s["title"],
-                        "days_since_match": s.get("days_since_match", 0),
-                    }
-                    for s in stale
-                ],
-                "total_matches": sum(w.get("match_count", 0) for w in active_watches),
-            }
-        )
+        await ws_manager.broadcast(_build_watch_summary())
 
     # Register WebSocket broadcast as post-run callback (event-driven, not monkey-patch)
     async def _broadcast_on_run(result):
