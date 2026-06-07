@@ -161,6 +161,9 @@ def make_fetch_article_tool(agent):
             if store:
                 cached = store.get_item_summary(url)
                 if cached:
+                    img = store.get_item_image(url)
+                    if img:
+                        cached += f"\n[配图] {img}"
                     return cached
 
         try:
