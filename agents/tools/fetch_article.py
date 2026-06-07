@@ -38,7 +38,19 @@ ICON_PATTERNS = [
     "apple-touch-icon",
     "code110x110",
     "banner_",
+    "wechat",
+    "weibo",
+    "share",
+    "qrcode",
+    "erweima",
+    "code_",
+    "mini_",
+    "thumb_",
+    "default_",
+    "prd/",
 ]
+# Parent tags that indicate a UI/decoration image, not article content
+SKIP_PARENTS = {"nav", "header", "footer", "aside", "noscript", "template"}
 
 
 def _is_icon_url(url: str) -> bool:
@@ -48,19 +60,23 @@ def _is_icon_url(url: str) -> bool:
 
 def _extract_image(soup: BeautifulSoup, base_url: str) -> tuple[str, str]:
     """Extract (image_url, alt_text) from a page."""
-    # 1. og:image / twitter:image meta (most reliable)
+    # 1. og:image / twitter:image — but skip generic site placeholders
+    og_img = None
     for prop in ("og:image", "twitter:image"):
         og = soup.find("meta", property=prop)
         if og and og.get("content"):
-            img_url = urljoin(base_url, og["content"].strip())
-            if not _is_icon_url(img_url):
-                alt = ""
-                og_alt = soup.find("meta", property="og:image:alt")
-                if og_alt and og_alt.get("content"):
-                    alt = og_alt["content"].strip()
-                return img_url, alt
+            url = urljoin(base_url, og["content"].strip())
+            if not _is_icon_url(url):
+                og_img = url
+                break
+    if og_img:
+        alt = ""
+        og_alt = soup.find("meta", property="og:image:alt")
+        if og_alt and og_alt.get("content"):
+            alt = og_alt["content"].strip()
+        return og_img, alt
 
-    # 2. Search in article/main content area, pick largest
+    # 2. Scan <img> in content area, prefer <figure> children, skip UI
     content_area = (
         soup.find("article")
         or soup.find("main")
@@ -68,20 +84,45 @@ def _extract_image(soup: BeautifulSoup, base_url: str) -> tuple[str, str]:
     )
     search_in = content_area if content_area else soup
 
-    candidates = []
+    candidates = []  # (score, src, alt) — higher score = better
     for img in search_in.find_all("img"):
         src = (img.get("src") or "").strip()
         if not src or src.startswith("data:") or _is_icon_url(src):
             continue
+        # Skip UI images by parent tag
+        parent = img.parent
+        if parent and parent.name in SKIP_PARENTS:
+            continue
+        # Skip if ancestor has share/sidebar/tool class
+        skip = False
+        for a in img.parents:
+            cls = (a.get("class") or []) if hasattr(a, "get") else []
+            cls_str = " ".join(cls) if isinstance(cls, list) else str(cls)
+            if any(
+                k in cls_str.lower()
+                for k in ("share", "sidebar", "toolbar", "recommend", "related")
+            ):
+                skip = True
+                break
+        if skip:
+            continue
+
         w = _parse_dim(img.get("width"))
         h = _parse_dim(img.get("height"))
-        area = (w or 0) * (h or 0)
         if w is not None and w < MIN_IMG_SIZE:
             continue
         if h is not None and h < MIN_IMG_SIZE:
             continue
+
+        score = (w or 0) * (h or 0)
+        # Bonus for <figure>/<picture> children (strong content signal)
+        if parent and parent.name in ("figure", "picture"):
+            score += 100000
         alt = (img.get("alt") or "").strip()
-        candidates.append((area, src, alt))
+        # Boost images with descriptive alt text
+        if len(alt) > 5:
+            score += 50000
+        candidates.append((score, src, alt))
 
     if candidates:
         candidates.sort(key=lambda x: x[0], reverse=True)
