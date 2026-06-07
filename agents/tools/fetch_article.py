@@ -108,8 +108,20 @@ def _extract_image(soup: BeautifulSoup, base_url: str) -> tuple[str, str]:
     )
     search_in = content_area if content_area else soup
 
+    all_imgs = search_in.find_all("img")
+    total = len(all_imgs)
+    # Diagnostic: log first few img tags to understand site's markup
+    for i, img in enumerate(all_imgs[:5]):
+        attrs = {
+            k: (str(v)[:80] if v else "")
+            for k, v in img.attrs.items()
+            if k
+            in ("src", "data-src", "data-original", "class", "width", "height", "alt")
+        }
+        logger.info("_extract_image: img[%d] %s", i, attrs)
+
     candidates = []  # (score, src, alt) — higher score = better
-    for img in search_in.find_all("img"):
+    for img in all_imgs:
         src = (img.get("src") or "").strip()
         # Fallback for lazy-loaded images: data-src, data-original, data-lazy-src
         if not src or src.startswith("data:") or _is_icon_url(src):
@@ -159,6 +171,11 @@ def _extract_image(soup: BeautifulSoup, base_url: str) -> tuple[str, str]:
             score += 50000
         candidates.append((score, src, alt))
 
+    logger.info(
+        "_extract_image: %d total imgs, %d candidates after filtering",
+        total,
+        len(candidates),
+    )
     if candidates:
         candidates.sort(key=lambda x: x[0], reverse=True)
         _, src, alt = candidates[0]
