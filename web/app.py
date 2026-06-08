@@ -1480,12 +1480,6 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.close(code=4001, reason="unauthorized")
             return
     await ws_manager.connect(websocket)
-    # 连接时立即推送 watch_summary，避免因前后端启动时差而丢失广播
-    try:
-        watch_data = _build_watch_summary()
-        await websocket.send_json(watch_data)
-    except Exception as e:
-        logger.warning("[WS] Failed to send watch_summary on connect: %s", e)
     try:
         while True:
             data = await websocket.receive_text()
