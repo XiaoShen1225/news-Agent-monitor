@@ -834,7 +834,8 @@ class ChatAgent(BaseAgent):
         return content
 
     def _format_watches_for_prompt(self) -> str:
-        """Format active watches as a brief context block (~300 tokens max)."""
+        """Format active watches as a brief context block (~300 tokens max).
+        Includes stale status to enable proactive Agent notification."""
         try:
             active = self.watch_store.list_watches(status="active")
         except Exception:
@@ -846,11 +847,39 @@ class ChatAgent(BaseAgent):
         active.sort(key=lambda w: 0 if w["type"] == "topic" else 1)
         shown = active[:5]
         lines = ["[用户关注]"]
+        stale_watches = []
+        try:
+            from datetime import datetime, timedelta
+
+            stale_days = self.watch_store._data.get("config", {}).get(
+                "stale_prompt_days", 14
+            )
+        except Exception:
+            stale_days = 14
         for w in shown:
             kind = "主题" if w["type"] == "topic" else "事件"
             kws = "、".join(w.get("keywords", [])[:3])
             detail = f" — {kws}" if kws else ""
-            lines.append(f"- [{kind}] {w['title'][:50]}{detail}")
+            new_flag = ""
+            match_count = w.get("match_count", 0)
+            if match_count > 0:
+                new_flag = f" ({match_count} matches)"
+            lines.append(f"- [{kind}] {w['title'][:50]}{detail}{new_flag}")
+            # Check if stale
+            last = w.get("last_match_at") or w.get("created_at", "")
+            if last:
+                try:
+                    last_dt = datetime.fromisoformat(last)
+                    if (datetime.now() - last_dt) > timedelta(days=stale_days):
+                        stale_watches.append(w["title"])
+                except Exception:
+                    pass
+        if stale_watches:
+            names = "、".join(stale_watches[:3])
+            lines.append(
+                f"⚠ 以上 {len(stale_watches)} 个关注已超过 {stale_days} 天无新匹配，"
+                f"请在回复中主动告知用户（{names}），询问是否调整条件或暂停。"
+            )
         lines.append("(以上是用户正在关注的主题和事件，可在相关时引用)")
         return "\n".join(lines)
 

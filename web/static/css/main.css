@@ -94,6 +94,12 @@ header .header-actions { display: flex; gap: 8px; align-items: center; }
   background: var(--accent-soft); color: var(--accent); font-weight: 600;
 }
 .sidebar-item .icon { font-size: 18px; width: 24px; text-align: center; flex-shrink: 0; }
+.sidebar-badge {
+  display: inline-block; min-width: 18px; height: 18px; line-height: 18px;
+  padding: 0 5px; border-radius: 9px; font-size: 10px; font-weight: 700;
+  background: var(--orange); color: #fff; text-align: center;
+  margin-left: auto; flex-shrink: 0;
+}
 .sidebar-divider { border-top: 1px solid var(--border); margin: 8px 12px; }
 
 .sidebar-footer { flex: 1; padding: 8px; border-top: 1px solid var(--border);
