@@ -40,6 +40,36 @@ class MemoryManager:
         self._last_l1_run_at: str | None = None
         self._last_l2_run_at: str | None = None
         MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        # Resolve provider-specific config (e.g. llm.providers.openai)
+        self._provider_cfg = self._resolve_provider_cfg()
+
+    def _resolve_provider_cfg(self) -> dict:
+        """Resolve effective LLM config from ``provider`` + ``providers`` sections."""
+        provider_name = self._llm_cfg.get("provider", "openai")
+        providers = self._llm_cfg.get("providers", {})
+        pc = providers.get(provider_name, {})
+        # Resolve ${ENV_VAR} placeholders
+        import os
+
+        def _resolve(value):
+            if (
+                isinstance(value, str)
+                and value.startswith("${")
+                and value.endswith("}")
+            ):
+                return os.environ.get(value[2:-1], "")
+            return value
+
+        return {
+            "api_key": _resolve(pc.get("api_key", self._llm_cfg.get("api_key", ""))),
+            "base_url": _resolve(
+                pc.get(
+                    "base_url",
+                    self._llm_cfg.get("base_url", "https://api.openai.com/v1"),
+                )
+            ),
+            "model": pc.get("model", self._llm_cfg.get("model", "gpt-4o-mini")),
+        }
 
     # ── public entry ────────────────────────────────────────────────────
 
@@ -336,15 +366,15 @@ class MemoryManager:
     # ── helpers ─────────────────────────────────────────────────────────
 
     async def _call_llm(self, prompt: str) -> str:
-        """Call LLM for analysis. Override for testing."""
+        """Call LLM for analysis using resolved provider config."""
         from openai import AsyncOpenAI
 
         client = AsyncOpenAI(
-            api_key=self._llm_cfg.get("api_key", "sk-placeholder"),
-            base_url=self._llm_cfg.get("base_url", "https://api.openai.com/v1"),
+            api_key=self._provider_cfg.get("api_key") or "sk-placeholder",
+            base_url=self._provider_cfg.get("base_url") or "https://api.openai.com/v1",
         )
         response = await client.chat.completions.create(
-            model=self._llm_cfg.get("model", "gpt-4o-mini"),
+            model=self._provider_cfg.get("model") or "gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             max_tokens=500,
