@@ -320,7 +320,53 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
     async def _broadcast_on_run(result):
         try:
             site_name = result.get("site_name", "")
+            status = result.get("status", "unknown")
             report = result.get("report", {}) or {}
+
+            # ── Simplified payload for skipped / circuit-open paths ──
+            if status in ("skipped_no_change", "circuit_open"):
+                await ws_manager.broadcast(
+                    {
+                        "type": "pipeline_update",
+                        "site_name": site_name,
+                        "status": status,
+                        "items": 0,
+                        "time": report.get("timestamp", ""),
+                        "chart_data": {
+                            "site_name": site_name,
+                            "tag_distribution": [],
+                            "trends": {
+                                "snapshot_counts": [],
+                                "snapshot_times": [],
+                                "direction": "stable",
+                                "recent_average": 0,
+                                "older_average": 0,
+                            },
+                            "changes": {"new": 0, "removed": 0, "modified": 0},
+                            "update_summary": (
+                                "断路器已打开，暂时跳过此站点。"
+                                if status == "circuit_open"
+                                else "内容无变化。"
+                            ),
+                            "summary": {
+                                "site_name": site_name,
+                                "timestamp": report.get("timestamp", ""),
+                                "current_count": 0,
+                                "previous_count": 0,
+                                "total_changes": 0,
+                                "trend_direction": "stable",
+                                "llm_summary": "",
+                                "new_count": 0,
+                                "removed_count": 0,
+                                "modified_count": 0,
+                            },
+                        },
+                    }
+                )
+                await _broadcast_watch_summary()
+                return
+
+            # ── Full payload for success / error paths ──
             trends = report.get("trends", {}) or {}
             chart_payload = {
                 "site_name": site_name,
@@ -358,7 +404,7 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
                 {
                     "type": "pipeline_update",
                     "site_name": site_name,
-                    "status": result.get("status"),
+                    "status": status,
                     "items": report.get("current_count", 0),
                     "time": report.get("timestamp", ""),
                     "chart_data": chart_payload,

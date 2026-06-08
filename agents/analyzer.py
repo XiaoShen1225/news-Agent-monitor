@@ -29,9 +29,19 @@ class AnalyzerAgent(BaseAgent):
     # ── async ───────────────────────────────────────────────────────
 
     async def run_async(
-        self, current_items: list, site_name: str, content_hash: str, store=None
+        self,
+        current_items: list,
+        site_name: str,
+        content_hash: str,
+        store=None,
+        watch_context: dict = None,
+        preference_context: str = "",
     ) -> dict:
-        """Compare current items with previous snapshot."""
+        """Compare current items with previous snapshot.
+
+        ``watch_context`` and ``preference_context`` are optional personalization
+        data from the coordinator — injected into the update summary prompt.
+        """
         logger.info(
             "[Analyzer] Analyzing %d items for %s", len(current_items), site_name
         )
@@ -73,7 +83,9 @@ class AnalyzerAgent(BaseAgent):
             "anomalies": anomalies,
         }
 
-        report["update_summary"] = await self._generate_update_summary_async(report)
+        report["update_summary"] = await self._generate_update_summary_async(
+            report, watch_context, preference_context
+        )
 
         logger.info(
             "[Analyzer] Changes: %d new, %d removed, %d modified",
@@ -84,8 +96,13 @@ class AnalyzerAgent(BaseAgent):
 
         return report
 
-    async def _generate_update_summary_async(self, report: dict) -> str | None:
-        """Generate a concise update summary describing what changed."""
+    async def _generate_update_summary_async(
+        self,
+        report: dict,
+        watch_context: dict = None,
+        preference_context: str = "",
+    ) -> str | None:
+        """Generate an update summary, prioritizing user interests when available."""
         site_label = report.get("site_name", "未知站点")
         is_first = report.get("is_first_run", False)
         total_count = report.get("current_count", 0)
@@ -101,6 +118,28 @@ class AnalyzerAgent(BaseAgent):
 
         if new_count == 0 and removed_count == 0:
             return f"「{site_label}」本次无新增内容，共 {total_count} 条。趋势：{direction}。"
+
+        # ── Build personalized context sections ──
+        watch_ctx = watch_context or {}
+        watch_topics = watch_ctx.get("active_topics", [])
+        matched_items = watch_ctx.get("matched_items", [])
+
+        interest_section = ""
+        if preference_context:
+            interest_section = f"\n用户兴趣画像：\n{preference_context}\n"
+
+        watch_section = ""
+        if watch_topics:
+            topic_names = [t["title"] for t in watch_topics[:10]]
+            watch_section = f"\n用户关注主题：{topic_names}\n"
+        if matched_items:
+            match_lines = [
+                f"  - [{m['watch_title']}] {m['item_title']}" for m in matched_items[:8]
+            ]
+            watch_section += (
+                f"\n匹配用户关注的条目（共 {len(matched_items)} 条）：\n"
+                + "\n".join(match_lines)
+            )
 
         # Build prompt with new/removed item samples
         new_titles = [it.get("title", "") for it in report.get("new_items", [])[:10]]
@@ -120,15 +159,19 @@ class AnalyzerAgent(BaseAgent):
 共 {total_count} 条内容（新增 {new_count}，移除 {removed_count}）
 趋势方向：{direction}
 标签分布 Top 5：{top_tags}
-
+{interest_section}{watch_section}
 新增内容示例：{new_titles}
 移除内容示例：{removed_titles}{article_samples}
 
-请用 2-3 句中文简洁总结本次更新的特点，控制在 80 字以内。"""
+请用 2-3 句中文简洁总结本次更新。如果提供了用户兴趣和关注主题，优先突出与用户相关的内容变化，不要简单罗列数字。控制在 80 字以内。"""
 
         try:
             summary = await self.call_llm_async(
-                system_prompt="你是一个内容更新分析助手。根据提供的数据，用简洁中文总结本次更新特点。",
+                system_prompt=(
+                    "你是一个内容更新分析助手。请根据提供的数据用简洁中文总结本次更新。"
+                    "如果提供了用户兴趣画像和关注主题，优先总结与用户兴趣相关的内容变化，"
+                    "自然融入，不要生硬引用'用户画像'等词汇。控制在80字以内。"
+                ),
                 user_prompt=user_prompt,
                 max_tokens=200,
                 temperature=0.3,

@@ -5,6 +5,7 @@ import json
 import logging
 import time
 import uuid
+from datetime import datetime
 
 from .base_agent import BaseAgent
 from .fetcher import FetcherAgent
@@ -55,6 +56,47 @@ class CoordinatorAgent(BaseAgent):
         """Register an async callback invoked after each run_async completes."""
         self._run_callbacks.append(callback)
 
+    # ── preference / watch context builders ───────────────────────────
+
+    def _build_watch_context(self, items: list) -> dict:
+        """Build watch-context dict for personalized analyzer summaries."""
+        active = self.watch_store.list_watches(status="active")
+        topics = []
+        matched_items = []
+        seen = set()
+        for w in active:
+            kws = w.get("keywords", [])
+            title = w.get("title", "")
+            if kws or title:
+                topics.append({"title": title, "keywords": kws})
+            for item in items:
+                item_title = item.get("title", "")
+                for kw in kws:
+                    if kw and kw in item_title:
+                        key = (w["id"], item_title[:40])
+                        if key not in seen:
+                            seen.add(key)
+                            matched_items.append(
+                                {
+                                    "watch_title": title,
+                                    "item_title": item_title[:80],
+                                    "keyword": kw,
+                                }
+                            )
+                        break
+        return {"active_topics": topics, "matched_items": matched_items}
+
+    @staticmethod
+    def _build_preference_context() -> str:
+        """Read L1/L2 preference data for prompt injection."""
+        try:
+            from agents.preference_engine import PreferenceEngine
+
+            engine = PreferenceEngine(track_store=None)
+            return engine.format_for_prompt()
+        except Exception:
+            return ""
+
     # ── sync (wraps async) ──────────────────────────────────────────
 
     def run(
@@ -89,7 +131,8 @@ class CoordinatorAgent(BaseAgent):
             "report": None,
         }
 
-        # Circuit breaker: skip sites that have failed too many times in a row
+        # Circuit breaker: skip sites that have failed too many times in a row.
+        # Falls through to callbacks so the dashboard is still notified of the skip.
         if active_store and active_store.is_circuit_open(site_name):
             logger.warning(
                 json.dumps(
@@ -102,213 +145,228 @@ class CoordinatorAgent(BaseAgent):
                 )
             )
             result["status"] = "circuit_open"
-            return result
-
-        logger.info(
-            json.dumps(
-                {
-                    "event": "pipeline_start",
-                    "trace_id": trace_id,
-                    "site": site_name,
-                    "url": url,
-                }
+        else:
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "pipeline_start",
+                        "trace_id": trace_id,
+                        "site": site_name,
+                        "url": url,
+                    }
+                )
             )
-        )
 
-        try:
-            # Step 1: Fetch
-            fetch_result = await self.fetcher.run_async(url, use_browser=use_browser)
-            content_hash = fetch_result["content_hash"]
+            try:
+                # Step 1: Fetch
+                fetch_result = await self.fetcher.run_async(
+                    url, use_browser=use_browser
+                )
+                content_hash = fetch_result["content_hash"]
 
-            # Step 2: Check if content changed
-            last_hash = active_store.get_last_hash(site_name) if active_store else None
-            if last_hash == content_hash and last_hash is not None:
+                # Step 2: Check if content changed
+                last_hash = (
+                    active_store.get_last_hash(site_name) if active_store else None
+                )
+                if last_hash == content_hash and last_hash is not None:
+                    elapsed = (time.time() - start_time) * 1000
+                    logger.info(
+                        json.dumps(
+                            {
+                                "event": "pipeline_skip",
+                                "trace_id": trace_id,
+                                "site": site_name,
+                                "reason": "no_change",
+                                "duration_ms": round(elapsed),
+                            }
+                        )
+                    )
+                    result["status"] = "skipped_no_change"
+                    result["report"] = {
+                        "site_name": site_name,
+                        "content_hash": content_hash,
+                        "has_changes": False,
+                        "is_first_run": False,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                    if active_store:
+                        active_store.reset_failure(site_name)
+                        active_store.log_run(
+                            site_name,
+                            "skipped_no_change",
+                            processing_time_ms=elapsed,
+                            trace_id=trace_id,
+                        )
+                    # No notify_all for no-change, but callbacks fire below
+                else:
+                    # Step 3: Parse (with site profile)
+                    parse_result = await self.parser.run_async(
+                        fetch_result["html"],
+                        site_name,
+                        url,
+                        profile,
+                    )
+                    items = parse_result["items"]
+                    confidence = parse_result["extraction_confidence"]
+
+                    # Step 3b: Sentiment labeling (rule-based, no LLM cost)
+                    for item in items:
+                        if not item.get("sentiment"):
+                            item["sentiment"] = classify(item.get("title", ""))
+
+                    # Step 4: Analyze (with personalized context)
+                    watch_ctx = self._build_watch_context(items)
+                    pref_ctx = self._build_preference_context()
+                    report = await self.analyzer.run_async(
+                        items,
+                        site_name,
+                        content_hash,
+                        store=active_store,
+                        watch_context=watch_ctx,
+                        preference_context=pref_ctx,
+                    )
+
+                    # Step 5: Save snapshot
+                    if active_store:
+                        active_store.save_snapshot(site_name, url, content_hash, items)
+                        active_store.update_metadata(
+                            site_name,
+                            items_count=len(items),
+                            tag_dist=report.get("tag_distribution", {}),
+                            changes={
+                                "new": len(report.get("new_items", [])),
+                                "removed": len(report.get("removed_items", [])),
+                                "modified": len(report.get("modified_items", [])),
+                            },
+                            update_summary=report.get("update_summary") or "",
+                        )
+                        if self.max_snapshots > 0:
+                            active_store.prune_snapshots(site_name, self.max_snapshots)
+                        if self.vector_store:
+                            try:
+                                self.vector_store.add_items(items, site_name)
+                            except Exception as e:
+                                logger.warning("Vector store indexing failed: %s", e)
+
+                    result["status"] = "success"
+                    result["report"] = report
+
+                    # ── Watch matching (unified topic + event) ────────
+                    new_items = report.get("new_items", [])
+                    watch_matches = {
+                        "keyword_matches": [],
+                        "semantic_matches": [],
+                    }
+                    if new_items:
+                        try:
+                            watch_matches = self.watch_store.check_new_items(
+                                new_items, self.vector_store
+                            )
+                        except Exception as e:
+                            logger.warning("[Coordinator] Watch matching failed: %s", e)
+                    result["watch_matches"] = watch_matches
+
+                    # Anomaly detection cooldown check
+                    alert_config = self.config.get("alerts", {}) or {}
+                    anomalies = report.get("anomalies", [])
+                    result["anomalies"] = []
+                    anomaly_cfg = alert_config.get("anomaly", {})
+                    cooldown_min = anomaly_cfg.get("cooldown_minutes", 120)
+                    for a in anomalies:
+                        if self.watch_store.should_alert_anomaly(
+                            site_name, a["type"], cooldown_min
+                        ):
+                            result["anomalies"].append(a)
+                            self.watch_store.log_anomaly_alert(
+                                site_name,
+                                a["type"],
+                                f"{a['type']}: current={a['current_count']},"
+                                f" baseline={a['baseline_avg']}",
+                            )
+
+                    # Sentiment shift check
+                    sentiment_shift = report.get("sentiment_shift", {}) or {}
+                    if sentiment_shift.get("significant"):
+                        result["sentiment_shift"] = sentiment_shift
+                        self.watch_store.log_sentiment_shift(
+                            site_name,
+                            f"情感偏移: {sentiment_shift.get('shifted', {})}",
+                        )
+                    else:
+                        result["sentiment_shift"] = None
+
+                    elapsed = (time.time() - start_time) * 1000
+                    total_tokens = (
+                        self.parser.get_last_tokens() + self.analyzer.get_last_tokens()
+                    )
+                    logger.info(
+                        json.dumps(
+                            {
+                                "event": "pipeline_done",
+                                "trace_id": trace_id,
+                                "site": site_name,
+                                "duration_ms": round(elapsed),
+                                "items": len(items),
+                                "changes": report.get("total_changes", 0),
+                                "tokens": total_tokens,
+                            }
+                        )
+                    )
+
+                    if active_store:
+                        active_store.reset_failure(site_name)
+                        active_store.log_run(
+                            site_name,
+                            "success",
+                            items_found=len(items),
+                            changes_detected=report.get("total_changes", 0),
+                            extraction_confidence=confidence,
+                            processing_time_ms=elapsed,
+                            trace_id=trace_id,
+                            total_tokens=total_tokens,
+                        )
+
+                    await notify_all(self.notifiers, build_event(result))
+
+            except Exception as e:
+                import traceback
+
                 elapsed = (time.time() - start_time) * 1000
-                logger.info(
+                error_str = str(e)
+                logger.error(
                     json.dumps(
                         {
-                            "event": "pipeline_skip",
+                            "event": "pipeline_error",
                             "trace_id": trace_id,
                             "site": site_name,
-                            "reason": "no_change",
+                            "error": error_str,
                             "duration_ms": round(elapsed),
                         }
                     )
                 )
-                result["status"] = "skipped_no_change"
-                result["report"] = {
-                    "site_name": site_name,
-                    "content_hash": content_hash,
-                    "has_changes": False,
-                    "is_first_run": False,
-                }
+                logger.error("[Coordinator] Traceback:\n%s", traceback.format_exc())
+                result["status"] = "error"
+                result["error"] = str(e)
+
                 if active_store:
-                    active_store.reset_failure(site_name)
+                    is_open = active_store.increment_failure(site_name)
+                    if is_open:
+                        logger.warning(
+                            "[Coordinator] Circuit breaker OPEN for %s"
+                            " — will skip for 1 hour",
+                            site_name,
+                        )
                     active_store.log_run(
                         site_name,
-                        "skipped_no_change",
+                        "error",
+                        error_message=str(e),
                         processing_time_ms=elapsed,
                         trace_id=trace_id,
                     )
-                return result
 
-            # Step 3: Parse (with site profile) — async for LLM strategy support
-            parse_result = await self.parser.run_async(
-                fetch_result["html"],
-                site_name,
-                url,
-                profile,
-            )
-            items = parse_result["items"]
-            confidence = parse_result["extraction_confidence"]
+                await notify_all(self.notifiers, build_event(result))
 
-            # Step 3b: Sentiment labeling (rule-based, no LLM cost)
-            for item in items:
-                if not item.get("sentiment"):
-                    item["sentiment"] = classify(item.get("title", ""))
-
-            # Step 4: Analyze
-            report = await self.analyzer.run_async(
-                items, site_name, content_hash, store=active_store
-            )
-
-            # Step 5: Save snapshot
-            if active_store:
-                active_store.save_snapshot(site_name, url, content_hash, items)
-                # Update metadata for fast dashboard queries
-                active_store.update_metadata(
-                    site_name,
-                    items_count=len(items),
-                    tag_dist=report.get("tag_distribution", {}),
-                    changes={
-                        "new": len(report.get("new_items", [])),
-                        "removed": len(report.get("removed_items", [])),
-                        "modified": len(report.get("modified_items", [])),
-                    },
-                    update_summary=report.get("update_summary") or "",
-                )
-                # Prune old snapshots
-                if self.max_snapshots > 0:
-                    active_store.prune_snapshots(site_name, self.max_snapshots)
-                # Index items in vector store for semantic search
-                if self.vector_store:
-                    try:
-                        self.vector_store.add_items(items, site_name)
-                    except Exception as e:
-                        logger.warning("Vector store indexing failed: %s", e)
-
-            result["status"] = "success"
-            result["report"] = report
-
-            # ── Watch matching (unified topic + event) ────────────────
-            new_items = report.get("new_items", [])
-            watch_matches = {"keyword_matches": [], "semantic_matches": []}
-            if new_items:
-                try:
-                    watch_matches = self.watch_store.check_new_items(
-                        new_items, self.vector_store
-                    )
-                except Exception as e:
-                    logger.warning("[Coordinator] Watch matching failed: %s", e)
-            result["watch_matches"] = watch_matches
-
-            # Anomaly detection cooldown check
-            alert_config = self.config.get("alerts", {}) or {}
-            anomalies = report.get("anomalies", [])
-            result["anomalies"] = []
-            anomaly_cfg = alert_config.get("anomaly", {})
-            cooldown_min = anomaly_cfg.get("cooldown_minutes", 120)
-            for a in anomalies:
-                if self.watch_store.should_alert_anomaly(
-                    site_name, a["type"], cooldown_min
-                ):
-                    result["anomalies"].append(a)
-                    self.watch_store.log_anomaly_alert(
-                        site_name,
-                        a["type"],
-                        f"{a['type']}: current={a['current_count']}, baseline={a['baseline_avg']}",
-                    )
-
-            # Sentiment shift check
-            sentiment_shift = report.get("sentiment_shift", {}) or {}
-            if sentiment_shift.get("significant"):
-                result["sentiment_shift"] = sentiment_shift
-                self.watch_store.log_sentiment_shift(
-                    site_name, f"情感偏移: {sentiment_shift.get('shifted', {})}"
-                )
-            else:
-                result["sentiment_shift"] = None
-
-            elapsed = (time.time() - start_time) * 1000
-            total_tokens = (
-                self.parser.get_last_tokens() + self.analyzer.get_last_tokens()
-            )
-            logger.info(
-                json.dumps(
-                    {
-                        "event": "pipeline_done",
-                        "trace_id": trace_id,
-                        "site": site_name,
-                        "duration_ms": round(elapsed),
-                        "items": len(items),
-                        "changes": report.get("total_changes", 0),
-                        "tokens": total_tokens,
-                    }
-                )
-            )
-
-            if active_store:
-                active_store.reset_failure(site_name)
-                active_store.log_run(
-                    site_name,
-                    "success",
-                    items_found=len(items),
-                    changes_detected=report.get("total_changes", 0),
-                    extraction_confidence=confidence,
-                    processing_time_ms=elapsed,
-                    trace_id=trace_id,
-                    total_tokens=total_tokens,
-                )
-
-            await notify_all(self.notifiers, build_event(result))
-
-        except Exception as e:
-            import traceback
-
-            elapsed = (time.time() - start_time) * 1000
-            error_str = str(e)
-            logger.error(
-                json.dumps(
-                    {
-                        "event": "pipeline_error",
-                        "trace_id": trace_id,
-                        "site": site_name,
-                        "error": error_str,
-                        "duration_ms": round(elapsed),
-                    }
-                )
-            )
-            logger.error("[Coordinator] Traceback:\n%s", traceback.format_exc())
-            result["status"] = "error"
-            result["error"] = str(e)
-
-            if active_store:
-                is_open = active_store.increment_failure(site_name)
-                if is_open:
-                    logger.warning(
-                        "[Coordinator] Circuit breaker OPEN for %s — will skip for 1 hour",
-                        site_name,
-                    )
-                active_store.log_run(
-                    site_name,
-                    "error",
-                    error_message=str(e),
-                    processing_time_ms=elapsed,
-                    trace_id=trace_id,
-                )
-
-            await notify_all(self.notifiers, build_event(result))
-
+        # ── Unified exit: callbacks fire for ALL statuses ─────────
         for cb in self._run_callbacks:
             try:
                 await cb(result)
