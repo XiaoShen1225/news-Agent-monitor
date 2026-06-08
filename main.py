@@ -288,6 +288,7 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
 
     coordinator, notifiers, __ = _create_coordinator(config)
     ctx.coordinator = coordinator
+    ctx.watch_store = coordinator.watch_store  # 共享实例，确保广播读到最新匹配数据
     ctx.config = config
     ctx.notifiers = notifiers or []
 
@@ -392,15 +393,20 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
 
         async def _initial_fetch():
             await asyncio.sleep(2)  # let server bind port first
-            # 干净启动：立即广播 watch 摘要，不等抓取完成
-            await _broadcast_watch_summary()
             logger.info(
                 "Running initial fetch for %d targets (background)...", len(targets)
             )
             try:
-                await coordinator.run_all_targets_async()
+                results = await coordinator.run_all_targets_async()
+                logger.info(
+                    "Initial fetch complete: %d targets, broadcasting watch summary",
+                    len(results),
+                )
             except Exception as e:
                 logger.error("Initial batch fetch failed: %s", e)
+            finally:
+                # 爬取结束后广播 watch_summary，此时 watch matching 数据已更新
+                await _broadcast_watch_summary()
 
         asyncio.create_task(_initial_fetch())
     else:
