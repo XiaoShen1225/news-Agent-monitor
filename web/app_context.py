@@ -33,6 +33,7 @@ class AppContext:
         self.dashboard_token: str | None = None
         self.last_run_time: Any = None
         self.report_last_result: Any = None
+        self.recent_updates: list[dict] = []  # latest pipeline update summaries
 
         # Finalized flag — set after main.py finishes setup, before serving
         self._ready = False

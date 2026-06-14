@@ -16,6 +16,7 @@ import re
 import signal
 import sys
 import threading
+import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -24,6 +25,29 @@ import yaml
 # Ensure project root is on path
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+RECENT_UPDATES_FILE = PROJECT_ROOT / "data" / "recent_updates.json"
+
+
+def _load_recent_updates():
+    if RECENT_UPDATES_FILE.exists():
+        try:
+            import json
+
+            return json.loads(RECENT_UPDATES_FILE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
+
+
+def _save_recent_updates(updates: list):
+    import json
+
+    RECENT_UPDATES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    RECENT_UPDATES_FILE.write_text(
+        json.dumps(updates, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 # Load .env file
@@ -111,7 +135,16 @@ def _resolve_env(value):
 def load_config(config_path: str = "config.yaml") -> dict:
     with open(config_path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
-    return _resolve_env(raw)
+    resolved = _resolve_env(raw)
+    try:
+        from data.config_schema import validate_config
+
+        validate_config(resolved)
+        logger.debug("Config validated OK")
+    except Exception as e:
+        logger.error("Config validation failed: %s", e)
+        sys.exit(1)
+    return resolved
 
 
 def print_summary(result: dict):
@@ -291,6 +324,8 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
     ctx.watch_store = coordinator.watch_store  # 共享实例，确保广播读到最新匹配数据
     ctx.config = config
     ctx.notifiers = notifiers or []
+    ctx.recent_updates = _load_recent_updates()
+    logger.info("[Main] Loaded %d recent updates from disk", len(ctx.recent_updates))
 
     # Init TargetManager for dynamic target management
     from web.target_manager import TargetManager
@@ -364,6 +399,26 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
                     }
                 )
                 await _broadcast_watch_summary()
+                # Store summary for the update-notifier button
+                ctx.recent_updates.insert(
+                    0,
+                    {
+                        "site_name": site_name,
+                        "status": status,
+                        "update_summary": report.get("update_summary", "")
+                        or (
+                            "断路器已打开，暂时跳过此站点。"
+                            if status == "circuit_open"
+                            else "内容无变化。"
+                        ),
+                        "new_count": 0,
+                        "total_changes": 0,
+                        "time": report.get("timestamp", ""),
+                    },
+                )
+                if len(ctx.recent_updates) > 50:
+                    ctx.recent_updates = ctx.recent_updates[:50]
+                _save_recent_updates(ctx.recent_updates)
                 return
 
             # ── Full payload for success / error paths ──
@@ -411,8 +466,24 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
                 }
             )
             await _broadcast_watch_summary()
-        except Exception as e:
-            logger.warning("[WS] _broadcast_on_run failed: %s", e)
+
+            # Store summary for the update-notifier button
+            ctx.recent_updates.insert(
+                0,
+                {
+                    "site_name": site_name,
+                    "status": status,
+                    "update_summary": report.get("update_summary", ""),
+                    "new_count": len(report.get("new_items", [])),
+                    "total_changes": report.get("total_changes", 0),
+                    "time": report.get("timestamp", ""),
+                },
+            )
+            if len(ctx.recent_updates) > 50:
+                ctx.recent_updates = ctx.recent_updates[:50]
+            _save_recent_updates(ctx.recent_updates)
+        except Exception:
+            logger.warning("[WS] _broadcast_on_run failed:\n%s", traceback.format_exc())
 
     coordinator.add_run_callback(_broadcast_on_run)
 
@@ -428,7 +499,7 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
     track_store = TrackStore()
     ctx.track_store = track_store
     memory_interval = config.get("memory", {}).get("cycle_minutes", 30)
-    memory_manager = MemoryManager(track_store, config.get("llm", {}))
+    memory_manager = MemoryManager(track_store, config, config.get("memory", {}))
     ctx.memory_manager = memory_manager
 
     default_interval = config.get("scheduler", {}).get("default_interval_minutes", 60)
@@ -527,6 +598,31 @@ async def _cmd_serve_async(config: dict, port: int, no_fetch: bool = False):
         name="Memory Cycle",
     )
     logger.info("Memory cycle scheduled every %d minutes", memory_interval)
+
+    # Periodic memory pipeline diagnostic (hourly)
+    async def _memory_diag():
+        try:
+            from pathlib import Path
+            from agents.memory_manager import MemoryManager
+
+            l1 = MemoryManager._load_json(Path("data/memory/l1_patterns.json"))
+            l2 = MemoryManager._load_json(Path("data/memory/l2_profile.json"))
+            logger.info(
+                "[MemoryDiag] L1 interests: %d | L2 interests: %d | last run: %s",
+                len(l1.get("active_interests", [])) if l1 else 0,
+                len(l2.get("stable_interests", [])) if l2 else 0,
+                memory_manager._last_run_at or "never",
+            )
+        except Exception:
+            pass
+
+    scheduler.add_job(
+        _memory_diag,
+        "interval",
+        minutes=60,
+        id="memory_diag",
+        name="Memory Diagnostic",
+    )
 
     scheduler.start()
     ctx.scheduler = scheduler

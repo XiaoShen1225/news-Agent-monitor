@@ -17,10 +17,39 @@ class PipelineEvent:
     summary: str | None
     error: str | None
     timestamp: str
-    alert_matches: list | None = None  # keyword alert matches
-    anomalies: list | None = None  # volume spike/drop detections
-    sentiment_shift: dict | None = None  # sentiment distribution shift
-    story_matches: list | None = None  # story follow-up matches
+    alert_matches: list | None = None
+    anomalies: list | None = None
+    sentiment_shift: dict | None = None
+    story_matches: list | None = None
+    priority: str = "INFO"  # "CRITICAL", "WARNING", "INFO"
+
+    @property
+    def is_critical(self) -> bool:
+        return self.priority == "CRITICAL"
+
+    @property
+    def is_info_only(self) -> bool:
+        return self.priority == "INFO" and self.status == "skipped_no_change"
+
+
+def compute_priority(
+    status: str,
+    error: str | None = None,
+    anomalies: list | None = None,
+    consecutive_failures: int = 0,
+) -> str:
+    """Determine notification priority from pipeline result."""
+    if status == "error":
+        if consecutive_failures >= 3:
+            return "CRITICAL"
+        return "WARNING"
+    if anomalies:
+        for a in anomalies:
+            if abs(a.get("zscore", 0)) > 3.0:
+                return "WARNING"
+    if status == "skipped_no_change":
+        return "INFO"
+    return "INFO"
 
 
 class BaseNotifier(ABC):
@@ -36,10 +65,13 @@ class BaseNotifier(ABC):
         status_icon = {"success": "✅", "error": "❌", "skipped_no_change": "○"}
         icon = status_icon.get(event.status, "?")
 
+        prio_label = {"CRITICAL": "🚨", "WARNING": "⚠️", "INFO": "ℹ️"}
+
         lines = [
-            f"## {icon} News Monitor: {event.site_name}",
+            f"## {prio_label.get(event.priority, '')} {icon} News Monitor: {event.site_name}",
             "",
             f"- **Status**: {event.status}",
+            f"- **Priority**: {event.priority}",
             f"- **Time**: {event.timestamp}",
             f"- **URL**: {event.url}",
         ]
@@ -56,7 +88,6 @@ class BaseNotifier(ABC):
                 lines.append("")
                 lines.append(f"> {event.summary}")
 
-            # ── Alert section ──────────────────────────────────────────
             alert_lines = self._format_alerts(event)
             if alert_lines:
                 lines.append("")
@@ -67,7 +98,7 @@ class BaseNotifier(ABC):
         return "\n".join(lines)
 
     def _format_alerts(self, event: PipelineEvent) -> list[str]:
-        """Build alert-specific message lines. Override in subclasses for custom formatting."""
+        """Build alert-specific message lines."""
         lines = []
 
         if event.anomalies:

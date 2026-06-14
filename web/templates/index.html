@@ -3,21 +3,34 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>News Agent Monitor</title>
-<link rel="stylesheet" href="/static/css/main.css?v=5">
-<link rel="stylesheet" href="/static/css/dark.css?v=5">
-<script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.0/echarts.min.js"
-        onerror="this.onerror=null;this.src='https://unpkg.zhimg.com/echarts@5.5.0/dist/echarts.min.js'"></script>
+<title data-i18n="app_title">News Agent Monitor</title>
+<link rel="stylesheet" href="/static/css/main.css?v=8">
+<link rel="stylesheet" href="/static/css/dark.css?v=8">
+<script src="/static/js/echarts.min.js?v=8"></script>
 </head>
 <body>
 <header>
-  <h1>News Agent Monitor</h1>
-  <button class="hamburger" id="hamburger-btn" onclick="toggleSidebar()" title="菜单">☰</button>
+  <h1 data-i18n="app_title">News Agent Monitor</h1>
+  <button id="update-notifier" class="update-notifier" onclick="toggleUpdatePanel()" data-i18n-aria="update_panel_title" title="最新更新">
+    <span class="update-icon">🔔</span>
+    <span id="update-badge" class="update-badge" style="display:none">0</span>
+    <span id="update-label" class="update-label" data-i18n="update_label_checking">检查中...</span>
+  </button>
+  <div id="update-panel" class="update-panel" style="display:none" role="dialog" aria-label="最新更新面板">
+    <div class="update-panel-header">
+      <span data-i18n="update_panel_title">📋 最新更新</span>
+      <button class="update-panel-close" onclick="event.stopPropagation();closeUpdatePanel()">✕</button>
+    </div>
+    <div id="update-panel-body" class="update-panel-body">
+      <div class="update-empty" data-i18n="update_panel_empty">暂无新内容</div>
+    </div>
+  </div>
+  <button class="hamburger" id="hamburger-btn" onclick="toggleSidebar()" data-i18n-title="hamburger_menu" data-i18n-aria="hamburger_open" title="菜单" aria-expanded="false">☰</button>
   <div class="header-actions">
     <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="切换主题">☾</button>
     <div class="status">
       <span id="ws-dot" class="dot"></span>
-      <span id="ws-text">Connecting...</span>
+      <span id="ws-text" data-i18n="ws_connecting">连接中...</span>
       <span style="color:var(--muted)" id="clock"></span>
     </div>
   </div>
@@ -25,27 +38,27 @@
 
 <div class="app-layout">
   <!-- Sidebar -->
-  <nav class="sidebar" id="sidebar">
+  <nav class="sidebar" id="sidebar" role="navigation" aria-label="主导航">
     <div class="sidebar-nav">
       <button class="sidebar-item active" data-drawer="chat" onclick="focusChat()">
-        <span class="icon">💬</span> AI 助手
+        <span class="icon">💬</span> <span data-i18n="nav_ai_assistant">AI 助手</span>
       </button>
       <button class="sidebar-item" data-drawer="monitor" onclick="openDrawer('monitor')">
-        <span class="icon">📊</span> 新闻监控
+        <span class="icon">📊</span> <span data-i18n="nav_news_monitor">新闻监控</span>
       </button>
       <button class="sidebar-item" data-drawer="papers" onclick="openDrawer('papers')">
-        <span class="icon">📚</span> 论文追踪
+        <span class="icon">📚</span> <span data-i18n="nav_paper_tracking">论文追踪</span>
       </button>
       <button class="sidebar-item" data-drawer="ops" onclick="openDrawer('ops')">
-        <span class="icon">⚙</span> 运营管理
+        <span class="icon">⚙</span> <span data-i18n="nav_ops_management">运营管理</span>
         <span id="ops-badge" class="sidebar-badge" style="display:none">0</span>
       </button>
     </div>
     <div class="sidebar-divider"></div>
     <div class="sidebar-footer">
-      <div style="font-size:11px;color:var(--muted);padding:4px 12px;margin-bottom:4px;font-weight:600">历史会话</div>
+      <div style="font-size:11px;color:var(--muted);padding:4px 12px;margin-bottom:4px;font-weight:600" data-i18n="nav_history_sessions">历史会话</div>
       <button class="sidebar-item" onclick="newChatSession()" style="font-size:12px;color:var(--accent)">
-        <span class="icon">+</span> 新建会话
+        <span class="icon">+</span> <span data-i18n="nav_new_session">新建会话</span>
       </button>
       <div class="session-list" id="session-list"></div>
     </div>
@@ -56,20 +69,20 @@
     <!-- Chat Area (always visible) -->
     <div class="chat-container">
       <div class="chat-header">
-        <h2>AI 助手</h2>
-        <button class="btn-secondary" onclick="clearChat()">清空对话</button>
+        <h2 data-i18n="chat_title">AI 助手</h2>
+        <button class="btn-secondary" onclick="clearChat()" data-i18n="chat_clear">清空对话</button>
       </div>
       <div id="chat-messages" class="chat-messages">
         <div class="chat-welcome">
           <div class="chat-welcome-icon">💬</div>
-          <div style="font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:6px">AI 监控数据助手</div>
-          <div style="font-size:13px;line-height:1.7">可以查询新闻、统计、搜索文章<br>试试问："有哪些监控站点？" 或 "最近有哪些科技新闻？"</div>
+          <div style="font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:6px" data-i18n="chat_welcome_title">AI 监控数据助手</div>
+          <div style="font-size:13px;line-height:1.7" data-i18n="chat_welcome_desc">可以查询新闻、统计、搜索文章<br>试试问："有哪些监控站点？" 或 "最近有哪些科技新闻？"</div>
         </div>
         <div class="chat-chips">
-          <button onclick="askExample('今天有什么科技新闻？')" class="chat-chip">今天有什么科技新闻？</button>
-          <button onclick="askExample('最近一周有什么热点趋势？')" class="chat-chip">最近一周有什么热点趋势？</button>
-          <button onclick="askExample('百度新闻运行正常吗？')" class="chat-chip">百度新闻运行正常吗？</button>
-          <button onclick="askExample('帮我设置一个AI相关的告警')" class="chat-chip">帮我设置一个AI相关告警</button>
+          <button onclick="askExample(t('chip_tech_news'))" class="chat-chip" data-i18n="chip_tech_news">今天有什么科技新闻？</button>
+          <button onclick="askExample(t('chip_hot_trends'))" class="chat-chip" data-i18n="chip_hot_trends">最近一周有什么热点趋势？</button>
+          <button onclick="askExample(t('chip_baidu_health'))" class="chat-chip" data-i18n="chip_baidu_health">百度新闻运行正常吗？</button>
+          <button onclick="askExample(t('chip_set_alert'))" class="chat-chip" data-i18n="chip_set_alert">帮我设置一个AI相关告警</button>
         </div>
       </div>
       <div id="chat-tool-trace" class="chat-tool-trace"></div>
@@ -78,9 +91,9 @@
         <span id="chat-context-text" style="font-size:10px;color:var(--muted);white-space:nowrap"></span>
       </div>
       <div class="chat-input-row">
-        <input id="chat-input" type="text" placeholder="输入消息..." onkeydown="if(event.key==='Enter')sendChat()"
+        <input id="chat-input" type="text" data-i18n-placeholder="chat_input_placeholder" data-i18n-aria="chat_input_aria" placeholder="输入消息..." onkeydown="if(event.key==='Enter')sendChat()"
           style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:11px 16px;border-radius:var(--radius);font-size:14px;outline:none;transition:all var(--transition)">
-        <button onclick="sendChat()" id="chat-send-btn" class="btn-primary">发送</button>
+        <button onclick="sendChat()" id="chat-send-btn" class="btn-primary" data-i18n="chat_send">发送</button>
       </div>
     </div>
 
@@ -89,7 +102,7 @@
     <div class="drawer" id="drawer">
       <div class="drawer-header">
         <h2 id="drawer-title"></h2>
-        <button class="drawer-close" onclick="closeDrawer()">&times; 关闭</button>
+        <button class="drawer-close" onclick="closeDrawer()" data-i18n="drawer_close">&times; 关闭</button>
       </div>
       <div class="drawer-body" id="drawer-body"></div>
     </div>
@@ -100,24 +113,42 @@
 <div id="login-overlay" class="login-overlay">
   <div class="login-box">
     <div style="font-size:32px;margin-bottom:8px">💬</div>
-    <h2>News Agent Monitor</h2>
-    <p style="color:var(--muted);font-size:13px;margin-bottom:20px">请输入访问密钥</p>
-    <input id="login-token" type="password" placeholder="访问密钥" onkeydown="if(event.key==='Enter')doLogin()">
-    <button onclick="doLogin()" class="btn-primary" style="width:100%;margin-top:4px">确认</button>
-    <div id="login-error" style="color:var(--red);font-size:12px;margin-top:10px;display:none">密钥错误，请重试</div>
+    <h2 data-i18n="app_title">News Agent Monitor</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:20px" data-i18n="login_prompt">请输入访问密钥</p>
+    <input id="login-token" type="password" data-i18n-placeholder="login_placeholder" placeholder="访问密钥" onkeydown="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()" class="btn-primary" style="width:100%;margin-top:4px" data-i18n="login_confirm">确认</button>
+    <div id="login-error" style="color:var(--red);font-size:12px;margin-top:10px;display:none" data-i18n="login_error_wrong">密钥错误，请重试</div>
   </div>
 </div>
 
-<script src="/static/js/utils.js?v=5"></script>
-<script src="/static/js/chat.js?v=5"></script>
-<script src="/static/js/monitor.js?v=5"></script>
-<script src="/static/js/papers.js?v=5"></script>
-<script src="/static/js/ops.js?v=5"></script>
+<!-- Language switcher -->
+<div style="position:fixed;bottom:20px;right:20px;z-index:99">
+  <button onclick="setLang('zh')" id="lang-zh" style="background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text);padding:2px 8px;border-radius:4px 0 0 4px;cursor:pointer;font-size:11px">中</button><button onclick="setLang('en')" id="lang-en" style="background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text);padding:2px 8px;border-radius:0 4px 4px 0;cursor:pointer;font-size:11px;margin-left:-1px">EN</button>
+</div>
+
+<script src="/static/js/i18n.js?v=8"></script>
+<script src="/static/js/utils.js?v=8"></script>
+<script src="/static/js/chat.js?v=8"></script>
+<script src="/static/js/monitor.js?v=8"></script>
+<script src="/static/js/papers.js?v=8"></script>
+<script src="/static/js/ops.js?v=8"></script>
 <script>
-// Periodic background refresh
+// Page visibility tracking — skip background refreshes when tab hidden
+var _pageVisible=!document.hidden;
+document.addEventListener('visibilitychange',function(){
+  _pageVisible=!document.hidden;
+  if(_pageVisible&&currentDrawer==='monitor'){loadStats();loadSiteHealth();}
+});
+// Lightweight refresh: stats + health every 30s
 setInterval(function(){
-  loadStats();loadSiteHealth();loadItems(itemsPage);loadRuns();
-}, 60000);
+  if(currentDrawer!=='monitor'||!_pageVisible)return;
+  loadStats();loadSiteHealth();
+}, 30000);
+// Heavy refresh: items + runs every 120s
+setInterval(function(){
+  if(currentDrawer!=='monitor'||!_pageVisible)return;
+  loadItems(itemsPage);loadRuns();
+}, 120000);
 
 // Init
 checkAuth();

@@ -1,0 +1,42 @@
+[
+  {
+    "id": "q001",
+    "category": "news_query",
+    "question": "今天有哪些科技新闻？",
+    "context": "最近3天监测到以下科技新闻：GPT-5正式发布、苹果推出Vision Pro 2、特斯拉FSD在中国获批。",
+    "min_faithfulness": 4,
+    "min_relevance": 4
+  },
+  {
+    "id": "q002",
+    "category": "stats",
+    "question": "百度新闻最近运行正常吗？",
+    "context": "站点 baidu_news 最近24小时抓取正常，发现新增15条新闻，无错误。",
+    "min_faithfulness": 4,
+    "min_relevance": 3
+  },
+  {
+    "id": "q003",
+    "category": "summary",
+    "question": "为以下变更生成中文摘要",
+    "context": "新增: 'AI芯片出口新规发布', '量子计算突破1000量子比特'。移除: 无。修改: 无。",
+    "min_faithfulness": 3,
+    "min_relevance": 3
+  },
+  {
+    "id": "q004",
+    "category": "empty_context",
+    "question": "最近有什么热点趋势？",
+    "context": "",
+    "min_faithfulness": 3,
+    "min_relevance": 2
+  },
+  {
+    "id": "q005",
+    "category": "tool_call",
+    "question": "帮我搜索关于AI监管的新闻",
+    "context": "搜索 'AI监管' 返回 3 条结果：1) 欧盟AI法案正式生效 2) 中国发布AI治理白皮书 3) 美国参议院通过AI安全法案",
+    "min_faithfulness": 4,
+    "min_relevance": 4
+  }
+]

@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -12,8 +13,13 @@ from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .app_context import ctx
+from .middleware.logging import install as _install_logging_middleware
 from data.track_store import TrackStore
 from agents.site_profiles import is_article_site as _is_article_site
 
@@ -29,6 +35,64 @@ VECTOR_DB_DIR = PROJECT_ROOT / "data" / "vector_db"
 app = FastAPI(title="News Agent Monitor", version="0.6.0")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+# ── Rate limiter ────────────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address)
+
+
+@app.exception_handler(RateLimitExceeded)
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests. Please slow down."},
+    )
+
+
+# ── Security headers middleware ──────────────────────────────────────
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("X-XSS-Protection", "1; mode=block")
+        response.headers.setdefault(
+            "Referrer-Policy", "strict-origin-when-cross-origin"
+        )
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ws: wss:;",
+        )
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# ── Startup: API key validation ──────────────────────────────────────
+
+
+@app.on_event("startup")
+async def _validate_api_keys():
+    cfg = ctx.config or {}
+    llm_cfg = cfg.get("llm", {})
+    providers = llm_cfg.get("providers", {})
+    for name, pc in providers.items():
+        key = pc.get("api_key", "") if isinstance(pc, dict) else ""
+        if not key or key == "sk-placeholder":
+            logger.warning(
+                "[Security] LLM provider '%s' has empty or placeholder API key — calls will fail",
+                name,
+            )
+    dashboard_token = cfg.get("dashboard", {}).get("token", "")
+    if not dashboard_token:
+        logger.warning(
+            "[Security] DASHBOARD_TOKEN is not set — web dashboard is unprotected"
+        )
+
+
+# ── Request-ID + structured logging ───────────────────────────────────
+_install_logging_middleware(app, json_format=False)
+
 # Mount static assets (CSS, JS)
 STATIC_DIR = PROJECT_ROOT / "web" / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
@@ -40,23 +104,52 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 class ConnectionManager:
     def __init__(self):
         self.active: list[WebSocket] = []
+        self._lock = asyncio.Lock()
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
-        self.active.append(ws)
+        async with self._lock:
+            self.active.append(ws)
 
-    def disconnect(self, ws: WebSocket):
-        self.active.remove(ws)
+    async def disconnect(self, ws: WebSocket):
+        async with self._lock:
+            try:
+                self.active.remove(ws)
+            except ValueError:
+                pass
 
     async def broadcast(self, data: dict):
+        # Snapshot active list under lock to avoid race with connect/disconnect
+        async with self._lock:
+            if not self.active:
+                logger.debug(
+                    "[WS] broadcast skipped: 0 active clients (type=%s)",
+                    data.get("type", "?"),
+                )
+                return
+            # Copy for safe iteration outside the lock
+            clients = list(self.active)
+
+        logger.debug(
+            "[WS] broadcasting type=%s to %d clients",
+            data.get("type", "?"),
+            len(clients),
+        )
         disconnected = []
-        for ws in self.active:
+        for ws in clients:
             try:
                 await ws.send_json(data)
             except Exception:
+                logger.debug("[WS] client send failed, removing from active")
                 disconnected.append(ws)
-        for ws in disconnected:
-            self.active.remove(ws)
+        # Remove dead connections under lock
+        if disconnected:
+            async with self._lock:
+                for ws in disconnected:
+                    try:
+                        self.active.remove(ws)
+                    except ValueError:
+                        pass
 
 
 ws_manager = ConnectionManager()
@@ -100,16 +193,28 @@ def _get_hybrid_searcher():
 # ── helpers ────────────────────────────────────────────────────────
 
 
+_db_conn = None
+_papers_db_conn = None
+
+
 def _get_db():
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Return a cached SQLite connection for monitor.db (WAL mode, reused across requests)."""
+    global _db_conn
+    if _db_conn is None:
+        _db_conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+        _db_conn.execute("PRAGMA journal_mode=WAL")
+        _db_conn.row_factory = sqlite3.Row
+    return _db_conn
 
 
 def _get_papers_db():
-    conn = sqlite3.connect(str(PAPERS_DB_PATH))
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Return a cached SQLite connection for papers.db (WAL mode, reused across requests)."""
+    global _papers_db_conn
+    if _papers_db_conn is None:
+        _papers_db_conn = sqlite3.connect(str(PAPERS_DB_PATH), check_same_thread=False)
+        _papers_db_conn.execute("PRAGMA journal_mode=WAL")
+        _papers_db_conn.row_factory = sqlite3.Row
+    return _papers_db_conn
 
 
 def _get_sites() -> list:
@@ -118,7 +223,6 @@ def _get_sites() -> list:
         rows = conn.execute(
             "SELECT DISTINCT site_name FROM snapshots ORDER BY site_name"
         ).fetchall()
-        conn.close()
         return [r["site_name"] for r in rows]
     except Exception:
         return []
@@ -562,10 +666,16 @@ async def api_targets_toggle(site_name: str, request: Request):
 @app.get("/api/papers")
 async def api_papers(
     site: str | None = Query(None),
+    keyword: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
     """Query papers/articles from article-type sources (uses separate papers.db)."""
+    cache_key = f"{site or ''}|{keyword or ''}|{limit}|{offset}"
+    cached = _papers_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     conn = _get_papers_db()
     try:
         article_sources = list(_get_target_manager().get_paper_source_names())
@@ -575,18 +685,24 @@ async def api_papers(
             source_list = article_sources
 
         placeholders = ",".join("?" for _ in source_list)
-        count_query = (
-            f"SELECT COUNT(*) FROM news_items WHERE site_name IN ({placeholders})"
-        )
-        total_row = conn.execute(count_query, source_list).fetchone()
+        base_where = f"site_name IN ({placeholders})"
+        params = list(source_list)
+
+        if keyword:
+            base_where += " AND title LIKE ?"
+            params.append(f"%{keyword}%")
+
+        count_query = f"SELECT COUNT(*) FROM news_items WHERE {base_where}"
+        total_row = conn.execute(count_query, params).fetchone()
         total = total_row[0] if total_row else 0
 
         query = (
             f"SELECT title, url, tag, summary, snapshot_time, site_name FROM news_items "
-            f"WHERE site_name IN ({placeholders}) "
+            f"WHERE {base_where} "
             f"ORDER BY snapshot_time DESC LIMIT ? OFFSET ?"
         )
-        rows = conn.execute(query, source_list + [limit, offset]).fetchall()
+        params.extend([limit, offset])
+        rows = conn.execute(query, params).fetchall()
         items = [dict(r) for r in rows]
 
         sources = {}
@@ -596,7 +712,7 @@ async def api_papers(
             ).fetchone()[0]
             sources[s] = cnt
 
-        return {
+        result = {
             "items": items,
             "count": len(items),
             "total": total,
@@ -604,16 +720,22 @@ async def api_papers(
             "limit": limit,
             "sources": sources,
         }
+        _papers_cache.set(cache_key, result)
+        return result
     finally:
-        conn.close()
+        pass
 
 
 @app.get("/api/schedule")
 async def api_schedule_status():
     """Return current scheduler status and config."""
+    cached = _schedule_cache.get("schedule")
+    if cached is not None:
+        return cached
+
     targets = ctx.config.get("targets", []) if ctx.config else []
     scheduler_cfg = ctx.config.get("scheduler", {}) if ctx.config else {}
-    return {
+    result = {
         "targets": [
             {
                 "name": t.get("name", ""),
@@ -630,12 +752,50 @@ async def api_schedule_status():
         ],
         "default_interval": scheduler_cfg.get("default_interval_minutes", 60),
     }
+    _schedule_cache.set("schedule", result)
+    return result
+
+
+class TTLCache:
+    """Simple in-memory TTL cache with max-size eviction."""
+
+    def __init__(self, maxsize: int = 128, ttl: float = 5.0):
+        self._data: dict = {}
+        self._maxsize = maxsize
+        self._ttl = ttl
+
+    def get(self, key):
+        entry = self._data.get(key)
+        if entry and (time.monotonic() - entry["ts"]) < self._ttl:
+            return entry["data"]
+        return None
+
+    def set(self, key, data):
+        if len(self._data) >= self._maxsize:
+            # Evict oldest 25% of entries
+            n = max(1, self._maxsize // 4)
+            sorted_keys = sorted(self._data.keys(), key=lambda k: self._data[k]["ts"])
+            for k in sorted_keys[:n]:
+                del self._data[k]
+        self._data[key] = {"ts": time.monotonic(), "data": data}
+
+    def clear(self):
+        self._data.clear()
+
+
+_stats_cache = TTLCache(maxsize=64, ttl=2.0)
 
 
 @app.get("/api/stats")
 async def api_stats(
     site: str | None = Query(None),
 ):
+    # Short-lived cache to absorb duplicate calls (monitor drawer fires 3 at once)
+    cache_key = site or "__all__"
+    cached = _stats_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     conn = _get_db()
     try:
         # Run logs (with error_message for health diagnostics)
@@ -655,17 +815,22 @@ async def api_stats(
 
         runs = [dict(r) for r in rows]
 
-        # Latest snapshot per site
+        # Latest snapshot per site — single query instead of N+1
         sites = _get_sites()
         snapshots = {}
-        for s in sites:
-            row = conn.execute(
-                "SELECT items_count, created_at FROM snapshots "
-                "WHERE site_name = ? ORDER BY id DESC LIMIT 1",
-                (s,),
-            ).fetchone()
-            if row:
-                snapshots[s] = dict(row)
+        snap_rows = conn.execute(
+            "SELECT s.site_name, s.items_count, s.created_at "
+            "FROM snapshots s "
+            "INNER JOIN (SELECT site_name, MAX(id) AS max_id FROM snapshots GROUP BY site_name) latest "
+            "ON s.site_name = latest.site_name AND s.id = latest.max_id"
+        ).fetchall()
+        snapshots = {
+            r["site_name"]: {
+                "items_count": r["items_count"],
+                "created_at": r["created_at"],
+            }
+            for r in snap_rows
+        }
 
         # Per-site health: consecutive_failures + circuit_breaker_until
         site_health = {}
@@ -697,14 +862,16 @@ async def api_stats(
                 "last_snapshot_items": snap.get("items_count", 0),
             }
 
-        return {
+        data = {
             "runs": runs,
             "snapshots": snapshots,
             "sites": sites,
             "site_health": site_health,
         }
+        _stats_cache.set(cache_key, data)
+        return data
     finally:
-        conn.close()
+        pass
 
 
 @app.get("/api/query")
@@ -718,6 +885,12 @@ async def api_query(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
+    # Cache key from all query parameters
+    cache_key = f"{site or ''}|{tag or ''}|{keyword or ''}|{sentiment or ''}|{date_from or ''}|{date_to or ''}|{limit}|{offset}"
+    cached = _query_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     conditions = []
     params = []
     if site:
@@ -768,7 +941,7 @@ async def api_query(
         ).fetchall()
         tags = {r["tag"]: r["cnt"] for r in tag_rows}
 
-        return {
+        result = {
             "items": items,
             "count": len(items),
             "total": total,
@@ -776,8 +949,10 @@ async def api_query(
             "limit": limit,
             "tags": tags,
         }
+        _query_cache.set(cache_key, result)
+        return result
     finally:
-        conn.close()
+        pass
 
 
 @app.get("/api/search")
@@ -820,11 +995,22 @@ async def api_search_hybrid(
     }
 
 
+_chart_cache = TTLCache(maxsize=32, ttl=5.0)
+_papers_cache = TTLCache(maxsize=64, ttl=10.0)
+_schedule_cache = TTLCache(maxsize=4, ttl=60.0)
+_query_cache = TTLCache(maxsize=128, ttl=5.0)
+
+
 @app.get("/api/chart-data")
 async def api_chart_data(
     site: str | None = Query(None),
 ):
     """Return structured chart data for ECharts rendering."""
+    cache_key = site or "__all__"
+    cached = _chart_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     store = _get_data_store()
     sites = _get_sites()
     if not sites:
@@ -837,7 +1023,9 @@ async def api_chart_data(
         if data:
             chart_data[s] = data
 
-    return {"sites": sites, "chart_data": chart_data}
+    result = {"sites": sites, "chart_data": chart_data}
+    _chart_cache.set(cache_key, result)
+    return result
 
 
 @app.get("/api/summarize")
@@ -1007,24 +1195,16 @@ async def api_trigger_run(
     url: str = Query(..., min_length=1),
     use_browser: bool = Query(False),
 ):
-    """Trigger a pipeline run for a specific site."""
+    """Trigger a pipeline run for a specific site (async — returns immediately).
+
+    The pipeline runs in background and results are broadcast via WebSocket
+    when complete (see main.py _broadcast_on_run callback).
+    """
     if ctx.coordinator is None:
         return JSONResponse({"error": "Coordinator not initialized"}, status_code=503)
 
-    try:
-        result = await ctx.coordinator.run_async(url, site, use_browser=use_browser)
-        return {
-            "status": result.get("status"),
-            "site_name": site,
-            "items_found": result.get("report", {}).get("current_count", 0)
-            if result.get("report")
-            else 0,
-            "timestamp": result.get("report", {}).get("timestamp", "")
-            if result.get("report")
-            else "",
-        }
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    asyncio.create_task(ctx.coordinator.run_async(url, site, use_browser=use_browser))
+    return {"status": "accepted", "site_name": site}
 
 
 @app.post("/api/refresh-all")
@@ -1151,6 +1331,7 @@ async def api_chat(request: Request):
 
 
 @app.post("/api/chat/stream")
+@limiter.limit("10/minute")
 async def api_chat_stream(request: Request):
     """Send a message to the chat assistant with SSE streaming response."""
     from fastapi.responses import StreamingResponse
@@ -1457,6 +1638,23 @@ async def api_memory_status():
     except Exception:
         pass
 
+    # Include MemoryManager internal state if available
+    mm_status = None
+    if ctx.memory_manager is not None:
+        try:
+            mm_status = ctx.memory_manager.get_status()
+        except Exception:
+            pass
+
+    # Semantic cache stats
+    cache_stats = {}
+    try:
+        from agents.semantic_cache import get_cache
+
+        cache_stats = get_cache().stats()
+    except Exception:
+        pass
+
     return {
         "total_events": total,
         "stats_30d": stats,
@@ -1465,7 +1663,23 @@ async def api_memory_status():
         "l1": l1_data,
         "l2": l2_data,
         "overrides": overrides_data,
+        "memory_manager": mm_status,
+        "cache": cache_stats,
     }
+
+
+# ── Recent Updates (replaces unreliable WebSocket push) ──────────
+
+
+@app.get("/api/recent-updates")
+async def api_recent_updates(
+    since: int = Query(0, description="返回最近 N 条更新（0=全部）"),
+):
+    """Return recent pipeline update summaries stored in AppContext."""
+    updates = ctx.recent_updates or []
+    if since and since > 0:
+        updates = updates[:since]
+    return {"updates": updates, "total": len(ctx.recent_updates or [])}
 
 
 # ── WebSocket ──────────────────────────────────────────────────────
@@ -1488,7 +1702,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     {"type": "pong", "time": datetime.now().isoformat()}
                 )
     except WebSocketDisconnect:
-        ws_manager.disconnect(websocket)
+        await ws_manager.disconnect(websocket)
 
 
 async def broadcast_pipeline_update(data: dict):
@@ -1559,4 +1773,46 @@ async def api_cost(days: int = Query(7, ge=1, le=90)):
         "by_site": sorted(
             merged.values(), key=lambda x: x["total_tokens"], reverse=True
         ),
+    }
+
+
+@app.get("/api/cost/breakdown")
+async def api_cost_breakdown(days: int = Query(30, ge=1, le=90)):
+    """Daily token breakdown + cache stats."""
+    daily = []
+    if ctx.coordinator is not None:
+        for store in [ctx.coordinator.store, ctx.coordinator.paper_store]:
+            if store is not None:
+                try:
+                    daily.extend(store.get_cost_daily(days=days))
+                except Exception as e:
+                    logger.warning("[API] Cost daily failed for store: %s", e)
+
+    # Merge duplicate days from both stores
+    merged_daily = {}
+    for d in daily:
+        day = d["day"]
+        if day in merged_daily:
+            merged_daily[day]["total_tokens"] += d["total_tokens"]
+            merged_daily[day]["runs"] += d["runs"]
+        else:
+            merged_daily[day] = dict(d)
+
+    daily_list = sorted(merged_daily.values(), key=lambda x: x["day"], reverse=True)
+    grand_total = sum(d["total_tokens"] for d in daily_list)
+
+    # Semantic cache stats
+    cache_stats = {}
+    try:
+        from agents.semantic_cache import get_cache
+
+        cache_stats = get_cache().stats()
+    except Exception:
+        pass
+
+    return {
+        "days": days,
+        "total_tokens": grand_total,
+        "daily": daily_list,
+        "cache": cache_stats,
     }

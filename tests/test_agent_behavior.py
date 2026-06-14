@@ -735,6 +735,195 @@ class TestMonitoringTools:
         assert isinstance(result, str)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Tool-call repair: orphan detection and history fixing
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestToolCallRepair:
+    """Verify _repair_history fixes all orphan tool_calls / tool_message patterns,
+    including the partial-orphan case that caused persistent 400 errors."""
+
+    def test_strips_orphan_tool_calls_no_responses(self):
+        from agents.chat_agent import ChatAgent
+
+        history = [
+            {"role": "user", "content": "hello"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "tc_1",
+                        "type": "function",
+                        "function": {"name": "search", "arguments": "{}"},
+                    },
+                    {
+                        "id": "tc_2",
+                        "type": "function",
+                        "function": {"name": "fetch", "arguments": "{}"},
+                    },
+                ],
+            },
+            # No tool messages at all — both are orphans
+        ]
+        repaired = ChatAgent._repair_history(history)
+        assert repaired
+        # tool_calls should be stripped entirely (no matching tool messages)
+        assert "tool_calls" not in history[1]
+
+    def test_strips_partial_orphan_tool_calls(self):
+        """Root-cause scenario: some tool_calls have responses, some don't."""
+        from agents.chat_agent import ChatAgent
+
+        history = [
+            {"role": "user", "content": "search AI and fetch article"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "tc_a",
+                        "type": "function",
+                        "function": {"name": "search", "arguments": "{}"},
+                    },
+                    {
+                        "id": "tc_b",
+                        "type": "function",
+                        "function": {"name": "fetch_article", "arguments": "{}"},
+                    },
+                ],
+            },
+            {"role": "tool", "content": "search results", "tool_call_id": "tc_a"},
+            # tc_b has NO response — partial orphan!
+            {"role": "assistant", "content": "Here's what I found"},
+        ]
+        repaired = ChatAgent._repair_history(history)
+        assert repaired
+        # tc_a should remain, tc_b should be stripped
+        remaining_ids = {tc["id"] for tc in history[1].get("tool_calls", [])}
+        assert remaining_ids == {"tc_a"}
+
+    def test_strips_orphan_tool_messages(self):
+        """Tool messages referencing non-existent tool_calls should be removed."""
+        from agents.chat_agent import ChatAgent
+
+        history = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "Hi there"},  # no tool_calls
+            {"role": "tool", "content": "orphan result", "tool_call_id": "ghost_id"},
+        ]
+        repaired = ChatAgent._repair_history(history)
+        assert repaired
+        assert len(history) == 2  # orphan tool message removed
+
+    def test_removes_duplicate_tool_messages(self):
+        from agents.chat_agent import ChatAgent
+
+        history = [
+            {"role": "user", "content": "search"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "tc_1",
+                        "type": "function",
+                        "function": {"name": "search", "arguments": "{}"},
+                    },
+                ],
+            },
+            {"role": "tool", "content": "result a", "tool_call_id": "tc_1"},
+            {
+                "role": "tool",
+                "content": "result b",
+                "tool_call_id": "tc_1",
+            },  # duplicate!
+        ]
+        repaired = ChatAgent._repair_history(history)
+        assert repaired
+        tool_msgs = [m for m in history if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1
+
+    def test_no_false_positive_on_clean_history(self):
+        from agents.chat_agent import ChatAgent
+
+        history = [
+            {"role": "user", "content": "search AI"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "tc_1",
+                        "type": "function",
+                        "function": {"name": "search", "arguments": "{}"},
+                    },
+                ],
+            },
+            {"role": "tool", "content": "results", "tool_call_id": "tc_1"},
+            {"role": "assistant", "content": "Here are the results"},
+        ]
+        repaired = ChatAgent._repair_history(history)
+        assert not repaired
+
+    def test_multiple_assistant_tool_calls_in_history(self):
+        """Each assistant with tool_calls is independently checked."""
+        from agents.chat_agent import ChatAgent
+
+        history = [
+            # Exchange 1 — complete and clean
+            {"role": "user", "content": "first"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "tc_1",
+                        "type": "function",
+                        "function": {"name": "search", "arguments": "{}"},
+                    },
+                ],
+            },
+            {"role": "tool", "content": "result 1", "tool_call_id": "tc_1"},
+            {"role": "assistant", "content": "reply 1"},
+            # Exchange 2 — corrupted: tc_2 has no response
+            {"role": "user", "content": "second"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "tc_2",
+                        "type": "function",
+                        "function": {"name": "fetch", "arguments": "{}"},
+                    },
+                    {
+                        "id": "tc_3",
+                        "type": "function",
+                        "function": {"name": "search", "arguments": "{}"},
+                    },
+                ],
+            },
+            {"role": "tool", "content": "result 3", "tool_call_id": "tc_3"},
+            # tc_2 has no tool message — partial orphan in a non-last exchange
+        ]
+        repaired = ChatAgent._repair_history(history)
+        assert repaired
+        # tc_3 has response, tc_2 is orphan → stripped
+        # history[5] is the assistant message with tool_calls; tc_2 orphan, tc_3 stays
+        remaining = {tc["id"] for tc in history[5].get("tool_calls", [])}
+        assert remaining == {"tc_3"}
+
+    def test_adds_missing_content_field(self):
+        from agents.chat_agent import ChatAgent
+
+        history = [{"role": "user"}]  # no 'content' key
+        repaired = ChatAgent._repair_history(history)
+        assert repaired
+        assert history[0]["content"] == ""
+
+
 def asyncio_run(coro):
     import asyncio
 

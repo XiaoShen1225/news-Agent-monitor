@@ -15,6 +15,7 @@ from .sentiment_analyzer import classify
 from .site_profiles import SiteProfile, get_profile
 from data.watch_store import WatchStore
 from notifications.dispatcher import build_event, notify_all
+from web.middleware.logging import trace_ctx
 
 logger = logging.getLogger(__name__)
 
@@ -88,11 +89,20 @@ class CoordinatorAgent(BaseAgent):
 
     @staticmethod
     def _build_preference_context() -> str:
-        """Read L1/L2 preference data for prompt injection."""
+        """Read L1/L2 preference data for prompt injection (read-only from disk)."""
         try:
             from agents.preference_engine import PreferenceEngine
+            from web.app_context import ctx
 
-            engine = PreferenceEngine(track_store=None)
+            # Reuse the shared engine if available (properly wired with track_store)
+            if (
+                ctx.chat_agent is not None
+                and ctx.chat_agent._preference_engine is not None
+            ):
+                return ctx.chat_agent._preference_engine.format_for_prompt()
+
+            # Fallback: read-only instance (format_for_prompt only reads disk files)
+            engine = PreferenceEngine(track_store=ctx.track_store)
             return engine.format_for_prompt()
         except Exception:
             return ""
@@ -122,6 +132,7 @@ class CoordinatorAgent(BaseAgent):
         active_store = self.paper_store if is_article else self.store
 
         trace_id = uuid.uuid4().hex[:12]
+        trace_ctx.set(trace_id=trace_id)
         start_time = time.time()
         result = {
             "site_name": site_name,
@@ -326,13 +337,31 @@ class CoordinatorAgent(BaseAgent):
                             total_tokens=total_tokens,
                         )
 
-                    await notify_all(self.notifiers, build_event(result))
+                    notify_cfg = (self.config.get("notifications") or {}).get(
+                        "policy"
+                    ) or {}
+                    await notify_all(
+                        self.notifiers,
+                        build_event(result),
+                        quiet_start=notify_cfg.get("quiet_start", ""),
+                        quiet_end=notify_cfg.get("quiet_end", ""),
+                        cooldown_minutes=notify_cfg.get("dedup_cooldown_minutes", 120),
+                    )
 
             except Exception as e:
                 import traceback
 
                 elapsed = (time.time() - start_time) * 1000
-                error_str = str(e)
+                # Walk __cause__ chain for meaningful message (e.g. httpx.ConnectError has empty str())
+                error_str = str(e).strip()
+                cause = getattr(e, "__cause__", None)
+                seen_ids = set()
+                while not error_str and cause is not None and id(cause) not in seen_ids:
+                    seen_ids.add(id(cause))
+                    error_str = str(cause).strip()
+                    cause = getattr(cause, "__cause__", None)
+                if not error_str:
+                    error_str = repr(e)
                 logger.error(
                     json.dumps(
                         {
@@ -364,14 +393,26 @@ class CoordinatorAgent(BaseAgent):
                         trace_id=trace_id,
                     )
 
-                await notify_all(self.notifiers, build_event(result))
+                notify_cfg = (self.config.get("notifications") or {}).get(
+                    "policy"
+                ) or {}
+                await notify_all(
+                    self.notifiers,
+                    build_event(result),
+                    quiet_start=notify_cfg.get("quiet_start", ""),
+                    quiet_end=notify_cfg.get("quiet_end", ""),
+                    cooldown_minutes=notify_cfg.get("dedup_cooldown_minutes", 120),
+                )
 
         # ── Unified exit: callbacks fire for ALL statuses ─────────
         for cb in self._run_callbacks:
             try:
                 await cb(result)
             except Exception:
-                pass
+                logger.warning(
+                    "[Coordinator] run_callback failed:\n%s",
+                    traceback.format_exc(),
+                )
         return result
 
     # ── async multi-target (concurrent) ─────────────────────────────

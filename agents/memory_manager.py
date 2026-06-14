@@ -1,13 +1,16 @@
-"""MemoryManager: periodic memory distillation pipeline (L0 → L1 → L2).
+"""MemoryManager: funnel architecture for preference distillation.
 
-Runs on APScheduler timer, independent of chat latency.
-Reads TrackStore for incremental events, calls LLM for semantic extraction,
-and manages the three-layer memory hierarchy.
+Pipeline: collect raw data → jieba keyword cloud → single LLM call → profile.
+
+Jieba provides the keyword statistics (word cloud); the LLM adds semantic
+understanding.  If the LLM call fails, the jieba cloud is saved directly as
+the fallback profile — the system always produces output.
 """
 
 import json
 import logging
-from datetime import datetime, timedelta
+import os
+import re
 from pathlib import Path
 
 from .preference_utils import now_iso
@@ -15,41 +18,281 @@ from .preference_utils import now_iso
 logger = logging.getLogger(__name__)
 
 MEMORY_DIR = Path("data/memory")
+CHECKPOINT_FILE = MEMORY_DIR / "checkpoint.json"
 L1_PATTERNS_FILE = MEMORY_DIR / "l1_patterns.json"
 L2_PROFILE_FILE = MEMORY_DIR / "l2_profile.json"
-OVERRIDES_FILE = MEMORY_DIR / "explicit_overrides.json"
 AUDIT_LOG_FILE = MEMORY_DIR / "audit_log.jsonl"
-PROMPTS_DIR = Path("agents/prompts")
+
+# ── Prompt: LLM turns keyword cloud into structured profile ─────────
+
+_PROFILE_PROMPT = """你是一个用户画像分析器。根据用户近期的聊天关键词和行为数据，生成用户兴趣画像。
+
+输入数据包含：
+- 聊天关键词（jieba 分词 + TF-IDF 权重）
+- 点击的文章标题
+- 搜索查询词
+
+请分析并输出以下 JSON 格式（仅输出 JSON，不要其他文字）：
+
+{
+  "active_interests": [
+    {"name": "兴趣名", "weight": 0.8, "trend": "rising|stable|declining"}
+  ],
+  "emerging": [{"name": "新兴兴趣", "weight": 0.5}],
+  "declining": [{"name": "衰退兴趣", "weight": 0.2}],
+  "stable_interests": [
+    {"name": "兴趣名", "strength": 0.7, "category": "科技|财经|时政|娱乐|体育|教育|健康|科学|综合"}
+  ],
+  "identity": "简短身份推测（15字内）",
+  "reading_habits": "阅读习惯描述（20字内）"
+}
+
+规则：
+- 权重/强度范围 0.0-1.0，反映兴趣的确定程度
+- 过滤掉明显的噪音/寒暄词
+- 合并同义或高度相关的关键词
+- 兴趣名使用简洁的短语（≤8字）
+- emerging 是新出现且证据尚不充分的兴趣
+- active_interests 取 5-10 个最重要的
+- stable_interests 是经过平滑的长期兴趣，取 3-8 个"""
 
 
-def _load_prompt(name: str) -> str:
-    path = PROMPTS_DIR / name
-    if path.exists():
-        return path.read_text(encoding="utf-8")
-    logger.warning("Prompt file not found: %s", path)
-    return ""
+def _extract_keyword_cloud(texts: list[str], top_k: int = 30) -> list[dict]:
+    """Run jieba TF-IDF on a list of texts, return sorted keyword list."""
+    import jieba.analyse
+
+    # Strip URLs and markdown before extraction
+    cleaned = []
+    for t in texts:
+        t = re.sub(r"https?://\S+", " ", t)  # URLs
+        t = re.sub(
+            r"#{1,6}\s|[*_~`]{1,3}|\n-+\n|\[([^\]]+)\]\([^)]+\)", " ", t
+        )  # markdown
+        cleaned.append(t)
+
+    combined = " ".join(cleaned)
+    if not combined.strip():
+        return []
+    raw = jieba.analyse.extract_tags(combined, topK=top_k, withWeight=True)
+    result = []
+    for kw, w in raw:
+        kw = kw.strip()
+        if len(kw) < 2:
+            continue
+        if re.match(r"^[#\-\*=~>|_./\\]+$", kw):
+            continue
+        if re.match(r"^\d+(\.\d+)?$", kw):
+            continue
+        if re.match(r"^[a-zA-Z]$", kw):
+            continue
+        result.append({"keyword": kw, "weight": round(w, 2)})
+    return result
 
 
 class MemoryManager:
-    """Periodic memory distillation orchestrator."""
+    """Funnel: collect → jieba → LLM → profile.
 
-    def __init__(self, track_store, llm_config: dict = None):
+    One LLM call per cycle. Jieba word cloud is always available as fallback.
+    """
+
+    def __init__(self, track_store, llm_config: dict = None, memory_cfg: dict = None):
         self._track = track_store
-        self._llm_cfg = llm_config or {}
-        self._last_analyzed_event_id = 0
-        self._last_l1_run_at: str | None = None
-        self._last_l2_run_at: str | None = None
+        self._full_config = llm_config or {}
+        self._llm_cfg = self._full_config.get("llm", {})
+        self._memory_cfg = memory_cfg or {}
         MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-        # Resolve provider-specific config (e.g. llm.providers.openai)
         self._provider_cfg = self._resolve_provider_cfg()
 
+        ck = self._load_checkpoint()
+        self._last_event_id: int = ck.get("last_event_id", 0)
+        self._last_run_at: str | None = ck.get("last_run_at")
+
+        logger.info(
+            "[MemoryManager] checkpoint=%d last_run=%s",
+            self._last_event_id,
+            self._last_run_at or "never",
+        )
+
+    # ── checkpoint ───────────────────────────────────────────────────
+
+    def _load_checkpoint(self) -> dict:
+        if CHECKPOINT_FILE.exists():
+            try:
+                return json.loads(CHECKPOINT_FILE.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {}
+
+    def _save_checkpoint(self):
+        CHECKPOINT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CHECKPOINT_FILE.write_text(
+            json.dumps(
+                {
+                    "last_event_id": self._last_event_id,
+                    "last_run_at": self._last_run_at,
+                    "updated_at": now_iso(),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+    # ── public entry ─────────────────────────────────────────────────
+
+    async def run_cycle(self):
+        logger.info("[MemoryManager] Cycle start")
+        try:
+            await self._distill()
+        except Exception as e:
+            logger.warning("[MemoryManager] Cycle failed: %s", e)
+        try:
+            self._prune()
+        except Exception as e:
+            logger.warning("[MemoryManager] Prune failed: %s", e)
+        self._save_checkpoint()
+        logger.info("[MemoryManager] Cycle done")
+
+    # ── core: collect → jieba → LLM → profile ────────────────────────
+
+    async def _distill(self):
+        # 1. COLLECT raw text from recent activity
+        chat_texts, click_titles, searches = self._collect_data()
+        all_text = chat_texts + click_titles + searches
+        if not all_text:
+            logger.info("[MemoryManager] No new data to distill")
+            return
+
+        # 2. JIEBA keyword cloud
+        cloud = _extract_keyword_cloud(all_text, top_k=40)
+        if not cloud:
+            return
+        logger.info(
+            "[MemoryManager] Keyword cloud: %s",
+            ", ".join(f"{c['keyword']}({c['weight']})" for c in cloud[:10]),
+        )
+
+        # 3. Build prompt
+        prompt = self._build_prompt(cloud, click_titles, searches)
+
+        # 4. LLM call (single)
+        prev_l2 = self._load_json(L2_PROFILE_FILE)
+        profile = await self._call_llm_for_profile(prompt)
+
+        if profile:
+            # LLM succeeded — fuse with previous L2
+            if prev_l2:
+                profile = self._fuse(prev_l2, profile)
+            logger.info("[MemoryManager] LLM profile generated")
+        else:
+            # LLM failed — build profile from jieba cloud directly
+            profile = self._cloud_to_profile(cloud, prev_l2)
+            logger.info("[MemoryManager] Fallback to jieba-only profile")
+
+        # 5. Save
+        self._save_json(L2_PROFILE_FILE, profile)
+        # Also save L1 (simplified — just the cloud for display)
+        l1_data = {
+            "active_interests": [
+                {
+                    "name": c["keyword"],
+                    "weight": round(min(1.0, c["weight"] * 5), 2),
+                    "trend": "stable",
+                }
+                for c in cloud[:15]
+            ],
+            "emerging": [],
+            "declining": [],
+            "updated_at": now_iso(),
+        }
+        self._save_json(L1_PATTERNS_FILE, l1_data)
+        self._last_run_at = now_iso()
+
+    def _collect_data(self) -> tuple[list[str], list[str], list[str]]:
+        """Gather raw text since last checkpoint.
+
+        User messages are repeated (weighted higher) for jieba cloud.
+        Assistant messages are used for context only.
+        """
+        lookback = self._memory_cfg.get("lookback_days", 7)
+        recent = self._track.get_recent(days=lookback)
+
+        user_texts: list[str] = []
+        assistant_texts: list[str] = []
+        click_titles: list[str] = []
+        searches: list[str] = []
+        max_id = self._last_event_id
+
+        for e in recent:
+            eid = e.get("id", 0)
+            if eid > max_id:
+                max_id = eid
+
+            if e["event_type"] == "chat_message":
+                text = e.get("target_value", "")
+                if not text:
+                    continue
+                meta = e.get("metadata")
+                if isinstance(meta, str):
+                    try:
+                        meta = json.loads(meta)
+                    except json.JSONDecodeError:
+                        meta = {}
+                role = (meta or {}).get("role", "")
+                if role == "user":
+                    user_texts.append(text)
+                else:
+                    assistant_texts.append(text)
+            elif e["event_type"] == "click_link":
+                meta = e.get("metadata")
+                if isinstance(meta, str):
+                    try:
+                        meta = json.loads(meta)
+                    except json.JSONDecodeError:
+                        meta = {}
+                title = (meta or {}).get("title", "")
+                if title:
+                    click_titles.append(title)
+            elif e["event_type"] == "search":
+                q = e.get("target_value", "")
+                if q:
+                    searches.append(q)
+
+        self._last_event_id = max_id
+        # User messages carry primary interest signal — repeat 3x for emphasis
+        chat_texts = user_texts * 3 + assistant_texts
+        logger.info(
+            "[MemoryManager] Collected: %d user msgs, %d assistant, %d clicks, %d searches",
+            len(user_texts),
+            len(assistant_texts),
+            len(click_titles),
+            len(searches),
+        )
+        return chat_texts, click_titles, searches
+
+    def _build_prompt(
+        self, cloud: list[dict], click_titles: list[str], searches: list[str]
+    ) -> str:
+        lines = [_PROFILE_PROMPT, "", "=== 用户数据 ==="]
+        lines.append(f"\n[关键词云] (jieba TF-IDF, top {len(cloud)}):")
+        for c in cloud:
+            lines.append(f"  {c['keyword']}: {c['weight']}")
+        if click_titles:
+            lines.append(f"\n[点击文章标题] ({len(click_titles)} 篇):")
+            for t in click_titles[:20]:
+                lines.append(f"  - {t}")
+        if searches:
+            lines.append("\n[搜索查询]:")
+            for s in searches:
+                lines.append(f"  - {s}")
+        return "\n".join(lines)
+
+    # ── LLM ──────────────────────────────────────────────────────────
+
     def _resolve_provider_cfg(self) -> dict:
-        """Resolve effective LLM config from ``provider`` + ``providers`` sections."""
         provider_name = self._llm_cfg.get("provider", "openai")
         providers = self._llm_cfg.get("providers", {})
         pc = providers.get(provider_name, {})
-        # Resolve ${ENV_VAR} placeholders
-        import os
 
         def _resolve(value):
             if (
@@ -71,315 +314,114 @@ class MemoryManager:
             "model": pc.get("model", self._llm_cfg.get("model", "gpt-4o-mini")),
         }
 
-    # ── public entry ────────────────────────────────────────────────────
+    async def _call_llm_for_profile(self, prompt: str) -> dict | None:
+        """Single LLM call with semantic cache. Returns parsed profile dict or None."""
+        api_key = self._provider_cfg.get("api_key") or ""
+        if not api_key or api_key == "sk-placeholder":
+            logger.info("[MemoryManager] No API key — using jieba fallback")
+            return None
 
-    async def run_cycle(self):
-        """Main cycle: L0 extract → L1 aggregate → L2 update → quality check."""
-        logger.info("[MemoryManager] Cycle started")
+        # Check semantic cache first
+        model_name = self._provider_cfg.get("model", "")
         try:
-            await self._extract_l0()
-        except Exception as e:
-            logger.warning("[MemoryManager] L0 extraction failed: %s", e)
+            from .semantic_cache import get_cache
 
-        try:
-            if self._should_run_l1():
-                await self._aggregate_l1()
-        except Exception as e:
-            logger.warning("[MemoryManager] L1 aggregation failed: %s", e)
-
-        try:
-            if self._should_run_l2():
-                await self._update_l2()
-        except Exception as e:
-            logger.warning("[MemoryManager] L2 update failed: %s", e)
+            cache = get_cache()
+            cached = cache.get(prompt, model=model_name)
+            if cached:
+                return self._parse_json(cached)
+        except Exception:
+            pass  # Cache failure should not block the LLM call
 
         try:
-            self._run_maintenance()
-        except Exception as e:
-            logger.warning("[MemoryManager] Maintenance failed: %s", e)
+            from .provider_factory import create_provider
 
-        logger.info("[MemoryManager] Cycle completed")
-
-    # ── L0: episodic extraction ─────────────────────────────────────────
-
-    async def _extract_l0(self):
-        """Extract L0 events from incremental chat messages."""
-        max_id = self._track.get_max_event_id()
-        if max_id <= self._last_analyzed_event_id:
-            return
-
-        sessions = self._track.get_chat_sessions(days=1)
-        if not sessions:
-            self._last_analyzed_event_id = max_id
-            return
-
-        # Collect new events per session
-        new_sessions = []
-        for sess in sessions:
-            events = sess["events"]
-            # Only process sessions with events after last analyzed id
-            new_events = [e for e in events if e["id"] > self._last_analyzed_event_id]
-            if new_events:
-                new_sessions.append(
-                    {"session_id": sess["session_id"], "events": new_events}
-                )
-
-        if not new_sessions:
-            self._last_analyzed_event_id = max_id
-            return
-
-        prompt_template = _load_prompt("l0_extract.txt")
-        if not prompt_template:
-            self._last_analyzed_event_id = max_id
-            return
-
-        # Batch process: extract per session
-        l0_events = []
-        for sess in new_sessions:
-            # Build conversation text from events
-            lines = []
-            source_ids = []
-            for e in sess["events"]:
-                meta = e.get("metadata")
-                if isinstance(meta, str):
-                    try:
-                        meta = json.loads(meta)
-                    except json.JSONDecodeError:
-                        meta = {}
-                elif meta is None:
-                    meta = {}
-                role = meta.get("role", "unknown")
-                prefix = "用户" if role == "user" else "AI"
-                lines.append(f"{prefix}: {e.get('target_value', '')}")
-                source_ids.append(e["id"])
-
-            conversation = "\n".join(lines[-20:])  # last 20 messages max
-            prompt = prompt_template + f"\n\n对话内容:\n{conversation}"
-
+            model = create_provider(self._full_config)
+            response = await model.ainvoke([{"role": "user", "content": prompt}])
+            text = (response.content or "").strip()
+            # Store in cache
             try:
-                result = await self._call_llm(prompt)
-                parsed = self._parse_json(result)
-                if parsed and parsed.get("topics"):
-                    l0_events.append(
-                        {
-                            "session_id": sess["session_id"],
-                            "source_event_ids": source_ids,
-                            "topics": parsed.get("topics", []),
-                            "entities": parsed.get("entities", []),
-                            "summary": parsed.get("summary", ""),
-                            "is_explicit_save": parsed.get("is_explicit", False),
-                        }
-                    )
-            except Exception as e:
-                logger.warning(
-                    "[MemoryManager] L0 LLM call failed for session %s: %s",
-                    sess["session_id"],
-                    e,
-                )
-                continue
+                cache.set(prompt, text, model=model_name)
+            except Exception:
+                pass
+            return self._parse_json(text)
+        except Exception as e:
+            logger.warning("[MemoryManager] LLM call failed, using fallback: %s", e)
+            return None
 
-        if l0_events:
-            count = self._track.insert_l0_events(l0_events)
-            logger.info(
-                "[MemoryManager] Extracted %d L0 events from %d sessions",
-                count,
-                len(new_sessions),
+    # ── fallback: jieba cloud → profile without LLM ─────────────────
+
+    def _cloud_to_profile(self, cloud: list[dict], prev_l2: dict | None) -> dict:
+        """Build a basic profile from the keyword cloud alone."""
+        interests = []
+        for c in cloud[:10]:
+            interests.append(
+                {
+                    "name": c["keyword"],
+                    "strength": round(min(1.0, c["weight"] * 5), 2),
+                    "category": "综合",
+                }
             )
-
-        self._last_analyzed_event_id = max_id
-
-    # ── L1: pattern aggregation ─────────────────────────────────────────
-
-    def _should_run_l1(self) -> bool:
-        since = (
-            self._last_l1_run_at or (datetime.now() - timedelta(days=30)).isoformat()
-        )
-        new_count = self._track.get_l0_event_count_since(since)
-        if new_count < 10:
-            return False
-        if self._last_l1_run_at:
-            elapsed = (
-                datetime.now() - datetime.fromisoformat(self._last_l1_run_at)
-            ).total_seconds()
-            if elapsed < 7200:  # 2 hours minimum
-                return False
-        return True
-
-    async def _aggregate_l1(self):
-        prompt_template = _load_prompt("l1_aggregate.txt")
-        if not prompt_template:
-            return
-
-        l0_events = self._track.get_l0_events(status="active", limit=50)
-        prev_l1 = self._load_json(L1_PATTERNS_FILE)
-
-        # Gather frontend behavior from user_events
-        recent = self._track.get_recent(days=30)
-        clicked = []
-        searches = []
-        tag_filters: dict[str, int] = {}
-        for e in recent:
-            meta = e.get("metadata")
-            if isinstance(meta, str):
-                try:
-                    meta = json.loads(meta)
-                except json.JSONDecodeError:
-                    meta = {}
-            elif meta is None:
-                meta = {}
-
-            if e["event_type"] == "click_link":
-                clicked.append(meta.get("title", ""))
-            elif e["event_type"] == "search":
-                searches.append(e.get("target_value", ""))
-            elif e["event_type"] == "filter_tag":
-                tag = e.get("target_value", "")
-                if tag:
-                    tag_filters[tag] = tag_filters.get(tag, 0) + 1
-
-        prompt = prompt_template + "\n\n数据:\n"
-        prompt += f"L0 事件数: {len(l0_events)}\n"
-        prompt += f"L0 主题: {json.dumps([e.get('topics', []) for e in l0_events[:10]], ensure_ascii=False)}\n"
-        prompt += f"点击文章: {', '.join(clicked[:10])}\n" if clicked else ""
-        prompt += f"搜索词: {', '.join(searches[:5])}\n" if searches else ""
-        if tag_filters:
-            prompt += f"标签过滤: {json.dumps(tag_filters, ensure_ascii=False)}\n"
-        if prev_l1:
-            prompt += f"上周期 L1: {json.dumps(prev_l1, ensure_ascii=False)}\n"
-
-        try:
-            result = await self._call_llm(prompt)
-            parsed = self._parse_json(result)
-            if parsed:
-                self._save_json(L1_PATTERNS_FILE, parsed)
-                self._last_l1_run_at = now_iso()
-                logger.info("[MemoryManager] L1 aggregation completed")
-        except Exception as e:
-            logger.warning("[MemoryManager] L1 LLM call failed: %s", e)
-
-    # ── L2: profile update ──────────────────────────────────────────────
-
-    def _should_run_l2(self) -> bool:
-        if self._last_l2_run_at:
-            elapsed = (
-                datetime.now() - datetime.fromisoformat(self._last_l2_run_at)
-            ).total_seconds()
-            if elapsed < 86400:  # 24 hours minimum
-                return False
-        patterns = self._load_json(L1_PATTERNS_FILE)
-        if not patterns:
-            return False
-        # Check for persistent trend changes
-        active = patterns.get("active_interests", [])
-        changing = [i for i in active if i.get("trend") in ("rising", "declining")]
-        return len(changing) >= 1
-
-    async def _update_l2(self):
-        prompt_template = _load_prompt("l2_profile.txt")
-        if not prompt_template:
-            return
-
-        l1 = self._load_json(L1_PATTERNS_FILE)
-        prev_l2 = self._load_json(L2_PROFILE_FILE)
-
-        if not l1:
-            return
-
-        prompt = prompt_template + "\n\n数据:\n"
-        prompt += f"L1 当前: {json.dumps(l1, ensure_ascii=False)}\n"
+        profile = {
+            "stable_interests": interests,
+            "identity": "",
+            "reading_habits": f"关注: {', '.join(c['keyword'] for c in cloud[:5])}",
+            "updated_at": now_iso(),
+        }
         if prev_l2:
-            prompt += f"当前 L2 画像: {json.dumps(prev_l2, ensure_ascii=False)}\n"
+            profile = self._fuse(prev_l2, profile)
+        return profile
 
-        try:
-            result = await self._call_llm(prompt)
-            parsed = self._parse_json(result)
-            if parsed:
-                # Merge with existing profile (weighted fusion)
-                if prev_l2:
-                    parsed = self._fuse_profiles(prev_l2, parsed)
-                self._save_json(L2_PROFILE_FILE, parsed)
-                self._last_l2_run_at = now_iso()
-                logger.info("[MemoryManager] L2 profile updated")
-        except Exception as e:
-            logger.warning("[MemoryManager] L2 LLM call failed: %s", e)
+    # ── fusion ───────────────────────────────────────────────────────
 
     @staticmethod
-    def _fuse_profiles(old: dict, new: dict) -> dict:
-        """Weighted fusion: keep old stable interests, adjust by new evidence."""
-        # Simple fusion: new interests with strength changes override,
-        # old interests without conflicting evidence are preserved
-        old_interests = {i["name"]: i for i in old.get("stable_interests", [])}
-        new_interests = {i["name"]: i for i in new.get("stable_interests", [])}
+    def _fuse(old: dict, new: dict) -> dict:
+        """Weighted merge: 70% old, 30% new."""
+        old_map = {i["name"]: i for i in old.get("stable_interests", [])}
+        new_map = {i["name"]: i for i in new.get("stable_interests", [])}
 
         fused = {}
-        all_names = set(old_interests) | set(new_interests)
-        for name in all_names:
-            old_i = old_interests.get(name)
-            new_i = new_interests.get(name)
-            if old_i and new_i:
-                # Weighted average: 70% old, 30% new
+        for name in set(old_map) | set(new_map):
+            o = old_map.get(name)
+            n = new_map.get(name)
+            if o and n:
                 fused[name] = {
                     "name": name,
-                    "strength": round(
-                        old_i["strength"] * 0.7 + new_i["strength"] * 0.3, 2
-                    ),
-                    "category": new_i.get("category", old_i.get("category", "")),
+                    "strength": round(o["strength"] * 0.7 + n["strength"] * 0.3, 2),
+                    "category": n.get("category", o.get("category", "")),
                 }
-            elif old_i:
-                # Old interest not mentioned in new → slight decay
+            elif o:
                 fused[name] = {
                     "name": name,
-                    "strength": round(old_i["strength"] * 0.9, 2),
-                    "category": old_i.get("category", ""),
+                    "strength": round(o["strength"] * 0.9, 2),
+                    "category": o.get("category", ""),
                 }
             else:
-                fused[name] = new_i
+                fused[name] = n
 
-        # Remove interests that fell below threshold
-        new["stable_interests"] = [v for v in fused.values() if v["strength"] >= 0.2]
-        return new
+        result = dict(new)
+        result["stable_interests"] = [
+            v for v in fused.values() if v["strength"] >= 0.15
+        ]
+        return result
 
-    # ── maintenance ─────────────────────────────────────────────────────
+    # ── maintenance ──────────────────────────────────────────────────
 
-    def _run_maintenance(self):
-        """Run periodic cleanup: TTL expiry, cold storage purge."""
+    def _prune(self):
         self._track.expire_ttl_l0()
         self._track.purge_expired_l0()
-        self._log_audit()
 
-    def _log_audit(self):
-        l0_active = self._track.get_l0_events(status="active", limit=1000)
-        l0_soft = self._track.get_l0_events(status="soft_deleted", limit=1000)
+    def get_status(self) -> dict:
         l1 = self._load_json(L1_PATTERNS_FILE)
         l2 = self._load_json(L2_PROFILE_FILE)
-
-        entry = {
-            "timestamp": now_iso(),
-            "l0_active_count": len(l0_active),
-            "l0_stale_count": len(l0_soft),
-            "l1_interests_count": len(l1.get("active_interests", [])) if l1 else 0,
-            "l2_interests_count": len(l2.get("stable_interests", [])) if l2 else 0,
+        return {
+            "checkpoint_event_id": self._last_event_id,
+            "last_run_at": self._last_run_at,
+            "l1_interests": len(l1.get("active_interests", [])) if l1 else 0,
+            "l2_interests": len(l2.get("stable_interests", [])) if l2 else 0,
         }
-        with open(AUDIT_LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-    # ── helpers ─────────────────────────────────────────────────────────
-
-    async def _call_llm(self, prompt: str) -> str:
-        """Call LLM for analysis using resolved provider config."""
-        from openai import AsyncOpenAI
-
-        client = AsyncOpenAI(
-            api_key=self._provider_cfg.get("api_key") or "sk-placeholder",
-            base_url=self._provider_cfg.get("base_url") or "https://api.openai.com/v1",
-        )
-        response = await client.chat.completions.create(
-            model=self._provider_cfg.get("model") or "gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=500,
-        )
-        return response.choices[0].message.content or ""
+    # ── JSON helpers ─────────────────────────────────────────────────
 
     @staticmethod
     def _parse_json(text: str) -> dict | None:
@@ -391,7 +433,6 @@ class MemoryManager:
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            # Try to extract JSON object from text
             start = text.find("{")
             end = text.rfind("}") + 1
             if start >= 0 and end > start:

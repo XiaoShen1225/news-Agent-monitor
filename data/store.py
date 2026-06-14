@@ -51,9 +51,9 @@ class DataStore:
 
     @contextmanager
     def _get_conn(self):
-        """Yield a cached SQLite connection (WAL mode, single-thread safe)."""
+        """Yield a cached SQLite connection (WAL mode, thread-safe)."""
         if self._conn is None:
-            self._conn = sqlite3.connect(self.db_path)
+            self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
         try:
@@ -168,6 +168,23 @@ class DataStore:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_news_items_tag
                 ON news_items(site_name, tag)
+            """)
+            # Performance indexes for high-traffic queries
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_news_items_time
+                ON news_items(snapshot_time)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_run_logs_site_id
+                ON run_logs(site_name, id)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_run_logs_id
+                ON run_logs(id)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_snapshots_site_id
+                ON snapshots(site_name, id)
             """)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS user_targets (
@@ -790,24 +807,6 @@ class DataStore:
             )
             conn.commit()
 
-    def update_item_image(self, url: str, image_url: str):
-        """Cache an image URL for a news item URL."""
-        with self._get_conn() as conn:
-            conn.execute(
-                "UPDATE news_items SET image_url = ? WHERE url = ?",
-                (image_url, url),
-            )
-            conn.commit()
-
-    def get_item_image(self, url: str) -> str | None:
-        """Retrieve cached image URL, or None."""
-        with self._get_conn() as conn:
-            row = conn.execute(
-                "SELECT image_url FROM news_items WHERE url = ? AND image_url != '' ORDER BY id DESC LIMIT 1",
-                (url,),
-            ).fetchone()
-        return row[0] if row else None
-
     def get_item_summary(self, url: str) -> str | None:
         """Retrieve a cached summary for a URL, or None if not cached."""
         with self._get_conn() as conn:
@@ -902,6 +901,27 @@ class DataStore:
         return [
             {
                 "site_name": r[0],
+                "total_tokens": r[1] or 0,
+                "runs": r[2],
+                "avg_tokens": round(r[3] or 0, 1),
+            }
+            for r in rows
+        ]
+
+    def get_cost_daily(self, days: int = 30) -> list:
+        """Return daily token totals over the last N days."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT DATE(created_at) as day, SUM(total_tokens) as sum_tokens, "
+                "COUNT(*) as runs, AVG(total_tokens) as avg_tokens "
+                "FROM run_logs "
+                "WHERE created_at > datetime('now', ?) AND total_tokens > 0 "
+                "GROUP BY day ORDER BY day DESC",
+                (f"-{days} days",),
+            ).fetchall()
+        return [
+            {
+                "day": r[0],
                 "total_tokens": r[1] or 0,
                 "runs": r[2],
                 "avg_tokens": round(r[3] or 0, 1),

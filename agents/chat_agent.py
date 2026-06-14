@@ -427,13 +427,63 @@ class ChatAgent(BaseAgent):
         return AIMessage(content=content)
 
     def _seed_graph_state(self, config: dict):
-        """Inject JSON history into LangGraph state if checkpoint is empty (e.g. after restart)."""
+        """Ensure graph state is valid before each turn.
+
+        - If checkpoint is empty, seed from JSON history (e.g. after restart).
+        - If checkpoint exists, verify no orphan tool_calls remain from a
+          previously interrupted execution.  If orphans are found, strip them
+          to prevent the "insufficient tool messages following tool_calls"
+          400 error from the LLM provider.
+        """
         try:
             state = self._graph.get_state(config)
-            if state.values and state.values.get("messages"):
-                return  # graph already has state for this thread
         except Exception:
-            pass
+            state = None
+
+        if state is not None and state.values and state.values.get("messages"):
+            msgs = state.values["messages"]
+
+            # Collect all tool message IDs and check for duplicates
+            tool_msg_ids = set()
+            tool_msg_id_list = []
+            for m in msgs:
+                if getattr(m, "type", None) == "tool":
+                    tid = getattr(m, "tool_call_id", None)
+                    if tid:
+                        tool_msg_ids.add(tid)
+                        tool_msg_id_list.append(tid)
+            has_duplicate_tool = len(tool_msg_id_list) != len(tool_msg_ids)
+
+            # Check every assistant message with tool_calls — every single
+            # tool_call_id must have a corresponding tool message.  A partial
+            # match (some have responses, some don't) is still corrupt.
+            needs_repair = has_duplicate_tool
+            for m in msgs:
+                if hasattr(m, "tool_calls") and m.tool_calls:
+                    for tc in m.tool_calls:
+                        tc_id = (
+                            tc.get("id")
+                            if isinstance(tc, dict)
+                            else getattr(tc, "id", None)
+                        )
+                        if tc_id and tc_id not in tool_msg_ids:
+                            needs_repair = True
+                            break
+                if needs_repair:
+                    break
+
+            if needs_repair:
+                logger.warning(
+                    "[ChatAgent] Detected orphan/duplicate tool messages in graph state, repairing"
+                )
+                # Convert to dicts, repair, then update graph state
+                dict_msgs = [self._msg_to_dict(m) for m in msgs if m.type != "system"]
+                self._repair_history(dict_msgs)
+                repaired = [self._dict_to_msg(m) for m in dict_msgs]
+                self._graph.update_state(config, {"messages": repaired})
+                self._history = dict_msgs
+            return
+
         if not self._history:
             return
         # Repair history before seeding to prevent 400 errors from orphan tool_calls
@@ -458,6 +508,66 @@ class ChatAgent(BaseAgent):
                 ]
         except Exception:
             pass
+
+    async def _invoke_with_repair(
+        self, input_msgs: list, config: dict, sid: str
+    ) -> dict:
+        """Invoke the graph with auto-repair on message validation errors.
+
+        If the LLM provider rejects the messages (e.g. duplicate tool_call_id),
+        repair the history and retry once before giving up.
+        """
+        for attempt in range(2):
+            try:
+                return await asyncio.wait_for(
+                    self._graph.ainvoke({"messages": input_msgs}, config=config),
+                    timeout=self._llm_timeout,
+                )
+            except asyncio.TimeoutError:
+                logger.error(
+                    "[ChatAgent] Graph invoke timed out after %ds", self._llm_timeout
+                )
+                self._sync_history_from_graph(config)
+                self._repair_history(self._history)
+                self._save_history()
+                self._graph.update_state(
+                    config,
+                    {"messages": [self._dict_to_msg(m) for m in self._history]},
+                )
+                return {
+                    "reply": "抱歉，请求超时。请稍后重试或缩短问题。",
+                    "tool_calls": [],
+                    "context": self.context_stats(),
+                    "context_trimmed": 0,
+                    "session_id": sid,
+                }
+            except Exception as e:
+                msg = str(e).lower()
+                is_dup = "duplicate" in msg and "tool_call_id" in msg
+                is_invalid = "invalid_request_error" in msg
+                is_insufficient = "insufficient tool messages" in msg
+                if attempt == 0 and (is_dup or is_invalid or is_insufficient):
+                    logger.warning(
+                        "[ChatAgent] Message validation error, repairing and retrying: %s",
+                        str(e)[:200],
+                    )
+                    # Remove the user message we just appended (will be added back by graph)
+                    if self._history and self._history[-1].get("role") == "user":
+                        self._history.pop()
+                    # Repair graph state and history
+                    self._sync_history_from_graph(config)
+                    self._repair_history(self._history)
+                    self._save_history()
+                    repaired = [self._dict_to_msg(m) for m in self._history]
+                    self._graph.update_state(config, {"messages": repaired})
+                    # Re-seed so the next attempt picks up repaired state
+                    self._seed_graph_state(config)
+                    self._history.append(
+                        {"role": "user", "content": input_msgs[0].content}
+                    )
+                    self._save_history()
+                    continue
+                raise
 
     # ── chat ──────────────────────────────────────────────────────────
 
@@ -487,22 +597,7 @@ class ChatAgent(BaseAgent):
         self._history.append({"role": "user", "content": user_message})
         self._save_history()
 
-        try:
-            result = await asyncio.wait_for(
-                self._graph.ainvoke({"messages": input_msgs}, config=config),
-                timeout=self._llm_timeout,
-            )
-        except asyncio.TimeoutError:
-            logger.error(
-                "[ChatAgent] Graph invoke timed out after %ds", self._llm_timeout
-            )
-            return {
-                "reply": "抱歉，请求超时。请稍后重试或缩短问题。",
-                "tool_calls": [],
-                "context": self.context_stats(),
-                "context_trimmed": 0,
-                "session_id": sid,
-            }
+        result = await self._invoke_with_repair(input_msgs, config, sid)
 
         # Extract final reply and tool calls from the result
         tool_calls_log = []
@@ -622,10 +717,17 @@ class ChatAgent(BaseAgent):
                     )
         except asyncio.TimeoutError:
             logger.error("[ChatAgent] Stream timeout after %ds", self._llm_timeout)
-            self._history.append(
-                {"role": "assistant", "content": "抱歉，请求超时，请稍后重试。"}
-            )
-            self._save_history()
+            # Sync + repair graph state FIRST, then append the error message
+            try:
+                self._sync_history_from_graph(config)
+                self._repair_history(self._history)
+                self._save_history()
+                self._graph.update_state(
+                    config,
+                    {"messages": [self._dict_to_msg(m) for m in self._history]},
+                )
+            except Exception:
+                pass
             yield self._sse("token", "抱歉，请求超时，请稍后重试。")
             yield self._sse("done", {"error": "timeout", "session_id": sid})
             return
@@ -636,9 +738,20 @@ class ChatAgent(BaseAgent):
                 type(e).__name__,
                 getattr(self.model, "model_name", "?"),
             )
+            # Sync + repair graph state FIRST (before appending error to _history,
+            # since _sync_history_from_graph overwrites _history)
+            try:
+                self._sync_history_from_graph(config)
+                self._repair_history(self._history)
+                self._save_history()
+                self._graph.update_state(
+                    config,
+                    {"messages": [self._dict_to_msg(m) for m in self._history]},
+                )
+            except Exception:
+                pass
             err_msg = f"抱歉，处理请求时出错：{e}"
             self._history.append({"role": "assistant", "content": err_msg})
-            self._save_history()
             yield self._sse("token", err_msg)
             yield self._sse("done", {"error": str(e), "session_id": sid})
             return
@@ -918,43 +1031,83 @@ class ChatAgent(BaseAgent):
     @staticmethod
     def _repair_history(history: list[dict]) -> bool:
         """Fix a single history list: missing content, orphan tool_calls/tool msgs,
-        and duplicate tool messages (same tool_call_id appearing more than once)."""
+        duplicate tool messages, and tool messages not immediately following their
+        assistant tool_calls (required by strict API providers like GLM)."""
         repaired = False
         for msg in history:
             if "content" not in msg:
                 msg["content"] = ""
                 repaired = True
-        # Collect tool_call_ids from assistant tool_calls
+
+        # Build a set of all valid tool_call_ids for quick lookup
+        all_tool_msg_ids = set()
+        for m in history:
+            if m.get("role") == "tool" and m.get("tool_call_id"):
+                all_tool_msg_ids.add(m["tool_call_id"])
+
+        # ── Pass 1: strip tool_calls from assistant msgs that don't have
+        #    their tool messages IMMEDIATELY after them ──
+        i = 0
+        while i < len(history):
+            m = history[i]
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                tc_ids = [tc.get("id") for tc in m["tool_calls"] if tc.get("id")]
+                if not tc_ids:
+                    i += 1
+                    continue
+                # Check: the next N messages must be tool msgs for all tc_ids
+                valid = True
+                j = i + 1
+                for tc_id in tc_ids:
+                    if j >= len(history):
+                        valid = False
+                        break
+                    nm = history[j]
+                    if nm.get("role") != "tool" or nm.get("tool_call_id") != tc_id:
+                        valid = False
+                        break
+                    j += 1
+                if not valid:
+                    # Strip ALL tool_calls from this message — the sequence is broken
+                    m["tool_calls"] = []
+                    del m["tool_calls"]
+                    repaired = True
+            i += 1
+
+        # ── Pass 2: strip orphan tool_calls (no matching tool msg anywhere) ──
         ai_ids = set()
         for m in history:
             if m.get("role") == "assistant" and m.get("tool_calls"):
                 for tc in m["tool_calls"]:
                     if tc.get("id"):
                         ai_ids.add(tc["id"])
-        # Strip orphan tool_calls (no matching tool message)
         for m in history:
             if m.get("role") == "assistant" and m.get("tool_calls"):
                 before = len(m["tool_calls"])
                 m["tool_calls"] = [
-                    tc
-                    for tc in m["tool_calls"]
-                    if tc.get("id")
-                    in {x["tool_call_id"] for x in history if x.get("role") == "tool"}
+                    tc for tc in m["tool_calls"] if tc.get("id") in all_tool_msg_ids
                 ]
                 if len(m["tool_calls"]) != before:
                     repaired = True
                 if not m["tool_calls"]:
                     del m["tool_calls"]
-        # Strip orphan tool messages (no matching tool_calls) + duplicates
+
+        # Recompute ai_ids after stripping
+        ai_ids = set()
+        for m in history:
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                for tc in m["tool_calls"]:
+                    if tc.get("id"):
+                        ai_ids.add(tc["id"])
+
+        # ── Pass 3: strip orphan tool messages + duplicates ──
         seen_tool_ids = set()
         orphan_or_dup = []
         for i, m in enumerate(history):
             if m.get("role") == "tool" and m.get("tool_call_id"):
                 tid = m["tool_call_id"]
-                if tid not in ai_ids:
-                    orphan_or_dup.append(i)  # orphan
-                elif tid in seen_tool_ids:
-                    orphan_or_dup.append(i)  # duplicate
+                if tid not in ai_ids or tid in seen_tool_ids:
+                    orphan_or_dup.append(i)
                 else:
                     seen_tool_ids.add(tid)
         for i in reversed(orphan_or_dup):

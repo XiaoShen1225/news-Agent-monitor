@@ -185,66 +185,150 @@ class AnalyzerAgent(BaseAgent):
             return None
 
     def _diff_items(self, prev: list, curr: list) -> tuple:
-        prev_titles = {item.get("title", ""): item for item in prev}
-        curr_titles = {item.get("title", ""): item for item in curr}
-        prev_keys = set(prev_titles)
-        curr_keys = set(curr_titles)
+        """Compare two item lists using URL as primary key, title as fallback.
+
+        URL is much more stable than title — the same article rarely changes
+        URL, but titles are frequently updated, truncated, or reformatted.
+        """
+
+        def _key(item: dict) -> tuple | None:
+            """Return (\"url\", url) or (\"title\", title) or None for empty items."""
+            url = (item.get("url") or "").strip()
+            if url:
+                return ("url", url)
+            title = (item.get("title") or "").strip()
+            return ("title", title) if title else None
+
+        # Index by stable key
+        prev_by_key: dict[tuple, dict] = {}
+        for item in prev:
+            k = _key(item)
+            if k is not None:
+                prev_by_key.setdefault(k, item)
+
+        curr_by_key: dict[tuple, dict] = {}
+        for item in curr:
+            k = _key(item)
+            if k is not None:
+                curr_by_key.setdefault(k, item)
+
+        prev_keys = set(prev_by_key)
+        curr_keys = set(curr_by_key)
 
         new_items: list[dict] = []
         removed_items: list[dict] = []
         modified_items: list[dict] = []
+        matched_prev: set[tuple] = set()
+        matched_curr: set[tuple] = set()
 
-        # -- exact matches --
-        matched_prev: set[str] = set()
-        matched_curr: set[str] = set()
+        # ── Exact key matches (URL or title) ──
+        for k in prev_keys & curr_keys:
+            matched_prev.add(k)
+            matched_curr.add(k)
+            prev_item = prev_by_key[k]
+            curr_item = curr_by_key[k]
+            if prev_item.get("summary") != curr_item.get("summary") or prev_item.get(
+                "tag"
+            ) != curr_item.get("tag"):
+                modified_items.append(
+                    {
+                        "title": curr_item.get("title", ""),
+                        "previous": prev_item,
+                        "current": curr_item,
+                    }
+                )
 
-        # -- fuzzy-match unmatched titles to catch truncation / minor edits --
-        unmatched_new = [t for t in curr_keys if t and t not in prev_keys]
-        unmatched_rem = [t for t in prev_keys if t and t not in curr_keys]
-        for ct in unmatched_new:
-            for pt in unmatched_rem:
-                if pt in matched_prev:
-                    continue
-                if title_similar(ct, pt):
-                    matched_prev.add(pt)
-                    matched_curr.add(ct)
-                    prev_item = prev_titles[pt]
-                    curr_item = curr_titles[ct]
+        # ── Fuzzy-match remaining title-only entries ──
+        prev_title_unmatched = [k for k in prev_keys - matched_prev if k[0] == "title"]
+        curr_title_unmatched = [k for k in curr_keys - matched_curr if k[0] == "title"]
+        for ck in curr_title_unmatched:
+            ct = ck[1]
+            for pk in list(prev_title_unmatched):
+                if title_similar(ct, pk[1]):
+                    matched_prev.add(pk)
+                    matched_curr.add(ck)
+                    prev_title_unmatched.remove(pk)
                     modified_items.append(
                         {
                             "title": ct,
-                            "previous": prev_item,
-                            "current": curr_item,
+                            "previous": prev_by_key[pk],
+                            "current": curr_by_key[ck],
                             "fuzzy_matched": True,
                         }
                     )
                     break
 
-        # -- true new items --
-        for t in curr_keys:
-            if t and t not in prev_keys and t not in matched_curr:
-                new_items.append({"title": t, **curr_titles[t]})
+        # ── Cross-type match: title-keyed ↔ URL-keyed by exact title ──
+        # An article may have no URL in one snapshot but a URL in another.
+        prev_url_unmatched = [k for k in prev_keys - matched_prev if k[0] == "url"]
+        curr_url_unmatched = [k for k in curr_keys - matched_curr if k[0] == "url"]
+        prev_title_unmatched2 = [k for k in prev_keys - matched_prev if k[0] == "title"]
+        curr_title_unmatched2 = [k for k in curr_keys - matched_curr if k[0] == "title"]
 
-        # -- true removed items --
-        for t in prev_keys:
-            if t and t not in curr_keys and t not in matched_prev:
-                removed_items.append({"title": t, **prev_titles[t]})
-
-        # -- modifications among exact-matched items --
-        for t in curr_keys & prev_keys:
-            if t:
-                prev_item = prev_titles[t]
-                curr_item = curr_titles[t]
-                if prev_item.get("summary") != curr_item.get(
-                    "summary"
-                ) or prev_item.get("tag") != curr_item.get("tag"):
+        for ck_url in list(curr_url_unmatched):
+            citem = curr_by_key[ck_url]
+            ct = citem.get("title", "").strip()
+            if not ct:
+                continue
+            # Try exact title match first
+            pk_title = ("title", ct)
+            if pk_title in prev_title_unmatched2:
+                matched_prev.add(pk_title)
+                matched_curr.add(ck_url)
+                curr_url_unmatched.remove(ck_url)
+                prev_title_unmatched2.remove(pk_title)
+                modified_items.append(
+                    {
+                        "title": ct,
+                        "previous": prev_by_key[pk_title],
+                        "current": citem,
+                    }
+                )
+                continue
+            # Fuzzy title match with high threshold
+            for pk_title in list(prev_title_unmatched2):
+                if title_similar(ct, pk_title[1], threshold=0.92):
+                    matched_prev.add(pk_title)
+                    matched_curr.add(ck_url)
+                    curr_url_unmatched.remove(ck_url)
+                    prev_title_unmatched2.remove(pk_title)
                     modified_items.append(
                         {
-                            "title": t,
-                            "previous": prev_item,
-                            "current": curr_item,
+                            "title": ct,
+                            "previous": prev_by_key[pk_title],
+                            "current": citem,
+                            "fuzzy_matched": True,
                         }
                     )
+                    break
+
+        # Mirror: prev URL-keyed unmatched ↔ curr title-keyed unmatched
+        for pk_url in list(prev_url_unmatched):
+            pitem = prev_by_key[pk_url]
+            pt = pitem.get("title", "").strip()
+            if not pt:
+                continue
+            ck_title = ("title", pt)
+            if ck_title in curr_title_unmatched2:
+                matched_prev.add(pk_url)
+                matched_curr.add(ck_title)
+                prev_url_unmatched.remove(pk_url)
+                curr_title_unmatched2.remove(ck_title)
+                modified_items.append(
+                    {
+                        "title": pt,
+                        "previous": pitem,
+                        "current": curr_by_key[ck_title],
+                    }
+                )
+
+        # ── True new / removed ──
+        for k in curr_keys - matched_curr:
+            item = curr_by_key[k]
+            new_items.append({"title": item.get("title", ""), **item})
+        for k in prev_keys - matched_prev:
+            item = prev_by_key[k]
+            removed_items.append({"title": item.get("title", ""), **item})
 
         return new_items, removed_items, modified_items
 

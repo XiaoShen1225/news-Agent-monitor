@@ -66,11 +66,27 @@ class BaseAgent:
         max_tokens: int = None,
         fallback: str = ...,
     ) -> str:
-        """Generic async LLM call. Retries handled by model."""
+        """Generic async LLM call with semantic cache. Retries handled by model."""
         if temperature is None:
             temperature = self.llm_config.get("temperature", 0.1)
         if max_tokens is None:
             max_tokens = self.llm_config.get("max_tokens", 2048)
+
+        # ── Semantic cache lookup ──
+        _cache = None
+        _cache_key = ""
+        _model_name = self.llm_config.get("model", "")
+        try:
+            from .semantic_cache import get_cache
+
+            _cache = get_cache()
+            _cache_key = f"{system_prompt}|{user_prompt}|{_model_name}|{temperature}|{max_tokens}"
+            cached = _cache.get(_cache_key, model=_model_name)
+            if cached is not None:
+                logger.info("[%s] Cache HIT — saved an LLM call", self.name)
+                return cached
+        except Exception:
+            pass
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -89,7 +105,16 @@ class BaseAgent:
             logger.info(
                 "[%s] LLM call successful, tokens: %d", self.name, self._last_tokens
             )
-            return result.content
+            text = result.content
+
+            # ── Store in cache ──
+            if _cache is not None and _cache_key:
+                try:
+                    _cache.set(_cache_key, text, model=_model_name)
+                except Exception:
+                    pass
+
+            return text
 
         except Exception as e:
             if fallback is not ...:

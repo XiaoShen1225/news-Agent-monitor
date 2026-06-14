@@ -1,8 +1,7 @@
-"""fetch_article tool — fetch webpage + AI summarization + image extraction."""
+"""fetch_article tool — fetch webpage + AI summarization."""
 
 import logging
 import re
-from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
@@ -10,9 +9,6 @@ from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
 
-SCRIPT_STYLE_RE = re.compile(
-    r"<(script|style|noscript)[^>]*>.*?</\1>", re.DOTALL | re.IGNORECASE
-)
 WHITESPACE_RE = re.compile(r"\s+")
 
 FETCH_HEADERS = {
@@ -25,55 +21,12 @@ FETCH_HEADERS = {
 }
 
 
-def _extract_images(soup: BeautifulSoup, base_url: str, limit: int = 10) -> list[str]:
-    """Find image URLs with minimal filtering. Searches entire page first;
-    only narrows to content area when that yields fewer irrelevant results.
-    Returns up to ``limit`` unique absolute URLs.
-    """
-    urls: list[str] = []
-    seen: set[str] = set()
-    all_imgs = soup.find_all("img")
-    logger.info("_extract_images: %d imgs in full page", len(all_imgs))
-    for img in all_imgs:
-        raw = (
-            img.get("src")
-            or img.get("data-src")
-            or img.get("data-original")
-            or img.get("data-lazy-src")
-            or ""
-        ).strip()
-        if not raw or raw.startswith("data:"):
-            continue
-        full = urljoin(base_url, raw)
-        if full not in seen:
-            seen.add(full)
-            urls.append(full)
-            if len(urls) >= limit:
-                break
-    for i, u in enumerate(urls[:3]):
-        logger.info("_extract_images: [%d] %s", i, u[:150])
-    return urls
-
-
-def _extract_images_from_raw_html(
-    html: str, base_url: str, limit: int = 10
-) -> list[str]:
-    """Parse raw HTML (before script/style removal) to find img tags.
-    The SCRIPT_STYLE_RE regex can over-match on malformed HTML, removing
-    swaths of content including img tags.  Extracting from raw HTML first
-    avoids that hazard.
-    """
-    soup = BeautifulSoup(html, "lxml")
-    return _extract_images(soup, base_url, limit)
-
-
 def make_fetch_article_tool(agent):
     @tool
     async def fetch_article(url: str, title: str = "") -> str:
-        """抓取指定URL的网页正文，用AI生成中文摘要，并提取正文区域图片。
+        """抓取指定URL的网页正文，用AI生成中文摘要。
 
-        返回格式：摘要 + [配图1] URL + [配图2] URL ...（最多10张候选）。
-        请从候选配图中选最相关的一张展示给用户。
+        返回格式：中文摘要文本（3-5句）。
         需要网络请求，耗时较长（10-15秒）。
         """
         if not url:
@@ -81,7 +34,7 @@ def make_fetch_article_tool(agent):
         if not (url.startswith("http://") or url.startswith("https://")):
             return "[参数错误] URL必须以 http:// 或 https:// 开头。"
 
-        # Check cache first — but if image_url is missing, re-fetch to extract it
+        # Check cache
         for store in (agent.news_store, agent.paper_store):
             if not store:
                 continue
@@ -89,43 +42,22 @@ def make_fetch_article_tool(agent):
                 cached = store.get_item_summary(url)
             except Exception:
                 continue
-            if cached and "[配图]" in cached:
-                return cached
             if cached:
-                try:
-                    img = store.get_item_image(url)
-                except Exception:
-                    img = None
-                if img:
-                    cached += f"\n[配图] {img}"
-                    return cached
-                logger.info(
-                    "fetch_article: cache hit for %s but no image, re-fetching",
-                    url[:80],
-                )
+                return cached
 
         try:
-            img_urls: list[str] = []
-
-            # Try Playwright browser first (bypasses anti-bot measures).
-            # Returns {"html": ..., "images": [...]} with JS-extracted images
-            # that completely bypass HTML parsing.
             html = ""
+
+            # Try Playwright browser first
             if agent._coordinator and agent._coordinator.fetcher:
                 try:
-                    result = (
-                        await agent._coordinator.fetcher.fetch_article_with_browser(url)
+                    html = await agent._coordinator.fetcher.fetch_article_with_browser(
+                        url
                     )
-                    if isinstance(result, dict):
-                        html = result.get("html", "")
-                        img_urls = result.get("images", [])
-                    else:
-                        # Back-compat: old return type (str)
-                        html = result
                 except Exception:
                     pass
 
-            # Fall back to httpx if browser fetch failed or returned empty
+            # Fall back to httpx
             if not html:
                 logger.info(
                     "fetch_article: browser fetch failed/empty for %s, trying httpx",
@@ -139,34 +71,12 @@ def make_fetch_article_tool(agent):
                     "fetch_article: httpx got %d bytes for %s", len(html), url[:80]
                 )
 
-            # Extract images from raw HTML first (before SCRIPT_STYLE_RE may
-            # over-match and remove content).  Merge with JS-extracted images
-            # from the browser path.
-            bs4_images = _extract_images_from_raw_html(html, url)
-
-            # Merge: JS images first, then BS4 images (deduplicated)
-            seen: set[str] = set()
-            merged: list[str] = []
-            for u in img_urls + bs4_images:
-                if u not in seen:
-                    seen.add(u)
-                    merged.append(u)
-                    if len(merged) >= 10:
-                        break
-            img_urls = merged
-            logger.info("fetch_article: %d total images after merge", len(img_urls))
-
-            if img_urls:
-                for store in (agent.news_store, agent.paper_store):
-                    if store:
-                        try:
-                            store.update_item_image(url, img_urls[0])
-                        except Exception:
-                            pass
-
             # Clean HTML for text extraction
-            text = SCRIPT_STYLE_RE.sub(" ", html)
-            soup = BeautifulSoup(text, "lxml")
+            soup = BeautifulSoup(html, "lxml")
+            for tag in soup.find_all(["script", "style", "noscript"]):
+                tag.decompose()
+            for tag in soup.find_all(["nav", "footer", "header", "aside"]):
+                tag.decompose()
             body = soup.get_text(separator=" ")
             body = WHITESPACE_RE.sub(" ", body).strip()
 
@@ -196,11 +106,6 @@ def make_fetch_article_tool(agent):
                     except Exception:
                         pass
 
-            if img_urls:
-                img_lines = "\n".join(
-                    f"[配图{i + 1}] {u}" for i, u in enumerate(img_urls)
-                )
-                return f"{summary}\n\n{img_lines}"
             return summary
         except httpx.HTTPStatusError as e:
             return (

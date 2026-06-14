@@ -21,6 +21,7 @@ aiosmtplib>=3.0.0
 chromadb>=0.5.0
 sentence-transformers>=2.7.0
 jieba>=0.42.0
+slowapi>=0.1.9
 
 # Dev dependencies (testing / linting)
 pytest>=9.0

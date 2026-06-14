@@ -5,8 +5,8 @@
 # LLM Configuration — multi-provider support
 # provider: "zhipu" | "openai" | "claude" | "local"
 llm:
-  provider: "openai"
-  model: "deepseek-chat"
+  provider: "zhipu"
+  model: "glm-4-flash"
   temperature: 0.3
   max_tokens: 4096
   max_retries: 3
@@ -99,6 +99,13 @@ watch:
 #       smtp_user: "user@gmail.com"
 #       smtp_password: "${SMTP_PASSWORD}"
 #       to_addrs: ["alerts@example.com"]
+#   telegram:
+#     - bot_token: "${TELEGRAM_BOT_TOKEN}"
+#       chat_id: "${TELEGRAM_CHAT_ID}"
+#   policy:
+#     quiet_start: "23:00"   # suppress INFO alerts during quiet hours
+#     quiet_end: "07:00"
+#     dedup_cooldown_minutes: 120  # suppress duplicate alerts within 2 hours
 
 # Dashboard auth (optional — skip if token is empty or unset)
 dashboard:
@@ -121,7 +128,7 @@ chat:
 # Three-layer preference memory system — L0 episodic → L1 pattern → L2 profile
 memory:
   cycle_minutes: 30            # MemoryManager analysis interval
-  l1_min_events: 10            # L1 triggers when L0 events >= this
+  l1_min_events: 5             # L1 triggers when new L0 events >= this
   l1_cooldown_hours: 2         # minimum hours between L1 runs
   l2_cooldown_hours: 24        # minimum hours between L2 profile updates
 

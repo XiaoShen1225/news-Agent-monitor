@@ -11,9 +11,150 @@
       "status": "active",
       "match_strategy": "keyword_and_semantic",
       "created_at": "2026-05-31T23:11:57",
-      "last_match_at": null,
-      "match_count": 0,
-      "match_history": [],
+      "last_match_at": "2026-06-14T14:13:29",
+      "match_count": 1492,
+      "match_history": [
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "Supporting Europe’s work in ensuring a trustworthy AI ecosystem",
+          "url": "https://openai.com/index/supporting-eu-trustworthy-ai-ecosystem",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "Powering next generation applications with OpenAI Codex",
+          "url": "https://openai.com/index/codex-apps",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "OpenAI LP",
+          "url": "https://openai.com/index/openai-lp",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "OpenAI Scholars",
+          "url": "https://openai.com/index/openai-scholars",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "Improving verifiability in AI development",
+          "url": "https://openai.com/index/improving-verifiability",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "OpenAI Scholars 2018: Final projects",
+          "url": "https://openai.com/index/openai-scholars-2018-final-projects",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "OpenAI Residency",
+          "url": "https://openai.com/index/openai-residency",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "Why responsible AI development needs cooperation on safety",
+          "url": "https://openai.com/index/cooperation-on-safety",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "How Preply combines AI and human tutors to personalize learning",
+          "url": "https://openai.com/index/preply",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "PRC-linked influence operations are targeting AI debates in the US",
+          "url": "https://openai.com/index/prc-linked-influence-operations-ai-debates",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "OpenAI Scholars 2020: Final projects",
+          "url": "https://openai.com/index/openai-scholars-2020-final-projects",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "OpenAI Baselines: ACKTR & A2C",
+          "url": "https://openai.com/index/openai-baselines-acktr-a2c",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "OpenAI Scholars 2019: Final projects",
+          "url": "https://openai.com/index/openai-scholars-2019-final-projects",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "OpenAI Five defeats Dota 2 world champions",
+          "url": "https://openai.com/index/openai-five-defeats-dota-2-world-champions",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "OpenAI Five Finals",
+          "url": "https://openai.com/index/openai-five-finals",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "OpenAI Fellows Fall 2018: Final projects",
+          "url": "https://openai.com/index/openai-fellows-fall-2018",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "Introducing the OpenAI Economic Research Exchange",
+          "url": "https://openai.com/index/economic-research-exchange",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "OpenAI Fellows Fall 2018",
+          "url": "https://openai.com/index/openai-fellows",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "OpenAI supporters",
+          "url": "https://openai.com/index/openai-supporters",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:29",
+          "title": "OpenAI licenses GPT-3 technology to Microsoft",
+          "url": "https://openai.com/index/openai-licenses-gpt-3-technology-to-microsoft",
+          "score": 0,
+          "match_type": "keyword"
+        }
+      ],
       "latest_summary": null,
       "source_site": "",
       "completed_at": null
@@ -29,9 +170,143 @@
       "status": "active",
       "match_strategy": "keyword_and_semantic",
       "created_at": "2026-06-02T23:38:31",
-      "last_match_at": null,
-      "match_count": 0,
-      "match_history": [],
+      "last_match_at": "2026-06-14T14:13:42",
+      "match_count": 19,
+      "match_history": [
+        {
+          "time": "2026-06-07T01:06:25",
+          "title": "英特尔新CEO陈立武将全面改革芯片设计制造业务",
+          "url": "https://finance.sina.com.cn/tech/digi/2025-03-18/doc-inepyfem3488852.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-07T01:06:25",
+          "title": "美股芯片制造商市值，一日蒸发超万亿美元",
+          "url": "https://finance.sina.com.cn/wm/2026-06-06/doc-inianqpm0533850.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-07T01:06:25",
+          "title": "近三个月车规级存储芯片价格暴涨180%，多家新能源车企上调售价或收紧优惠",
+          "url": "https://k.sina.com.cn/article_6192937794_17120bb4202002qhgk.html?from=auto&subch=oauto",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-07T19:05:30",
+          "title": "美股芯片制造商市值，一日蒸发超万亿美元",
+          "url": "https://news.sina.com.cn/w/2026-06-07/doc-iniapryx0004160.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-07T19:05:30",
+          "title": "英特尔新CEO陈立武将全面改革芯片设计制造业务",
+          "url": "https://finance.sina.com.cn/tech/digi/2025-03-18/doc-inepyfem3488852.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-08T11:23:14",
+          "title": "英特尔新CEO陈立武将全面改革芯片设计制造业务",
+          "url": "https://finance.sina.com.cn/tech/digi/2025-03-18/doc-inepyfem3488852.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-08T11:23:14",
+          "title": "黄仁勋最新表态：存储芯片供应紧张的局面将持续数年",
+          "url": "https://finance.sina.com.cn/stock/bxjj/2026-06-08/doc-iniarzfy7254014.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-08T11:23:14",
+          "title": "英伟达与SK海力士签署多年合作协议，联合研发下一代芯片",
+          "url": "https://finance.sina.com.cn/stock/usstock/c/2026-06-08/doc-iniaruxw9016133.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-08T11:23:14",
+          "title": "让DeepSeek V4更强大 华为昇腾950DT芯片8月问世：自研HBM性能翻倍还多",
+          "url": "https://finance.sina.com.cn/tech/roll/2026-06-08/doc-iniaqtnn6288947.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-08T23:28:35",
+          "title": "谷歌母公司Alphabet委托英特尔生产300万颗自研芯片",
+          "url": "https://finance.sina.com.cn/stock/usstock/c/2026-06-08/doc-iniathzk6961480.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-08T23:28:35",
+          "title": "美股芯片股，全线上涨",
+          "url": "https://k.sina.com.cn/article_1702925432_658094780190198qu.html?from=finance&kdurlshow=1",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-09T23:04:06",
+          "title": "谷歌、英伟达考虑将英特尔作为后备芯片代工厂",
+          "url": "https://finance.sina.com.cn/stock/usstock/c/2026-06-09/doc-iniatpia8450543.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-09T23:04:06",
+          "title": "英特尔新CEO陈立武将全面改革芯片设计制造业务",
+          "url": "https://finance.sina.com.cn/tech/digi/2025-03-18/doc-inepyfem3488852.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-10T15:06:52",
+          "title": "向美递投名状！“台当局预谋将AI芯片限制扩大至所有大陆企业”",
+          "url": "https://finance.sina.com.cn/roll/2026-06-10/doc-iniawttx4642325.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-11T23:51:51",
+          "title": "Q1全球手机芯片排名：联发科第一、展锐第四 解决产能华为海思超越三星非难事",
+          "url": "https://finance.sina.com.cn/tech/discovery/2026-06-11/doc-iniaywsu5518865.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-11T23:51:51",
+          "title": "英特尔新CEO陈立武将全面改革芯片设计制造业务",
+          "url": "https://finance.sina.com.cn/tech/digi/2025-03-18/doc-inepyfem3488852.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-12T13:24:51",
+          "title": "英特尔新CEO陈立武将全面改革芯片设计制造业务",
+          "url": "https://finance.sina.com.cn/tech/digi/2025-03-18/doc-inepyfem3488852.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:42",
+          "title": "【国内动态】小鹏集团副总裁余鹏：飞行汽车并非孤立业务，与芯片、机器人共同构成 AI 技术的协同矩阵",
+          "url": "https://finance.sina.com.cn/wm/2026-06-14/doc-inicketx5784716.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:42",
+          "title": "琻捷电子港股IPO：车载芯片国产替代龙头 营收连年高..",
+          "url": "https://finance.sina.com.cn/stock/observe/2026-06-12/doc-iniceccr2121073.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        }
+      ],
       "latest_summary": null,
       "source_site": "",
       "completed_at": null
@@ -85,6 +360,515 @@
       "latest_summary": null,
       "source_site": "",
       "completed_at": null
+    },
+    {
+      "id": "watch_e8890cbca0",
+      "type": "topic",
+      "title": "哈迪斯2",
+      "keywords": [
+        "哈迪斯2",
+        "Hades 2",
+        "哈迪斯2更新"
+      ],
+      "embedding": [],
+      "status": "active",
+      "match_strategy": "keyword_and_semantic",
+      "created_at": "2026-06-07T01:22:48",
+      "last_match_at": "2026-06-12T13:24:07",
+      "match_count": 3,
+      "match_history": [
+        {
+          "time": "2026-06-07T01:22:48",
+          "title": "IGN满分《哈迪斯2》再进化！罕见更新 解决玩家痛点",
+          "url": "https://www.gamersky.com/news/202606/2151712.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-11T23:50:57",
+          "title": "IGN10分神作！《哈迪斯2》又更新",
+          "url": "https://www.gamersky.com/news/202606/2154949.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-12T13:24:07",
+          "title": "IGN10分神作！《哈迪斯2》又更新",
+          "url": "https://www.gamersky.com/news/202606/2154949.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        }
+      ],
+      "latest_summary": null,
+      "source_site": "",
+      "completed_at": null
+    },
+    {
+      "id": "watch_a2ab60851c",
+      "type": "topic",
+      "title": "高考",
+      "keywords": [
+        "高考",
+        "高考作文",
+        "高考数学",
+        "高考语文",
+        "高考分数线",
+        "高考录取"
+      ],
+      "embedding": [],
+      "status": "active",
+      "match_strategy": "keyword_and_semantic",
+      "created_at": "2026-06-07T19:39:08",
+      "last_match_at": "2026-06-14T14:13:42",
+      "match_count": 70,
+      "match_history": [
+        {
+          "time": "2026-06-09T23:04:06",
+          "title": "高考，可给大学生们忙坏了……",
+          "url": "https://k.sina.com.cn/article_1893892941_70e2834d020020mw2.html?from=society",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-09T23:04:06",
+          "title": "高考家长疑因公交鸣笛拦车头",
+          "url": "https://s.weibo.com/weibo?q=%E9%AB%98%E8%80%83%E5%AE%B6%E9%95%BF%E7%96%91%E5%9B%A0%E5%85%AC%E4%BA%A4%E9%B8%A3%E7%AC%9B%E6%8B%A6%E8%BD%A6%E5%A4%B4",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-09T23:04:06",
+          "title": "高考首日北京现双彩虹",
+          "url": "https://news.sina.com.cn/s/2026-06-07/doc-iniaqtnq7875418.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-09T23:04:06",
+          "title": "高考生物",
+          "url": "https://k.sina.com.cn/article_1720962692_6693ce84020032vtu.html?from=edu",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-09T23:04:06",
+          "title": "高考结束，四川“罗汉娃”走出考场，奔赴崭新人生",
+          "url": "https://news.sina.cn/zt_d/subject-1780388224",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-09T23:04:06",
+          "title": "高考在多数地区落幕 今年有哪些变化？",
+          "url": "https://news.sina.com.cn/o/2026-06-09/doc-iniauzkv1856867.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-10T11:11:44",
+          "title": "全国部分地区高考结束",
+          "url": "https://baijiahao.baidu.com/s?id=1867504824198733951",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-10T23:50:34",
+          "title": "高考结束，武汉一考生全家花式组团接考",
+          "url": "https://news.sina.com.cn/s/2026-06-10/doc-iniawxzx1301680.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-10T23:50:34",
+          "title": "高考考点附近，蛇形机器人在执行什么任务？",
+          "url": "https://news.sina.com.cn/s/2026-06-10/doc-iniawpmz4665863.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-10T23:50:34",
+          "title": "高考结束日，京城再迎“吉祥”彩虹",
+          "url": "https://news.sina.com.cn/c/2026-06-10/doc-iniaxqxn2636599.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-10T23:50:34",
+          "title": "自贡灯会对高考学子免票",
+          "url": "http://city.sina.com.cn/city/t/2026-06-08/detail-iniarzha4061280.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-10T23:50:34",
+          "title": "高考结束的第一批受害者出现了",
+          "url": "https://s.weibo.com/weibo?q=%E9%AB%98%E8%80%83%E7%BB%93%E6%9D%9F%E7%9A%84%E7%AC%AC%E4%B8%80%E6%89%B9%E5%8F%97%E5%AE%B3%E8%80%85%E5%87%BA%E7%8E%B0%E4%BA%86",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-10T23:50:34",
+          "title": "2026全国高考部分结束 考生飞奔出考场",
+          "url": "https://photo.sina.cn/album_1_2841_621743.htm?ch=1",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-10T23:50:34",
+          "title": "2026高考落下帷幕！一句台词送给准大学生",
+          "url": "https://news.sina.com.cn/c/2026-06-10/doc-iniaxkrq2684387.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-11T23:51:38",
+          "title": "高考结束 女生感慨再也没高中上了",
+          "url": "https://mbd.baidu.com/newspage/data/videolanding?nid=sv_4305894028615222781",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-12T13:24:51",
+          "title": "自贡灯会对高考学子免票",
+          "url": "http://city.sina.com.cn/city/t/2026-06-08/detail-iniarzha4061280.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-12T13:24:51",
+          "title": "高考结束，武汉一考生全家花式组团接考",
+          "url": "https://news.sina.com.cn/s/2026-06-10/doc-iniawxzx1301680.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T01:12:33",
+          "title": "警方辟谣“女生高考迟到5分钟被拒入场跳河”",
+          "url": "https://k.sina.com.cn/article_6105713761_16bedcc61020023uxg.html?from=news&subch=onews",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T01:12:33",
+          "title": "公安部：警惕“高考特招”类诈骗",
+          "url": "https://news.sina.com.cn/c/2026-06-12/doc-iniccfxx0318150.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:13:42",
+          "title": "高考新变化新趋势：考题变了、课堂变了、“通道...",
+          "url": "https://edu.sina.com.cn/l/2026-06-12/doc-iniccwvt2178532.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        }
+      ],
+      "latest_summary": null,
+      "source_site": "",
+      "completed_at": null
+    },
+    {
+      "id": "watch_e8bae0fb18",
+      "type": "topic",
+      "title": "归唐",
+      "keywords": [
+        "归唐",
+        "归唐游戏",
+        "归唐实机演示",
+        "归唐发售"
+      ],
+      "embedding": [],
+      "status": "active",
+      "match_strategy": "keyword_and_semantic",
+      "created_at": "2026-06-07T22:55:03",
+      "last_match_at": "2026-06-12T11:34:47",
+      "match_count": 17,
+      "match_history": [
+        {
+          "time": "2026-06-07T22:55:03",
+          "title": "外媒赞《归唐》：《神秘海域》和《对马岛》完美融合",
+          "url": "https://www.gamersky.com/news/202606/2152769.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-07T22:55:03",
+          "title": "国单《归唐》实机演示惊艳外媒！技术水准令人震撼",
+          "url": "https://www.gamersky.com/news/202606/2152773.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-08T11:22:33",
+          "title": "选择相信！《仙剑奇侠传》制作人发文力挺《归唐》",
+          "url": "https://www.gamersky.com/news/202606/2152663.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-08T11:22:33",
+          "title": "稳了!《归唐》超长实机玩家看爽了:完成度超高 出必买",
+          "url": "https://www.gamersky.com/news/202606/2152604.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-08T11:22:33",
+          "title": "真正量大管饱！国产《归唐》19分钟超长实机演示公开",
+          "url": "https://www.gamersky.com/news/202606/2152578.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-08T23:27:57",
+          "title": "老外惊叹《归唐》新实机！美末2+神海4+战神4",
+          "url": "https://www.gamersky.com/news/202606/2153132.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-08T23:27:57",
+          "title": "真正量大管饱！国产《归唐》19分钟超长实机演示公开",
+          "url": "https://www.gamersky.com/news/202606/2152578.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-09T23:03:09",
+          "title": "憋了一整年 大伙终于知道《归唐》长啥样了",
+          "url": "https://www.gamersky.com/news/202606/2153490.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-09T23:03:09",
+          "title": "《归唐》试玩获外媒好评",
+          "url": "https://www.gamersky.com/news/202606/2153406.shtml?toutiao",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-09T23:03:09",
+          "title": "憋了一整年 大伙终于知道归唐长啥样了",
+          "url": "https://www.gamersky.com/news/202606/2153490.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-09T23:03:09",
+          "title": "真正量大管饱！国产《归唐》19分钟超长实机演示公开",
+          "url": "https://www.gamersky.com/news/202606/2152578.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-09T23:03:09",
+          "title": "《归唐》试玩质量极强!IGN JP狂赞:可玩电影究极形态",
+          "url": "https://www.gamersky.com/news/202606/2153686.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-10T15:06:06",
+          "title": "憋了一整年 大伙终于知道归唐长啥样了",
+          "url": "https://www.gamersky.com/news/202606/2153490.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-10T15:06:06",
+          "title": "《归唐》试玩获外媒好评",
+          "url": "https://www.gamersky.com/news/202606/2153406.shtml?toutiao",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-10T15:06:06",
+          "title": "真正量大管饱！国产《归唐》19分钟超长实机演示公开",
+          "url": "https://www.gamersky.com/news/202606/2152578.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-12T11:34:47",
+          "title": "真正量大管饱！国产《归唐》19分钟超长实机演示公开",
+          "url": "https://www.gamersky.com/news/202606/2152578.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-12T11:34:47",
+          "title": "憋了一整年 大伙终于知道归唐长啥样了",
+          "url": "https://www.gamersky.com/news/202606/2153490.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        }
+      ],
+      "latest_summary": null,
+      "source_site": "",
+      "completed_at": null
+    },
+    {
+      "id": "watch_14425f9f0d",
+      "type": "topic",
+      "title": "二次元",
+      "keywords": [
+        "二次元",
+        "动漫",
+        "动画",
+        "漫画",
+        "手办",
+        "Galgame",
+        "二次元游戏"
+      ],
+      "embedding": [],
+      "status": "active",
+      "match_strategy": "keyword_and_semantic",
+      "created_at": "2026-06-07T22:57:30",
+      "last_match_at": "2026-06-14T14:12:59",
+      "match_count": 17,
+      "match_history": [
+        {
+          "time": "2026-06-07T22:57:30",
+          "title": "[动漫产业]富江×HelloKitty官方联名手办！诡异又可爱",
+          "url": "https://www.gamersky.com/news/202606/2152787.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-08T11:22:33",
+          "title": "《仙剑奇侠传3》动画定档！你有观看的兴趣吗？",
+          "url": "https://www.gamersky.com/news/202512/2055013.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-08T23:27:57",
+          "title": "F杯现实版和漫画版 端庄比擦边更有杀伤力的囧图",
+          "url": "https://www.gamersky.com/news/202606/2153256.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-09T23:03:09",
+          "title": "《仙剑奇侠传3》动画定档！你有观看的兴趣吗？",
+          "url": "https://www.gamersky.com/news/202512/2055013.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-09T23:03:09",
+          "title": "F杯现实版和漫画版 端庄比擦边更有杀伤力的囧图",
+          "url": "https://www.gamersky.com/news/202606/2153256.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-10T15:06:06",
+          "title": "《仙剑三》动画完结！究极包饺子:完美结局这不来了",
+          "url": "https://www.gamersky.com/news/202606/2154218.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-10T15:06:07",
+          "title": "F杯现实版和漫画版 端庄比擦边更有杀伤力的囧图",
+          "url": "https://www.gamersky.com/news/202606/2153256.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-11T23:50:57",
+          "title": "动漫人妻与现实人妻COS 姐姐穿衬衫泡水囧图",
+          "url": "https://www.gamersky.com/news/202606/2155531.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-11T23:50:57",
+          "title": "动漫人妻与现实人妻COS 大姐姐穿衬衫泡水的囧图",
+          "url": "https://www.gamersky.com/news/202606/2155531.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-11T23:50:57",
+          "title": "F杯现实版和漫画版 端庄比擦边更有杀伤力的囧图",
+          "url": "https://www.gamersky.com/news/202606/2153256.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-11T23:50:57",
+          "title": "《仙剑奇侠传3》动画定档！你有观看的兴趣吗？",
+          "url": "https://www.gamersky.com/news/202512/2055013.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-12T13:24:07",
+          "title": "F杯现实版和漫画版 端庄比擦边更有杀伤力的囧图",
+          "url": "https://www.gamersky.com/news/202606/2153256.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-12T13:24:07",
+          "title": "动漫人妻与现实人妻COS 姐姐穿衬衫泡水囧图",
+          "url": "https://www.gamersky.com/news/202606/2155531.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-12T13:24:07",
+          "title": "动漫人妻与现实人妻COS 大姐姐穿衬衫泡水的囧图",
+          "url": "https://www.gamersky.com/news/202606/2155531.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-12T13:24:07",
+          "title": "没绷住！真人版《战神》之教你怎么隐藏加载过场动画",
+          "url": "https://www.gamersky.com/news/202606/2155829.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:12:59",
+          "title": "剑风传奇也搞宿命论!为何日本动漫总逃不出血统魔咒?",
+          "url": "https://www.gamersky.com/news/202606/2156538.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        },
+        {
+          "time": "2026-06-14T14:12:59",
+          "title": "[动漫产业]漫威动画天花板！IGN打9分：写给X战警粉的一封情书",
+          "url": "https://www.gamersky.com/news/202606/2156699.shtml",
+          "score": 0,
+          "match_type": "keyword"
+        }
+      ],
+      "latest_summary": null,
+      "source_site": "",
+      "completed_at": null
+    },
+    {
+      "id": "watch_7b337f9843",
+      "type": "topic",
+      "title": "海贼王",
+      "keywords": [
+        "海贼王、One Piece、路飞"
+      ],
+      "embedding": [],
+      "status": "active",
+      "match_strategy": "keyword_and_semantic",
+      "created_at": "2026-06-14T14:40:08",
+      "last_match_at": null,
+      "match_count": 0,
+      "match_history": [],
+      "latest_summary": null,
+      "source_site": "",
+      "completed_at": null
     }
   ],
   "config": {
@@ -96,5 +880,112 @@
     "anomaly_cooldown_minutes": 120,
     "sentiment_enabled": true,
     "sentiment_shift_threshold": 0.3
-  }
+  },
+  "alert_log": [
+    {
+      "type": "anomaly",
+      "site": "openai_blog",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=989, baseline=217.9",
+      "time": "2026-06-07T01:06:03"
+    },
+    {
+      "type": "anomaly",
+      "site": "baidu_news",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=237, baseline=54.8",
+      "time": "2026-06-07T01:06:31"
+    },
+    {
+      "type": "anomaly",
+      "site": "openai_blog",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=989, baseline=218.9",
+      "time": "2026-06-08T11:22:56"
+    },
+    {
+      "type": "anomaly",
+      "site": "openai_blog",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=989, baseline=219.6",
+      "time": "2026-06-08T23:28:27"
+    },
+    {
+      "type": "anomaly",
+      "site": "openai_blog",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=992, baseline=199.1",
+      "time": "2026-06-09T23:03:59"
+    },
+    {
+      "type": "anomaly",
+      "site": "openai_blog",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=993, baseline=219.8",
+      "time": "2026-06-10T15:06:33"
+    },
+    {
+      "type": "anomaly",
+      "site": "openai_blog",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=998, baseline=220.3",
+      "time": "2026-06-11T23:55:55"
+    },
+    {
+      "type": "anomaly",
+      "site": "gamersky",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=137, baseline=40.4",
+      "time": "2026-06-12T11:34:47"
+    },
+    {
+      "type": "anomaly",
+      "site": "openai_blog",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=1000, baseline=200.4",
+      "time": "2026-06-12T11:35:52"
+    },
+    {
+      "type": "anomaly",
+      "site": "gamersky",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=131, baseline=55.1",
+      "time": "2026-06-12T23:46:15"
+    },
+    {
+      "type": "anomaly",
+      "site": "gamersky",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=123, baseline=49.3",
+      "time": "2026-06-14T01:11:26"
+    },
+    {
+      "type": "anomaly",
+      "site": "openai_blog",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=1002, baseline=221.3",
+      "time": "2026-06-14T01:12:23"
+    },
+    {
+      "type": "anomaly",
+      "site": "baidu_news",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=236, baseline=31.4",
+      "time": "2026-06-14T01:12:51"
+    },
+    {
+      "type": "anomaly",
+      "site": "gamersky",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=131, baseline=52.1",
+      "time": "2026-06-14T14:12:59"
+    },
+    {
+      "type": "anomaly",
+      "site": "openai_blog",
+      "anomaly_type": "volume_spike",
+      "message": "volume_spike: current=1002, baseline=201.3",
+      "time": "2026-06-14T14:13:29"
+    }
+  ]
 }

@@ -358,15 +358,19 @@ class WatchStore:
         }
 
     def _record_match(self, watch: dict, match: dict):
+        match_url = match.get("item_url", "")
+        history = watch.setdefault("match_history", [])
+        # Skip if this URL already exists in match history
+        if match_url and any(m.get("url") == match_url for m in history):
+            return
         now = _now_iso()
         watch["last_match_at"] = now
         watch["match_count"] = watch.get("match_count", 0) + 1
-        history = watch.setdefault("match_history", [])
         history.append(
             {
                 "time": now,
                 "title": match["item_title"][:100],
-                "url": match.get("item_url", ""),
+                "url": match_url,
                 "score": match.get("score", 0),
                 "match_type": match.get("match_type", "keyword"),
             }

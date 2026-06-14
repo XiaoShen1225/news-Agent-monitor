@@ -2,11 +2,12 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system deps: Chromium browser + Chinese fonts
-# Use Debian's Chromium package to avoid downloading from Google CDN (blocked in CN)
+# Install system deps: nginx, Chromium browser + Chinese fonts, curl (healthcheck)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    nginx \
     chromium \
     fonts-wqy-microhei \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps (use Alibaba mirror for speed in CN)
@@ -29,9 +30,16 @@ COPY . .
 # Create dirs for runtime data
 RUN mkdir -p data/history data/vector_db outputs/data
 
+# Replace default nginx config with ours
+COPY nginx.conf /etc/nginx/nginx.conf
+
+# start script (nginx + uvicorn)
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health')"
+    CMD curl -sf http://localhost:8080/api/health || exit 1
 
-CMD ["python", "main.py", "--serve", "--port", "8080"]
+CMD ["/app/start.sh"]
